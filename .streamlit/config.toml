@@ -1,0 +1,5 @@
+# Streamlit Theme unlocked to allow native Light/Dark switching.
+# Original fixed colors removed.
+
+[client]
+showSidebarNavigation = false
