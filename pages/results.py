@@ -137,10 +137,56 @@ html_out = cs.generate_html_report(results, exam_name, pro_id=pro_id, sess_id=se
 calc_height = 800 + (len(results) * 60)
 st.components.v1.html(html_out, height=calc_height, scrolling=True)
 
+# --- Save as Profile Feature ---
+if results and not profile_name == "Saved Profile": # Don't re-save if already a profile
+    st.write("---")
+    st.markdown("### 💾 Save results as a Profile")
+    st.caption("Name this scan to access it later from the main dashboard.")
+    
+    with st.form("save_profile_form"):
+        batch_name = st.text_input("Profile Name", placeholder="e.g., EEE-2022-Batch10")
+        submitted = st.form_submit_button("📁 Save Profile Permanently", use_container_width=True)
+        
+        if submitted:
+            if not batch_name:
+                st.error("❌ Please provide a name for the profile.")
+            else:
+                # Resolve file path (parent dir)
+                PROFILES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "saved_profiles.json")
+                try:
+                    profiles = {}
+                    if os.path.exists(PROFILES_PATH):
+                        with open(PROFILES_PATH, "r") as f:
+                            profiles = json.load(f)
+                    
+                    # Convert results to profile format: [[reg, auto_sess, name], ...]
+                    regs_for_save = []
+                    for res in results:
+                        regs_for_save.append([
+                            int(res.get('Registration No', 0)),
+                            str(res.get('_sess_id', sess_id)),
+                            str(res.get('Student Name', 'Unknown'))
+                        ])
+                    
+                    profiles[batch_name] = {
+                        "regs": regs_for_save,
+                        "pro_id": pro_id,
+                        "sess_id": sess_id,
+                        "timestamp": time.time()
+                    }
+                    
+                    with open(PROFILES_PATH, "w") as f:
+                        json.dump(profiles, f, indent=4)
+                    
+                    st.success(f"✅ Profile '{batch_name}' saved! You can now access it from the Sidebar.")
+                except Exception as e:
+                    st.error(f"❌ Failed to save profile: {e}")
+
 # --- Download Button ---
 st.download_button(
     label="⬇️ Download CLI Results HTML",
     data=html_out.encode("utf-8"),
     file_name=f"Results_{profile_name.replace(' ','_')}_{exam_id}.html",
-    mime="text/html"
+    mime="text/html",
+    use_container_width=True
 )

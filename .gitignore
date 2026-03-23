@@ -22,7 +22,7 @@ wheels/
 *.egg
 
 # Result Finder Local Data
-saved_profiles.json
+# saved_profiles.json  <-- REMOVED FROM IGNORE TO ALLOW PERMANENT BAKE
 *.log
 temp_*.json
 *.html
