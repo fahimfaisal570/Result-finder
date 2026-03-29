@@ -356,9 +356,9 @@ def fetch_programs_and_sessions():
         SESSIONS_CACHE.update(cached_sess)
         return collections.OrderedDict(cached_progs), collections.OrderedDict(cached_sess)
 
-    html = make_request(BASE_URL)
+    html = make_request("https://ducmc.du.ac.bd/result.php")
     if not html: 
-        print("[!] Failed to connect to {} - Check your internet.".format(BASE_URL))
+        print("[!] Failed to connect to {} - Check your internet.".format("result.php"))
         return collections.OrderedDict(), collections.OrderedDict()
     
     programs = collections.OrderedDict()
@@ -373,10 +373,11 @@ def fetch_programs_and_sessions():
         block_lower = block.lower()
         first_opt_text = options[0][1].lower() if options else ""
         
-        if 'session' in first_opt_text or 'session_id' in block_lower:
+        if 'id="sess_id"' in block_lower or 'session' in first_opt_text or 'session_id' in block_lower:
             for val, text in options: sessions[val] = text
-        elif 'course name' in first_opt_text or 'course_name' in block_lower:
-            categories = [o[0] for o in options if o[0] != "0"]
+        elif 'id="pro_id"' in block_lower or 'course name' in first_opt_text or 'course_name' in block_lower:
+             for val, text in options: 
+                 if val != "0": programs[val] = text
                 
     # Parallelize category crawl for programs
     if categories:
@@ -412,10 +413,11 @@ def fetch_programs_and_sessions():
         for sid, sname in sessions.items():
             fname = format_session(sname)
             # Filter: only keep sessions starting from 2016-17 onwards
-            year_match = re.search(r"(\d{4})", fname)
+            # Matches "2016", "2017", or "16", "17" in the formatted string
+            year_match = re.search(r"(\d{2,4})", fname)
             if year_match:
-                start_year = int(year_match.group(1))
-                if start_year >= 2016:
+                year_val = int(year_match.group(1))
+                if year_val >= 2016 or (year_val >= 16 and year_val < 100):
                     formatted_sess.append((sid, fname))
         
         # Sort by the formatted name descending (e.g. 21-22 > 20-21)
