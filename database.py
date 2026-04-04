@@ -13,7 +13,7 @@ import streamlit as st
 
 # Optional: Turso (libSQL) support for cloud persistence
 try:
-    import libsql
+    import libsql_client
     HAS_LIBSQL = True
 except ImportError:
     HAS_LIBSQL = False
@@ -23,6 +23,63 @@ logger = logging.getLogger(__name__)
 # --- Database Configuration ---
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_finder.db")
 CREDIT_MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credit_mapping.json")
+
+# Compatibility Wrapper for libsql-client to match sqlite3 API
+class LibsqlConnectionWrapper:
+    def __init__(self, client):
+        self.client = client
+    
+    def execute(self, sql, params=None):
+        res = self.client.execute(sql, params or [])
+        return LibsqlResultWrapper(res)
+    
+    def executescript(self, sql):
+        # libsql-client doesn't have executescript, so we split by ';'
+        # This is for internal migration use; app doesn't use it much.
+        for stmt in sql.split(';'):
+            if stmt.strip():
+                self.client.execute(stmt)
+                
+    def commit(self):
+        pass # libsql-client executes are atomic and auto-commit
+        
+    def close(self):
+        self.client.close()
+        
+    def __enter__(self):
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        
+    def cursor(self):
+        return self # The client itself handles execution in this wrapper
+    
+    # Map common cursor methods to the client or result set
+    def fetchall(self):
+        # Note: This is a bit tricky since client.execute returns the result.
+        # Most of our app uses 'conn.execute(sql).fetchall()'
+        # We handle this by making execute() return a wrapper for the result.
+        pass
+
+class LibsqlResultWrapper:
+    def __init__(self, result_set):
+        self.result_set = result_set
+        self.rows = result_set.rows
+        self._index = 0
+        
+    def __iter__(self):
+        return iter(self.rows)
+        
+    def fetchall(self):
+        return self.rows
+        
+    def fetchone(self):
+        if self._index < len(self.rows):
+            res = self.rows[self._index]
+            self._index += 1
+            return res
+        return None
 
 # Load Credit Mapping if exists
 _credit_map = {}
@@ -62,29 +119,50 @@ def get_connection():
     Returns a database connection. 
     Idempotent: Detects Streamlit Secrets for Turso (Cloud Mode), 
     otherwise falls back to local SQLite.
+    
+    Supports st.session_state.force_local to override cloud mode.
     """
-    # 1. Try Turso (Cloud Mode)
-    turso_url = st.secrets.get("TURSO_DATABASE_URL")
-    turso_token = st.secrets.get("TURSO_AUTH_TOKEN")
+    # 0. Check for manual override
+    force_local = st.session_state.get("force_local", False)
+    
+    # 1. Try Turso (Cloud Mode) if not forced local
+    if not force_local:
+        try:
+            turso_url = st.secrets.get("TURSO_DATABASE_URL")
+            turso_token = st.secrets.get("TURSO_AUTH_TOKEN")
+        except:
+            # st.secrets.get() raises StreamlitSecretNotFoundError if secrets.toml is missing
+            turso_url, turso_token = None, None
 
-    if turso_url and turso_token:
-        if not HAS_LIBSQL:
-            st.error("Turso secrets found but 'libsql' package is not installed. Falling back to local.")
-        else:
-            try:
-                # libsql.connect is drop-in compatible with sqlite3.connect
-                conn = libsql.connect(turso_url, auth_token=turso_token)
-                # Note: Remote libsql doesn't need journal_mode=WAL
-                conn.execute("PRAGMA foreign_keys = ON")
-                return conn
-            except Exception as e:
-                st.error(f"Failed to connect to Turso: {e}. Falling back to local.")
+        if turso_url and turso_token:
+            if not HAS_LIBSQL:
+                st.error("Turso secrets found but 'libsql-client' package is not installed. Falling back to local.")
+            else:
+                try:
+                    # Force HTTPS for stability (avoids WebSocket 505 errors in some regions)
+                    if turso_url.startswith("libsql://"):
+                        turso_url = turso_url.replace("libsql://", "https://")
+                    
+                    client = libsql_client.create_client_sync(turso_url, auth_token=turso_token)
+                    return LibsqlConnectionWrapper(client)
+                except Exception as e:
+                    st.error(f"Failed to connect to Turso: {e}. Falling back to local.")
 
     # 2. Local Fallback (Original logic)
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
+
+
+def is_using_turso() -> bool:
+    """Returns True if the current environment is using Turso."""
+    if st.session_state.get("force_local", False):
+        return False
+    try:
+        return bool(st.secrets.get("TURSO_DATABASE_URL") and st.secrets.get("TURSO_AUTH_TOKEN"))
+    except:
+        return False
 
 
 def init_db():

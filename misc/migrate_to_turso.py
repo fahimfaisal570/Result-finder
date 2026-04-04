@@ -1,18 +1,18 @@
 """
 migrate_to_turso.py
 
-Advanced, deployer-grade utility to seed your Turso Cloud database with your local SQLite data.
-Usage: 
-  python misc/migrate_to_turso.py <TURSO_URL> <TURSO_TOKEN>
+Hardened, professional-grade utility to seed your Turso Cloud database.
+Uses the official 'libsql-client' for reliable remote data transfer.
 """
 import sqlite3
 import sys
 import os
+import time
 
 try:
-    import libsql
+    import libsql_client
 except ImportError:
-    print("Error: 'libsql' package not found. Run 'pip install libsql' first.")
+    print("Error: 'libsql-client' package not found. Run 'pip install libsql-client' first.")
     sys.exit(1)
 
 # Paths
@@ -27,65 +27,96 @@ def migrate(url, token):
     print(f"Connecting to local database: {LOCAL_DB}")
     local_conn = sqlite3.connect(LOCAL_DB)
     
+    # Force HTTPS for stability
+    if url.startswith("libsql://"):
+        url = url.replace("libsql://", "https://")
+        
     print(f"Connecting to Turso: {url}")
     try:
-        remote_conn = libsql.connect(url, auth_token=token)
+        client = libsql_client.create_client_sync(url, auth_token=token)
     except Exception as e:
         print(f"Failed to connect to Turso: {e}")
         return
 
-    # Increase recursion depth for large schemas if needed
-    sys.setrecursionlimit(2000)
-    
-    # Tables to clean up for a fresh start (Order matters for Foreign Keys)
+    # Tables to clean up
     TABLES_TO_DROP = ["subject_grades", "exam_results", "scan_log", "students", "profiles"]
     
     try:
-        print("Gathering and cleaning local schema/data...")
+        print("--- PHASE 1: PREPARING REMOTE DB ---")
+        # In libsql-client, we just run the DROP commands
+        drop_stmts = [f"DROP TABLE IF EXISTS {t}" for t in TABLES_TO_DROP]
+        client.batch(drop_stmts)
+        print("Existing tables dropped successfully.")
         
-        # 1. Start with a clean slate
-        sql_batch = []
-        for table in TABLES_TO_DROP:
-            sql_batch.append(f"DROP TABLE IF EXISTS {table};")
-            
-        # 2. Collect and clean all iterdump lines
+        print("\n--- PHASE 2: GATHERING & CLEANING LOCAL DATA ---")
+        sql_statements = []
         for line in local_conn.iterdump():
-            # Skip transaction markers
-            if line.startswith(("BEGIN TRANSACTION", "COMMIT")):
-                continue
+            if line.startswith(("BEGIN TRANSACTION", "COMMIT")): continue
             
-            # Clean the line: Remove "main." prefix
-            cleaned_line = line.replace('"main".', '').replace('main.', '')
+            # Clean: Remove "main." prefix
+            cleaned = line.replace('"main".', '').replace('main.', '')
+            if not cleaned.strip() or cleaned.startswith('--'): continue
             
-            # Make CREATE statements idempotent
-            if cleaned_line.strip().startswith("CREATE TABLE "):
-                cleaned_line = cleaned_line.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1)
-            elif cleaned_line.strip().startswith("CREATE INDEX "):
-                cleaned_line = cleaned_line.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
-            elif cleaned_line.strip().startswith("CREATE UNIQUE INDEX "):
-                cleaned_line = cleaned_line.replace("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ", 1)
+            # Make CREATE idempotent
+            if "CREATE TABLE " in cleaned: cleaned = cleaned.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
+            if "CREATE INDEX " in cleaned: cleaned = cleaned.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
+            if "CREATE UNIQUE INDEX " in cleaned: cleaned = cleaned.replace("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ")
             
-            # Skip empty lines or comments
-            if not cleaned_line.strip() or cleaned_line.startswith('--'):
-                continue
-            
-            sql_batch.append(cleaned_line)
+            sql_statements.append(cleaned)
         
-        # 3. Join and execute as a SINGLE script
-        print(f"Executing batch migration ({len(sql_batch)} statements)...")
-        full_sql = "\n".join(sql_batch)
+        print(f"Collected {len(sql_statements)} SQL statements.")
+
+        print("\n--- PHASE 3: UPLOADING TO TURSO (Batch Mode) ---")
+        success_count = 0
+        error_count = 0
+        start_time = time.time()
         
-        # Using executescript for high performance and atomicity
-        remote_conn.executescript(full_sql)
+        # libsql-client .batch() is highly performant
+        batch_size = 50 
+        for i in range(0, len(sql_statements), batch_size):
+            batch_slice = sql_statements[i:i+batch_size]
+            try:
+                client.batch(batch_slice)
+                success_count += len(batch_slice)
+            except Exception as e:
+                # If a batch fails, retry one by one for detailed logging
+                print(f"⚠️ Batch around line {i} failed. Retrying one by one...")
+                for line in batch_slice:
+                    try:
+                        client.execute(line)
+                        success_count += 1
+                    except Exception as le:
+                        # Log error but continue unless it's critical
+                        print(f"❌ SQL Execution Error: {le}")
+                        print(f"   Statement: {line[:100]}...")
+                        error_count += 1
+            
+            if (i + batch_slice.__len__()) % 500 == 0 or i + batch_slice.__len__() >= len(sql_statements):
+                progress = min(100, (i + len(batch_slice)) / len(sql_statements) * 100)
+                print(f"Progress: {progress:.1f}% ({success_count} success, {error_count} errors)")
+
+        duration = time.time() - start_time
+        print(f"\n--- PHASE 4: FINAL INTEGRITY CHECK ---")
+        remote_tables_res = client.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        remote_tables = [r[0] for r in remote_tables_res.rows]
+        print(f"Remote tables found: {remote_tables}")
         
-        print("✅ Migration Successful!")
-        print("Your cloud database is now in sync with your local data.")
+        for table in TABLES_TO_DROP:
+            if table in remote_tables:
+                count_res = client.execute(f"SELECT COUNT(*) FROM {table}")
+                count = count_res.rows[0][0]
+                print(f"✅ Table '{table}': {count} rows migrated.")
+            else:
+                print(f"❌ Table '{table}': MISSING!")
+
+        print(f"\nMigration completed in {duration:.1f} seconds.")
+        print(f"Total: {success_count} success, {error_count} errors.")
         
     except Exception as e:
-        print(f"❌ Migration failed: {e}")
+        print(f"❌ Critical failure: {e}")
     finally:
         local_conn.close()
-        remote_conn.close()
+        client.close()
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

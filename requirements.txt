@@ -1,3 +1,6 @@
 streamlit
 pandas
-libsql
+libsql-client
+scikit-learn
+numpy
+altair

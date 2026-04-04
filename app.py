@@ -326,6 +326,36 @@ with st.sidebar:
         st.title("🎓 Result Finder")
     
     st.write("") # Tiny spacer
+    
+    # --- Database Mode & Status ---
+    st.markdown('<p style="font-size: 0.8rem; font-weight: 700; opacity: 0.6; margin-bottom: 2px;">STORAGE ENGINE</p>', unsafe_allow_html=True)
+    is_online = db.is_using_turso()
+    status_color = "#3b82f6" if is_online else "#10b981"
+    status_text = "Online (Turso)" if is_online else "Local (SQLite)"
+    
+    st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px; padding: 10px; background: var(--secondary-background-color); border-radius: 8px; border-left: 4px solid {status_color};">
+            <span style="font-size: 1.2rem;">{'☁️' if is_online else '🏠'}</span>
+            <div>
+                <div style="font-size: 0.85rem; font-weight: 600;">{status_text}</div>
+                <div style="font-size: 0.7rem; opacity: 0.8;">{"Syncing with Cloud" if is_online else "Using result_finder.db"}</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Toggle to force local
+    if st.checkbox("🏠 Force Local Mode", value=st.session_state.get("force_local", False), help="Switch to local SQLite even if cloud secrets are present."):
+        if not st.session_state.get("force_local"):
+            st.session_state.force_local = True
+            st.cache_data.clear() # Clear cache to avoid showing stale data from previous mode
+            st.rerun()
+    else:
+        if st.session_state.get("force_local"):
+            st.session_state.force_local = False
+            st.cache_data.clear()
+            st.rerun()
+
+    st.write("---")
     mode = st.radio("App Mode", ["Interactive Scan", "Saved Profiles"], index=1, horizontal=True)
 
     def trigger_scan():
