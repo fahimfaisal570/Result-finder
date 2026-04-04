@@ -1,0 +1,269 @@
+
+--- PAGE 1 ---
+Syllabus for the Dept. of EEE of Affiliated Engineering Colleges, Dhaka University 
+ 
+1st Year 1st Semester 
+Sl. 
+No 
+Course 
+Code Course Title 
+Hours/Week 
+Credit Theory Practical/ 
+Sessional 
+1 EEE 1101 Electrical Circuit I 3   3 
+2 EEE 1102 Electrical Circuit I Sessional    3 1.5 
+3 CSE 1101 Computer Programming 3   3 
+4 CSE 1102 Computer Programming Sessional   3 1.5 
+5 CE 1102 Computer Aided Engineering Drawing  3 1.5 
+6 PHY 1101 Electricity and Magnetism, Modern 
+Physics and Mechanics 3   3 
+7 PHY 1102 Electricity and Magnetism, Modern 
+Physics and Mechanics Sessional   3 1.5 
+8 MATH 1101 Differential & Integral Calculus and  
+Co-ordinate Geometry  3   3 
+9 GED 1101  English  for Technical Communication 3   3 
+      15 12 21 
+ 
+ 
+1st Year 2nd Semester 
+Sl. 
+No 
+Course 
+Code Course Title 
+Hours/Week 
+Credit Theory Practical/ 
+Sessional 
+1 EEE 1201 Electrical Circuits II 3   3 
+2 EEE 1202 Electrical Circuits II Sessional   3 1.5 
+3 EEE 1203 Electrical Properties of Materials 3   3 
+4 PHY 1201 Waves and Oscillations, Optics and 
+Thermal Physics 3   3 
+5 PHY 1202 Waves and Oscillations, Optics and 
+Thermal Physics Sessional    3 1.5 
+6 MATH 1201 Differential Equations and Complex 
+Variables 3   3 
+7 CHEM 1201 Chemistry        3   3 
+8 CHEM 1202 Chemistry  Sessional      3 1.5 
+9 GED 1201 Bangladesh Studies 3   3 
+      18 09 22.5 
+ 
+ 
+ 
+ 
+ 
+--- PAGE 2 ---
+Syllabus for the Dept. of EEE of Affiliated Engineering Colleges, Dhaka University 
+ 
+2nd Year 1st Semester 
+Sl. 
+No 
+Course 
+Code Course Title Hours/Week Credit Theory Practical/ 
+Sessional 
+1 EEE 2101 Electronics I 3   3 
+2 EEE 2102 Electronics I Sessional   3 1.5 
+3 EEE 2103 Energy Conversion I 3   3 
+4 EEE 2104  Energy Conversion I Sessional   3 1.5 
+5 EEE 2108 Electrical and Electronic Workshop 
+Practice   3 1.5 
+6 ME 2101 Basic Mechanical Engineering 3   3 
+7 ME 2102 Basic Mechanical Engineering 
+Sessional   3 1.5 
+8 MATH 2101 Linear Algebra and Vector Analysis 3   3 
+9 GED 2101 Financial Account & Economic 
+Analysis 3   3 
+      15 12 21 
+ 
+ 
+2nd Year 2nd Semester 
+ 
+Sl. 
+No 
+Course 
+Code Course Title 
+Hours/Week 
+Credit Theory Practical/ 
+Sessional 
+1 EEE 2201 Electronic II 3   3 
+2 EEE 2202 Electronic II Sessional   3 1.5 
+3 EEE 4223 Energy Conversion II 3   3 
+4 EEE 2204 Energy Conversion II Sessional   3 1.5 
+5 EEE 2205 Engineering Electromagnetics 3   3 
+6 EEE 2208 Electrical Services Design   3 1.5 
+7 MATH 2201 Statistics & Probability 3   3 
+8 GED 2201 Professional Ethics and Moral 
+Thoughts 3   3 
+      15 9 19.5 
+ 
+ 
+ 
+ 
+ 
+--- PAGE 3 ---
+Syllabus for the Dept. of EEE of Affiliated Engineering Colleges, Dhaka University 
+ 
+3rd Year 1st Semester 
+Sl. 
+No 
+Course 
+Code Course Title 
+Hours/Week 
+Credit Theory Practical/ 
+Sessional 
+1 EEE 3101 Electrical Measurement & 
+Instrumentation 3   3 
+2 EEE 3102 Electrical Measurement & 
+Instrumentation Sessional   3 1.5 
+3 EEE 3103 Digital Electronics 3   3 
+4 EEE 3104 Digital Electronics Sessional   3 1.5 
+5 EEE 3105 Power System I 3   3 
+6 EEE 3106 Power System I Sessional   3 1.5 
+7 EEE 3107 Power Electronics and Industrial 
+Drives 3   3 
+8 EEE 3108 Power Electronics and Industrial 
+Drives Sessional   3 1.5 
+9 GED 3101 Engineering Management  3   3 
+      15 12 21.00 
+ 
+3rd Year 2nd Semester 
+Sl. 
+No 
+Course 
+Code Course Title 
+Hours/Week 
+Credit Theory Practical/ 
+Sessional 
+1 EEE 3201 Communication Engineering 
+Fundamentals 3   3 
+2 EEE 3202 Communication Engineering 
+Fundamentals Sessional   3 1.5 
+3 EEE 3203 Power System II 3   3 
+4 EEE 3205 Signals and Systems 3   3 
+5 EEE 3207 Numerical  Methods 3   3 
+6 EEE 3208 Numerical  Methods Sessional   3 1.5 
+7 CSE 3201 Microprocessor & Microcontroller  3   3 
+8 CSE 3202 Microprocessor & Microcontroller  
+Sessional   3 1.5 
+      15 9 19.50 
+ 
+ 
+ 
+--- PAGE 4 ---
+Syllabus for the Dept. of EEE of Affiliated Engineering Colleges, Dhaka University 
+ 
+4th Year 1st Semester 
+Sl. 
+No 
+Course 
+Code Course Title 
+Hours/Week 
+Credit Theory Practical/ 
+Sessional 
+1 EEE 4100* Project & Thesis   3 1.5 
+2 EEE 4101 Digital Signal Processing  3   3 
+3 EEE 4102 Digital Signal Processing Sessional   3 1.5 
+4 EEE 4103 Control System  3   3 
+5 EEE 4104 Control System Sessional   3 1.5 
+6 EEE 4105 VLSI Circuits and Design 3   3 
+7 EEE 4106 VLSI Circuits and Design Sessional   3 1.5 
+8 EEE 4111** Renewable Energy 3   3 
+9 EEE 4113** High Voltage Engineering    10 EEE 4115** Optoelectronics 3   3 
+11 EEE 4117** Mobile Cellular Communication 3   12 EEE 4119** Biomedical Engineering 3         15 12 21.00 
+ 
+*the course will be evaluated at the end of 4th year 2nd semester along with EEE 4200. 
+**Students can choose two courses according to their interest. If the students’ choice differs, 
+then offering of the courses will depend on number of students and availability of faculties. 
+4th Year 2nd Semester 
+Sl. 
+No 
+Course 
+Code Course Title 
+Hours/Week 
+Credit Theory Practical/ 
+Sessional 
+1 EEE 4200 Project & Thesis  3 1.5 
+2 EEE 4201 Power System Protection 3  3 
+3 EEE 4202 Power System Protection Sessional  3 1.5 
+4 EEE 4203 Power Plant Engineering and 
+Economy 3  3 
+5 EEE 4208* Industrial Attachment*  3 1.5 
+6 EEE 4211** Smart Grid 3  3 
+7 EEE 4213** Introduction to Nanotechnology and 
+Nanoelectronics 3  3 
+8 EEE 4215** Optical Fiber Communication  3  3 
+9 EEE 4217** Radar and Satellite Communication 3   10 EEE 4219** Medical Imaging 3       12 9 16.5 
+ 
+*Industrial Attachment: Students will be attached with the industries/service agencies/ 
+Professional training Institute for two weeks after completing their 4th year 1st semester 
+(before starting 4th year 2nd semester/during any vacation in 4th year 2nd semester) to gain 
+practical knowledge. 
+**Students can choose two courses according to their interest. If the students’ choice differs, 
+then offering of the courses will depend on number of students and availability of faculties. 
+--- PAGE 5 ---
+Syllabus for the Dept. of EEE of Affiliated Engineering Colleges, Dhaka University 
+ 
+Course Identification: 
+Every course has a unique course code. The letter prefix in any course code indicates the field 
+or the discipline of the course, e.g., EEE stands for Electrical and Electronic Engineering, 
+CSE for Computer Science and Engineering, ME for Mechanical Engineering, CE for 
+Civil Engineering, CHEM for Chemistry, PHY for Physics, MATH for Mathematics and 
+GED for General Education. 
+ 
+The digits in the course code have the following meaning: 
+ 
+The first digit corresponds to the year in which the course is taken by the student. 
+The second digit represents the semester in which the course is taken by the student. 
+The third and fourth digits are used to specify the course. 
+The third digit is 1 for elective courses and for all other course is 0 
+The last (fourth) digit is odd for theoretical course and even for laboratory or sessional 
+course. 
+ 
+Course Summary 
+Course Type Semester Theory (Credit) Sessional (Credit) Total (Credit) 
+Core  
+Courses 
+1st Year 1st Semester  3.0 1.5 4.5 
+1st Year 2nd Semester 6.0 1.5 7.5 
+2nd Year 1st Semester 6.0 3.0 9.0 
+2nd Year 2nd Semester 9.0 4.5 13.5 
+3rd Year 1st Semester 12.0 6.0 18.0 
+3rd Year 2nd Semester 12.0 4.5 16.5 
+4th Year 1st Semester 9.0 6.0 15.0 
+4th Year 2nd Semester 6.0 4.5 10.5 
+Sub-Total 63.0 31.5 94.5 
+Elective 
+Courses 
+4th Year 1st Semester 6.0 0.0 6.0 
+4th Year 2nd Semester 6.0 0.0 6.0 
+Sub-Total 12.0 0.0 12.0 
+Allied 
+Engineering 
+Courses 
+1st Year 1st Semester  3.0 3.0 6.0 
+2nd Year 1st Semester 3.0 1.5 4.5 
+3rd Year 2nd Semester 3.0 1.5 4.5 
+Sub-Total 9.0 6.0 15.0 
+General 
+Science 
+Courses 
+1st Year 1st Semester  6.0 1.5 7.5 
+1st Year 2nd Semester 9.0 3.0 12.0 
+2nd Year 1st Semester 3.0 0.0 3.0 
+2nd Year 2nd Semester 3.0 0.0 3.0 
+Sub-Total 21.0 4.5 25.5 
+General 
+Education 
+Courses 
+ 
+1st Year 1st Semester  3.0 0.0 3.0 
+1st Year 2nd Semester 3.0 0.0 3.0 
+2nd Year 1st Semester 3.0 0.0 3.0 
+2nd Year 2nd Semester 3.0 0.0 3.0 
+3rd Year 1st Semester 3.0 0.0 3.0 
+Sub-Total 15.0 0.0 15.0 
+Total 120 42.0 162.0 
+ 
+ 
+ 
+ 
+ 

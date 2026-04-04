@@ -12,6 +12,7 @@ import queue
 import urllib.request as urllib_req
 import json
 import cli_scraper as cs
+import database as db
 
 # --- Session State Initialization ---
 if "is_admin" not in st.session_state:
@@ -254,31 +255,8 @@ fetch_student_result = cs.fetch_student_result
 parse_range_string = cs.parse_range # Re-use the robust range parser from CLI
 
 class BatchManager:
-    def __init__(self):
-        self.filename = "saved_profiles.json"
-        
     def load_profiles(self):
-        try:
-            with open(self.filename, 'r') as f:
-                data = json.load(f)
-                return data if data else {}
-        except (json.JSONDecodeError, ValueError, Exception, FileNotFoundError):
-            return {}
-        
-    def save_new_batch(self, name, results_list, pro_id, exam_id):
-        profiles = self.load_profiles()
-        regs_data = [[int(r['Reg']), "AUTO", r['Name']] for r in results_list]
-        profiles[name] = {
-            "regs": regs_data,
-            "pro_id": pro_id,
-            "latest_exam_id": exam_id,
-            "timestamp": time.time()
-        }
-        try:
-            with open(self.filename, 'w') as f:
-                json.dump(profiles, f, indent=4)
-            return True
-        except: return False
+        return db.get_profiles()
 
 batch_manager = BatchManager()
 
@@ -483,6 +461,9 @@ if mode == "Interactive Scan":
     st.markdown('</div>', unsafe_allow_html=True)
 
 else: # Saved Profiles Mode
+    st.sidebar.markdown("---")
+    st.sidebar.page_link("pages/analytics.py", label="Open Data Analytics", icon="📊")
+    st.sidebar.markdown("---")
     profiles = batch_manager.load_profiles()
     if not profiles:
         st.info("No saved profiles found. Run a scan first and save it!")
@@ -523,15 +504,13 @@ else: # Saved Profiles Mode
                 with col_a:
                     new_name = st.text_input("Rename Profile", value=p_selected)
                     if st.button("📝 Rename") and new_name != p_selected:
-                        profiles[new_name] = profiles.pop(p_selected)
-                        with open(batch_manager.filename, 'w') as f: json.dump(profiles, f)
+                        db.rename_profile(p_selected, new_name)
                         st.rerun()
                 with col_b:
                     st.write("")
                     st.write("")
                     if st.button("🗑️ DELETE PROFILE", type="secondary"):
-                        profiles.pop(p_selected)
-                        with open(batch_manager.filename, 'w') as f: json.dump(profiles, f)
+                        db.delete_profile(p_selected)
                         st.rerun()
 
         # --- Exam Navigation: Centered Bullet Links ---

@@ -4,6 +4,7 @@ import sys, os, json, queue, threading, time, base64
 # Add parent dir to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cli_scraper as cs
+import database as db
 
 st.set_page_config(page_title="Exam Results", page_icon="🏆", layout="wide")
 st.markdown("""
@@ -53,10 +54,8 @@ if payload_b64:
 # 2. Source: Saved Profile
 elif profile_name:
     # Source: Saved Profile
-    PROFILES_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "saved_profiles.json")
     try:
-        with open(PROFILES_FILE, "r") as f:
-            profiles = json.load(f)
+        profiles = db.get_profiles()
         if profile_name in profiles:
             p_data = profiles[profile_name]
             pro_id = p_data.get("pro_id")
@@ -138,49 +137,36 @@ calc_height = 800 + (len(results) * 60)
 st.components.v1.html(html_out, height=calc_height, scrolling=True)
 
 # --- Save as Profile Feature ---
-if results and not profile_name == "Saved Profile": # Don't re-save if already a profile
+if results:
     st.write("---")
-    st.markdown("### 💾 Save results as a Profile")
-    st.caption("Name this scan to access it later from the main dashboard.")
-    
-    with st.form("save_profile_form"):
-        batch_name = st.text_input("Profile Name", placeholder="e.g., EEE-2022-Batch10")
-        submitted = st.form_submit_button("📁 Save Profile Permanently", use_container_width=True)
+    if profile_name and profile_name != "Manual Scan":
+        st.markdown(f"### 💾 Save Analytics to database")
+        st.caption(f"Save these exam grades to **'{profile_name}'** to visualize them on the Analytics Dashboard.")
+        if st.button("📊 Save Exam Analytics", use_container_width=True):
+            try:
+                db.save_exam_analytics_only(profile_name, exam_id, exam_name, results)
+                st.cache_data.clear()
+                st.success(f"✅ Exam Analytics saved to '{profile_name}'! Head to the Analytics tab to view trends.")
+            except Exception as e:
+                st.error(f"❌ Failed to save analytics: {e}")
+    else:
+        st.markdown("### 💾 Save results as a Profile")
+        st.caption("Name this scan to access it later from the main dashboard.")
         
-        if submitted:
-            if not batch_name:
-                st.error("❌ Please provide a name for the profile.")
-            else:
-                # Resolve file path (parent dir)
-                PROFILES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "saved_profiles.json")
-                try:
-                    profiles = {}
-                    if os.path.exists(PROFILES_PATH):
-                        with open(PROFILES_PATH, "r") as f:
-                            profiles = json.load(f)
-                    
-                    # Convert results to profile format: [[reg, auto_sess, name], ...]
-                    regs_for_save = []
-                    for res in results:
-                        regs_for_save.append([
-                            int(res.get('Registration No', 0)),
-                            str(res.get('_sess_id', sess_id)),
-                            str(res.get('Student Name', 'Unknown'))
-                        ])
-                    
-                    profiles[batch_name] = {
-                        "regs": regs_for_save,
-                        "pro_id": pro_id,
-                        "sess_id": sess_id,
-                        "timestamp": time.time()
-                    }
-                    
-                    with open(PROFILES_PATH, "w") as f:
-                        json.dump(profiles, f, indent=4)
-                    
-                    st.success(f"✅ Profile '{batch_name}' saved! You can now access it from the Sidebar.")
-                except Exception as e:
-                    st.error(f"❌ Failed to save profile: {e}")
+        with st.form("save_profile_form"):
+            batch_name = st.text_input("Profile Name", placeholder="e.g., EEE-2022-Batch10")
+            submitted = st.form_submit_button("📁 Save Profile Permanently", use_container_width=True)
+            
+            if submitted:
+                if not batch_name:
+                    st.error("❌ Please provide a name for the profile.")
+                else:
+                    try:
+                        db.save_profile_and_results(batch_name, pro_id, sess_id, results, exam_id, exam_name)
+                        st.cache_data.clear()
+                        st.success(f"✅ Profile '{batch_name}' saved! You can now access it from the Sidebar.")
+                    except Exception as e:
+                        st.error(f"❌ Failed to save profile: {e}")
 
 # --- Download Button ---
 st.download_button(

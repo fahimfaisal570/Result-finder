@@ -32,6 +32,7 @@ else:
     import queue
     input_func = input
 import json
+import database as db
 try:
     from streamlit.runtime.scriptrunner import get_script_run_ctx, add_report_ctx
 except ImportError:
@@ -118,116 +119,48 @@ cookie_lock = threading.Lock()
 
 
 class BatchManager:
-    def __init__(self):
-        self.filename = os.path.join(SCRIPT_DIR, "saved_profiles.json")
-        self.profiles = self.load_profiles()
+    @property
+    def profiles(self):
+        """Returns dict keyed by profile name, fetched from SQLite."""
+        return db.get_profiles()
         
-    def load_profiles(self):
-        if os.path.exists(self.filename):
-            try:
-                with open(self.filename, 'r') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-        
-    def save_profiles(self):
-        try:
-            with open(self.filename, 'w') as f:
-                json.dump(self.profiles, f, indent=4)
-            return True
-        except Exception as e:
-            print("[BatchManager] ❌ Failed to save profiles to {}: {}".format(self.filename, e))
-            return False
-            
     def save_new_batch(self, name, regs_data, sess_id=None, pro_id=None, latest_exam_id=None):
-        main_regs = []
-        readd_regs = []
+        # Prepare a dummy results list for save_profile_and_results
+        results_list = []
         for item in regs_data:
             if isinstance(item, (list, tuple)):
-                r = int(item[0])
-                s = str(item[1])
-                n = item[2] if len(item) > 2 else "Unknown"
-                if str(s) == str(sess_id): main_regs.append([r, s, n])
-                else: readd_regs.append([r, s, n])
+                results_list.append({
+                    "Registration No": int(item[0]),
+                    "_sess_id": str(item[1]),
+                    "Name": item[2] if len(item) > 2 else "Unknown"
+                })
             else:
-                main_regs.append([int(item), str(sess_id or "AUTO"), "Unknown"])
-        
-        # Sort each group by registration number
-        main_regs.sort(key=lambda x: x[0])
-        readd_regs.sort(key=lambda x: x[0])
-        
-        self.profiles[name] = {
-            "regs": main_regs + readd_regs,
-            "sess_id": sess_id,
-            "pro_id": pro_id,
-            "latest_exam_id": latest_exam_id
-        }
-        self.save_profiles()
-        
+                results_list.append({
+                    "Registration No": int(item),
+                    "_sess_id": str(sess_id or "AUTO"),
+                    "Name": "Unknown"
+                })
+        db.save_profile_and_results(name, pro_id or "0", sess_id or "AUTO", results_list, latest_exam_id or "0", "Initial Scan")
     def update_batch_info(self, name, sess_id=None, pro_id=None, latest_exam_id=None):
-        if name in self.profiles:
-            if sess_id: self.profiles[name]["sess_id"] = sess_id
-            if pro_id: self.profiles[name]["pro_id"] = pro_id
-            if latest_exam_id: self.profiles[name]["latest_exam_id"] = latest_exam_id
-            self.save_profiles()
+        db.update_profile_metadata(name, pro_id=pro_id, sess_id=sess_id)
             
     def add_to_batch(self, name, regs_data):
-        if name in self.profiles:
-            current = self.profiles[name].get("regs", [])
-            # Convert if old format
-            if current and not isinstance(current[0], list):
-                s_id = self.profiles[name].get("sess_id", "AUTO")
-                current = [[r, s_id, "Unknown"] for r in current]
-            
-            # lookup by reg number
-            lookup = {}
-            for item in current:
-                reg = str(item[0])
-                if len(item) == 2: item.append("Unknown") # Ensure it has name
-                lookup[reg] = item[1:] # Store [sess, name]
-                
-            for item in regs_data:
-                if isinstance(item, (list, tuple)):
-                    r_val = str(item[0])
-                    s_val = item[1]
-                    n_val = item[2] if len(item) > 2 else (lookup.get(r_val, ["AUTO", "Unknown"])[1])
-                else:
-                    r_val = str(item)
-                    s_val = self.profiles[name].get("sess_id", "AUTO")
-                    n_val = lookup.get(r_val, ["AUTO", "Unknown"])[1]
-                lookup[r_val] = [s_val, n_val]
-            
-            # update and re-sort (Main first, then Re-adds)
-            sess_id = self.profiles[name].get("sess_id")
-            m_list = []
-            r_list = []
-            for r, v in lookup.items():
-                item = [int(r), str(v[0]), str(v[1])]
-                if str(v[0]) == str(sess_id): m_list.append(item)
-                else: r_list.append(item)
-            
-            # Sort each group by registration number
-            m_list.sort(key=lambda x: x[0])
-            r_list.sort(key=lambda x: x[0])
-            
-            self.profiles[name]["regs"] = m_list + r_list
-            self.save_profiles()
+        for item in regs_data:
+            if isinstance(item, (list, tuple)):
+                db.upsert_student(name, int(item[0]), str(item[2] if len(item) > 2 else "Unknown"), str(item[1]))
+            else:
+                db.upsert_student(name, int(item), "Unknown", "AUTO")
             
     def remove_from_batch(self, name, rs_rem):
-        if name in self.profiles:
-            curr = self.profiles[name].get("regs", [])
-            if not curr: return
-            if isinstance(curr[0], list):
-                self.profiles[name]["regs"] = [i for i in curr if i[0] not in rs_rem]
-            else:
-                self.profiles[name]["regs"] = [r for r in curr if r not in rs_rem]
-            self.save_profiles()
+        for r in rs_rem:
+            db.remove_student_from_profile(name, int(r))
             
     def delete_batch(self, name):
-        if name in self.profiles:
-            del self.profiles[name]
-            self.save_profiles()
+        db.delete_profile(name)
+
+    def save_profiles(self):
+        """No-op for SQLite backend as writes are immediate."""
+        return True
 
 batch_manager = BatchManager()
 
@@ -551,12 +484,71 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
         if status_match:
             info['Overall Result'] = status_match.group(1).strip()
             
-    # Subject Extraction Logic
+    # Robust Subject Extraction Logic (Fixed for EEE/Civil/CSE structural differences)
     subjects = []
-    sub_pattern = r'<tr>\s*<td>\d+</td>\s*<td>([^<]+)</td>\s*<td[^>]*>([^<]+)</td>\s*<td>([^<]+)</td>\s*<td>([\d\.]+)</td>\s*</tr>'
-    sub_matches = re.findall(sub_pattern, html, re.DOTALL | re.IGNORECASE)
-    for code, name, grade, gp in sub_matches:
-        subjects.append({'code': code.strip(), 'name': name.strip(), 'grade': grade.strip(), 'gp': gp.strip()})
+    # 1. Find all table rows that could contain results (ignoring attributes like class/id)
+    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL | re.IGNORECASE)
+    
+    for row_content in rows:
+        # 2. Extract content of all cells (th or td) in this row
+        cells = re.findall(r'<(?:td|th)[^>]*>(.*?)</(?:td|th)>', row_content, re.DOTALL | re.IGNORECASE)
+        cells = [re.sub(r'<[^>]*>', '', c).strip() for c in cells] # Strip tags & whitespace
+        
+        if len(cells) < 3: # Need at least Code, Grade, GP
+            continue
+            
+        # 3. Dynamic Column Mapping heuristic
+        # A code usually looks like [A-Z]{2,5} [0-9]{3,4}
+        # A GP usually looks like a float or '-' or '0'
+        code = None
+        for c in cells:
+            if re.match(r'^[A-Z]{2,6}[\-\s]*\d{3,4}[\*]*$', c, re.I):
+                code = c
+                break
+        
+        if not code:
+            continue
+            
+        # Find GP: usually the last cell that looks like a number or '-'
+        gp_val = "0.00"
+        grade_val = "-"
+        
+        # Look for the grade point (usually the last numeric-ish cell)
+        for c in reversed(cells):
+            # Check for float characters or '-'
+            if re.match(r'^[\d\.]+$', c) or c == '-' or c.lower() in ['f', 'w', 'wh']:
+                try:
+                    gp_val = str(round(float(c), 2))
+                except (ValueError, TypeError):
+                    gp_val = "0.00"
+                break
+        
+        # Find Grade: A single/double letter (A, B+, F) - usually next to or before GP
+        # We look for the cell containing common grade letters
+        for c in cells:
+            if re.match(r'^[A-D][\+\-]?$|^\bF\b$|^\bI\b$|^\bW\b$', c, re.I):
+                grade_val = c
+                break
+                
+        # Subject Name: Usually the longest cell or the one after the code
+        subj_name = "Unknown"
+        if len(cells) >= 3:
+            # Simple heuristic: try the cell after the code
+            try:
+                code_idx = cells.index(code)
+                if code_idx + 1 < len(cells):
+                    potential_name = cells[code_idx+1]
+                    # If it's not a grade, it's likely the name
+                    if len(potential_name) > 2:
+                        subj_name = potential_name
+            except: pass
+
+        subjects.append({
+            'code': code.strip(),
+            'name': subj_name.strip(),
+            'grade': grade_val.strip(),
+            'gp': gp_val
+        })
     info['Subjects'] = subjects
     
     info['_sess_id'] = sess_id

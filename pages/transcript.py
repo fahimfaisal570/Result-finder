@@ -29,12 +29,15 @@ sess_id      = params.get("sess_id", "AUTO")
 # Pinpoint Fallback: If sess_id is missing/AUTO but we have a profile name, resolve it from the profile
 if (sess_id == "AUTO" or not sess_id) and profile_name:
     try:
-        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "saved_profiles.json"), "r") as f:
-            profiles = json.load(f)
+        import database as db
+        profiles = db.get_profiles()
         if profile_name in profiles:
             p_data = profiles[profile_name]
             sess_id = p_data.get("sess_id", "AUTO")
-    except: pass
+    except Exception as e:
+        import traceback
+        st.error(f"Error loading profile database for transcript: {e}")
+
 
 if not reg_str or not pro_id:
     st.error("❌ Missing parameters. Please navigate from the main dashboard.")

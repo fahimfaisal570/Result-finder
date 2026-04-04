@@ -1,0 +1,35 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Ucc\Result-finder
+collecting ... collected 11 items
+
+tests/test_database.py::TestSchemaAndAcid::test_delete_profile_cascades PASSED [  9%]
+tests/test_database.py::TestSchemaAndAcid::test_effective_cgpa_uses_best_grade PASSED [ 18%]
+tests/test_database.py::TestSchemaAndAcid::test_no_duplicate_exam_results_on_double_save PASSED [ 27%]
+tests/test_database.py::TestSchemaAndAcid::test_no_duplicate_students_on_double_upsert FAILED [ 36%]
+tests/test_database.py::TestSchemaAndAcid::test_no_duplicate_subject_grades FAILED [ 45%]
+tests/test_database.py::TestSchemaAndAcid::test_rename_profile_no_orphans PASSED [ 54%]
+tests/test_database.py::TestSchemaAndAcid::test_save_analytics_only_does_not_touch_profile PASSED [ 63%]
+tests/test_database.py::TestSchemaAndAcid::test_save_profile_creates_profile_row PASSED [ 72%]
+tests/test_database.py::TestSchemaAndAcid::test_should_rescan_fresh_entry_returns_false PASSED [ 81%]
+tests/test_database.py::TestSchemaAndAcid::test_should_rescan_no_prior_entry PASSED [ 90%]
+tests/test_database.py::TestSchemaAndAcid::test_should_rescan_old_entry_returns_true PASSED [100%]
+
+================================== FAILURES ===================================
+________ TestSchemaAndAcid.test_no_duplicate_students_on_double_upsert ________
+tests\test_database.py:89: in test_no_duplicate_students_on_double_upsert
+    database.upsert_student(PROFILE, 1001, "Alice", SESS_ID)
+database.py:184: in upsert_student
+    conn.execute("""
+E   sqlite3.IntegrityError: FOREIGN KEY constraint failed
+_____________ TestSchemaAndAcid.test_no_duplicate_subject_grades ______________
+tests\test_database.py:103: in test_no_duplicate_subject_grades
+    database.upsert_subject_grades(PROFILE, 1001, EXAM_ID, subjects)
+database.py:150: in upsert_subject_grades
+    conn.execute("""
+E   sqlite3.IntegrityError: FOREIGN KEY constraint failed
+=========================== short test summary info ===========================
+FAILED tests/test_database.py::TestSchemaAndAcid::test_no_duplicate_students_on_double_upsert
+FAILED tests/test_database.py::TestSchemaAndAcid::test_no_duplicate_subject_grades
+========================= 2 failed, 9 passed in 0.97s =========================
