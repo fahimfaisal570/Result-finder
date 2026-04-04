@@ -7,8 +7,10 @@ import sys
 import time
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
+import ui_components as ui
 
 st.set_page_config(page_title="Result Analytics", page_icon="📊", layout="wide")
+ui.inject_essential_ui()
 
 # Add parent dir for database import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -217,14 +219,7 @@ with tabs[0]:
         import numpy as np
         axis_start = max(0.0, float(np.floor(curr_min * 5) / 5) - 0.2)
         
-        dist_chart = alt.Chart(dist_df).mark_bar(
-            color="#3b82f6", 
-            opacity=0.9, 
-            cornerRadiusTopLeft=3, 
-            cornerRadiusTopRight=3,
-            stroke="#1e293b",    # Subtle border makes bars feel 'thinner' and distinct
-            strokeWidth=0.5
-        ).encode(
+        dist_chart = alt.Chart(dist_df).mark_bar().encode(
             alt.X("sgpa:Q",
                   bin=alt.Bin(maxbins=40, extent=[axis_start, 4.0], step=0.05), # Preciser bins
                   title="Semester GPA (SGPA)",
@@ -343,13 +338,12 @@ with tabs[1]:
                 y_title = "Semester GPA (SGPA)" if use_sgpa else "Cumulative GPA"
                 
                 domain  = ['Consistent High', 'Specialist (High Variance)', 'Medium / Average', 'Struggling / Below Avg']
-                range_  = ['#10b981', '#8b5cf6', '#f59e0b', '#ef4444']
                 
                 scatter = alt.Chart(clust_df).mark_circle(size=120).encode(
                     x=alt.X('reg_no:N', axis=alt.Axis(labels=False), title='Students'),
                     y=alt.Y(f'{y_col}:Q', title=y_title, 
                             scale=alt.Scale(domain=[clust_df[y_col].min() - 0.2, 4.1] if not clust_df.empty else [0, 4.5])),
-                    color=alt.Color('Archetype:N', scale=alt.Scale(domain=domain, range=range_)),
+                    color=alt.Color('Archetype:N'),
                     tooltip=['name', 'Archetype',
                              alt.Tooltip('cgpa:Q', format='.2f', title='CGPA'),
                              alt.Tooltip('sgpa:Q', format='.2f', title='SGPA')]
@@ -419,3 +413,5 @@ with tabs[3]:
     disp_cols = ['reg_no', 'name', 'sgpa', 'cgpa', 'result_status', 'improvement_count', 'retake_count']
     disp_df = df_main.sort_values('cgpa', ascending=False).reset_index(drop=True)
     st.dataframe(disp_df[disp_cols], use_container_width=True)
+
+ui.add_contact_section()

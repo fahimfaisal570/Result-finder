@@ -5,19 +5,14 @@ Runs CLI Exhaustive Scan and renders the transcript HTML (Student Record).
 """
 import streamlit as st
 import sys, os, json, queue, threading, time
+import ui_components as ui
 
 # Add parent dir to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cli_scraper as cs
 
 st.set_page_config(page_title="Student Record", page_icon="📄", layout="wide")
-st.markdown("""
-<style>
-    [data-testid="stSidebarNav"] { display: none !important; }
-    [data-testid="stAppViewBlockContainer"] { padding: 1rem 1rem !important; max-width: 100% !important; }
-    iframe { border: none !important; }
-</style>
-""", unsafe_allow_html=True)
+ui.inject_essential_ui()
 
 # --- Read URL params ---
 params       = st.query_params
@@ -131,3 +126,5 @@ st.download_button(
     file_name=f"Student_Record_{student_name.replace(' ', '_')}_{st_reg}.html",
     mime="text/html"
 )
+
+ui.add_contact_section()
