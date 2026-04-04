@@ -9,9 +9,18 @@ import os
 import time
 import logging
 import re
+import streamlit as st
+
+# Optional: Turso (libSQL) support for cloud persistence
+try:
+    import libsql
+    HAS_LIBSQL = True
+except ImportError:
+    HAS_LIBSQL = False
 
 logger = logging.getLogger(__name__)
 
+# --- Database Configuration ---
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_finder.db")
 CREDIT_MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credit_mapping.json")
 
@@ -48,11 +57,33 @@ def get_subject_credits(subject_code: str, profile_name: str) -> float:
             return d[code]
             
     return 3.0
-def get_connection() -> sqlite3.Connection:
-    """Return a new connection. Caller is responsible for context management."""
+def get_connection():
+    """
+    Returns a database connection. 
+    Idempotent: Detects Streamlit Secrets for Turso (Cloud Mode), 
+    otherwise falls back to local SQLite.
+    """
+    # 1. Try Turso (Cloud Mode)
+    turso_url = st.secrets.get("TURSO_DATABASE_URL")
+    turso_token = st.secrets.get("TURSO_AUTH_TOKEN")
+
+    if turso_url and turso_token:
+        if not HAS_LIBSQL:
+            st.error("Turso secrets found but 'libsql' package is not installed. Falling back to local.")
+        else:
+            try:
+                # libsql.connect is drop-in compatible with sqlite3.connect
+                conn = libsql.connect(turso_url, auth_token=turso_token)
+                # Note: Remote libsql doesn't need journal_mode=WAL
+                conn.execute("PRAGMA foreign_keys = ON")
+                return conn
+            except Exception as e:
+                st.error(f"Failed to connect to Turso: {e}. Falling back to local.")
+
+    # 2. Local Fallback (Original logic)
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")   # Safe for concurrent reads
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
