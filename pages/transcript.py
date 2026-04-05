@@ -10,7 +10,7 @@ import sys, os, json, queue, threading, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cli_scraper as cs
 
-st.set_page_config(page_title="Student Record", page_icon="📄", layout="wide")
+st.set_page_config(page_title="Student Record", page_icon="favicon.ico", layout="wide")
 st.markdown("""
 <style>
     [data-testid="stSidebarNav"] { display: none !important; }
