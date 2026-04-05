@@ -40,7 +40,7 @@ SESSIONS_CACHE = cs.SESSIONS_CACHE
 PROGRAMS_CACHE = cs.PROGRAMS_CACHE
 
 # --- Essential Design System ---
-st.set_page_config(page_title="Result Finder", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="Result Finder", page_icon="favicon.ico", layout="wide")
 ui.inject_essential_ui()
 
 # --- Logic Blocks ---

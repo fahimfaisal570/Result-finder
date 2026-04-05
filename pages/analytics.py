@@ -9,7 +9,7 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 import ui_components as ui
 
-st.set_page_config(page_title="Result Analytics", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Result Analytics", page_icon="favicon.ico", layout="wide")
 ui.inject_essential_ui()
 
 # Add parent dir for database import
