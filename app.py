@@ -111,21 +111,7 @@ with st.sidebar:
     
     st.write("---")
     
-    # Simple Status Indicator
-    is_online = db.is_using_turso()
-    st.sidebar.caption(f"Storage Engine: {'Turso' if is_online else 'SQLite'}")
-    
-    if st.checkbox("Force Local Mode", value=st.session_state.get("force_local", False)):
-        if not st.session_state.get("force_local"):
-            st.session_state.force_local = True
-            st.cache_data.clear()
-            st.rerun()
-    else:
-        if st.session_state.get("force_local"):
-            st.session_state.force_local = False
-            st.cache_data.clear()
-            st.rerun()
-
+    # Sidebar navigation and information
     st.write("---")
     mode = st.radio("Mode", ["Interactive Scan", "Saved Profiles"], index=1)
 

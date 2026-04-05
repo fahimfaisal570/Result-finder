@@ -134,42 +134,9 @@ def get_subject_credits(subject_code: str, profile_name: str) -> float:
     return 3.0
 def get_connection():
     """
-    Returns a database connection. 
-    Idempotent: Detects Streamlit Secrets for Turso (Cloud Mode), 
-    otherwise falls back to local SQLite.
-    
-    Supports st.session_state.force_local to override cloud mode.
+    Returns a local SQLite database connection.
+    (Turso Cloud Mode is currently disabled).
     """
-    # 0. Check for manual override
-    force_local = st.session_state.get("force_local", False)
-    
-    # 1. Try Turso (Cloud Mode) if not forced local
-    if not force_local:
-        try:
-            turso_url = st.secrets.get("TURSO_DATABASE_URL")
-            turso_token = st.secrets.get("TURSO_AUTH_TOKEN")
-        except:
-            # st.secrets.get() raises StreamlitSecretNotFoundError if secrets.toml is missing
-            turso_url, turso_token = None, None
-
-        if turso_url and turso_token:
-            if not HAS_LIBSQL:
-                st.error("Turso secrets found but 'libsql-client' package is not installed. Falling back to local.")
-            else:
-                try:
-                    # Force HTTPS for stability (avoids WebSocket 505 errors in some regions)
-                    if turso_url.startswith("libsql://"):
-                        turso_url = turso_url.replace("libsql://", "https://")
-                    
-                    client = libsql_client.create_client_sync(turso_url, auth_token=turso_token)
-                    logger.info(f"Connected to Turso Cloud (HTTPS Mode): {turso_url}")
-                    return LibsqlConnectionWrapper(client)
-                except Exception as e:
-                    logger.error(f"Failed to connect to Turso: {e}")
-                    st.error(f"Failed to connect to Turso: {e}. Falling back to local.")
-
-    # 2. Local Fallback (Original logic)
-    logger.info(f"Using local SQLite database: {DB_PATH}")
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
@@ -177,13 +144,8 @@ def get_connection():
 
 
 def is_using_turso() -> bool:
-    """Returns True if the current environment is using Turso."""
-    if st.session_state.get("force_local", False):
-        return False
-    try:
-        return bool(st.secrets.get("TURSO_DATABASE_URL") and st.secrets.get("TURSO_AUTH_TOKEN"))
-    except:
-        return False
+    """Turso Cloud Mode deactivated per user request."""
+    return False
 
 
 def init_db():
@@ -301,24 +263,35 @@ def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects
     Insert or replace individual subject grades.
     Includes 'Syllabus-Aware' failure inference.
     """
-    scraped_codes = {str(s.get('code', '')).strip().upper().replace(' ', '-') for s in subjects if s.get('code')}
+    # 1. Normalize all incoming codes to DEPT-XXXX
+    for s in subjects:
+        if s.get('code'):
+            s['code'] = str(s['code']).strip().upper().replace(' ', '-')
+
+    scraped_codes = {s['code'] for s in subjects if s.get('code')}
     dept = get_dept_from_profile(profile_name)
     dept_map = _credit_map.get(dept, {})
     
     # Identify "Hidden Failures" (In syllabus but not in scrape)
+    # CRITICAL: We only infer failure if the subject was found in OTHER students in THIS scan.
+    # This prevents mapping subjects from different semesters (e.g. EEE 2101 vs EEE 2109).
     if len(subjects) >= 2:
-        scraped_levels = set()
-        for c in scraped_codes:
-            m = re.match(r'^([A-Z]{2,6}[\-\s]*\d{2})', c, re.I)
-            if m: scraped_levels.add(m.group(1).upper())
-            
-        for code, credit in dept_map.items():
-            m = re.match(r'^([A-Z]{2,6}[\-\s]*\d{2})', code, re.I)
-            level = m.group(1).upper() if m else None
-            if level in scraped_levels and code not in scraped_codes:
+        # Get common subjects for this specific exam_id & profile to avoid semester bleeding
+        with get_connection() as conn:
+            common_cur = conn.execute("""
+                SELECT subject_code, subject_name, COUNT(*) as occurs
+                FROM subject_grades
+                WHERE profile_name=? AND exam_id=?
+                GROUP BY subject_code
+                HAVING occurs >= 3
+            """, (profile_name, exam_id))
+            exam_subjects = {row[0]: row[1] for row in common_cur.fetchall()}
+
+        for code, name in exam_subjects.items():
+            if code not in scraped_codes:
                 subjects.append({
                     'code': code,
-                    'name': 'Hidden Failure (Auto-Inferred)',
+                    'name': name, # Use the actual name found in other students
                     'grade': 'F', 'gp': 0.0, 'is_inferred': True
                 })
 
@@ -329,7 +302,7 @@ def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects
     """
     
     for s in subjects:
-        code = str(s.get('code', '')).strip()
+        code = str(s.get('code', '')).strip().upper().replace(' ', '-')
         if not code: continue
         subj_name = str(s.get('name', '')).strip()
         gp = _parse_gp(s.get('gp', 0))

@@ -533,18 +533,17 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
         # Subject Name: Usually the longest cell or the one after the code
         subj_name = "Unknown"
         if len(cells) >= 3:
-            # Simple heuristic: try the cell after the code
             try:
                 code_idx = cells.index(code)
-                if code_idx + 1 < len(cells):
-                    potential_name = cells[code_idx+1]
-                    # If it's not a grade, it's likely the name
-                    if len(potential_name) > 2:
-                        subj_name = potential_name
+                # Candidates: cells that aren't the code, grade, or gp
+                candidates = [c for i, c in enumerate(cells) if i != code_idx and len(c) > 3 and not re.match(r'^[\d\.\-]+$', c)]
+                if candidates:
+                    # Pick the longest one as it's most likely the descriptive subject name
+                    subj_name = max(candidates, key=len)
             except: pass
 
         subjects.append({
-            'code': code.strip(),
+            'code': code.strip().upper().replace(' ', '-'),
             'name': subj_name.strip(),
             'grade': grade_val.strip(),
             'gp': gp_val
