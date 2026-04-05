@@ -230,6 +230,9 @@ st.sidebar.info("Analytics engine optimized for university graduation standards.
 df_sub  = df_sub_raw[df_sub_raw['subject_code'].isin(selected_subjects)].copy() if not df_sub_raw.empty else df_sub_raw
 df_main = df_raw[(df_raw['cgpa'] >= cgpa_range[0]) & (df_raw['cgpa'] <= cgpa_range[1])].copy()
 
+# Resilience Detection: Is this the first semester scan?
+is_first_sem = df_main['cgpa'].sum() == 0
+
 df_pivot = pd.DataFrame()
 if not df_sub.empty:
     df_pivot = df_sub.pivot_table(index='reg_no', columns='subject_code', values='gp', aggfunc='first')
@@ -238,9 +241,6 @@ if not df_sub.empty:
 # STRATEGIC INSIGHT BRIEF
 # ---------------------------------------------------------------------------
 if show_strategic_brief:
-    # Resilience Detection: Is this the first semester scan?
-    is_first_sem = df_main['cgpa'].sum() == 0
-    
     # Pre-calculate personas for the brief
     archetypes = get_performance_archetypes(df_pivot, df_main, is_first_sem=is_first_sem)
     insights = get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=is_first_sem)
@@ -450,10 +450,10 @@ with tabs[1]:
         st.markdown("#### 👽 Performance Personas (Strategic Quadrant)")
         if not df_pivot.empty:
             # Use the new compound persona logic
-            clusters = get_performance_archetypes(df_pivot, df_main)
+            clusters = get_performance_archetypes(df_pivot, df_main, is_first_sem=is_first_sem)
             if clusters is not None:
                 clust_df = df_main.merge(clusters, left_on='reg_no', right_index=True)
-                clust_df['momentum'] = (clust_df['sgpa'] - clust_df['cgpa']).round(2)
+                clust_df['momentum'] = (clust_df['sgpa'] - clust_df['cgpa']).round(2) if not is_first_sem else 0.0
                 
                 # Innovative Visualization: Strategic Quadrant (Y: Performance, X: Momentum)
                 # Fallback: In 1st sem, plot vs ID/Rank since momentum is 0

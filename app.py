@@ -225,6 +225,19 @@ else: # Saved Profiles Mode
                 url = f"/results?profile={_quote(p_selected)}&exam_id={eid}&exam_name={_quote(ename)}"
                 st.markdown(f"• **[{ename}]({url})**")
             
+            # --- NEW: Batch Scan Feature ---
+            if mains_dict:
+                st.write("")
+                import json, base64
+                from urllib.parse import quote as _quote
+                # Prepare batch payload: list of [id, name]
+                batch_payload = [[eid, ename] for eid, ename in mains_dict.items()]
+                batch_b64 = base64.b64encode(json.dumps(batch_payload).encode()).decode()
+                batch_url = f"/results?profile={_quote(p_selected)}&batch_exams={batch_b64}"
+                
+                st.link_button("🚀 Batch Scan All Main Exams", url=batch_url, use_container_width=True, type="primary")
+                st.caption("Automatic one-click scan of all detected main semester exams for this profile.")
+
             if others_dict:
                 with st.expander("🔄 Other / Retake Exams"):
                     for eid, ename in others_dict.items():
