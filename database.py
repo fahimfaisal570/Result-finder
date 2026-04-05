@@ -40,6 +40,10 @@ class LibsqlConnectionWrapper:
             if stmt.strip():
                 self.client.execute(stmt)
                 
+    def batch(self, statement_list):
+        # statement_list is a list of (sql, params) or sql strings
+        return self.client.batch(statement_list)
+
     def commit(self):
         pass # libsql-client executes are atomic and auto-commit
         
@@ -292,62 +296,54 @@ def _parse_gp(value) -> float:
         return 0.0
 
 
-def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects: list):
+def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects: list, statement_list: list = None):
     """
     Insert or replace individual subject grades.
-    Includes 'Syllabus-Aware' failure inference: If a subject is in the 
-    department's syllabus but missing from the scrape, it's logged as a fail (0.0).
+    Includes 'Syllabus-Aware' failure inference.
     """
     scraped_codes = {str(s.get('code', '')).strip().upper().replace(' ', '-') for s in subjects if s.get('code')}
     dept = get_dept_from_profile(profile_name)
     dept_map = _credit_map.get(dept, {})
     
-    # 1. Identify "Hidden Failures" (In syllabus but not in scrape)
-    # We only do this if the scrape actually found SOME subjects (sanity check)
+    # Identify "Hidden Failures" (In syllabus but not in scrape)
     if len(subjects) >= 2:
-        # Determine the year/semester levels found in the scrape (e.g. 'EEE-22', 'MATH-22')
-        # We take the code prefix + the first two digits to identify the level
         scraped_levels = set()
         for c in scraped_codes:
-            # Matches 'EEE-22' out of 'EEE-2201'
             m = re.match(r'^([A-Z]{2,6}[\-\s]*\d{2})', c, re.I)
             if m: scraped_levels.add(m.group(1).upper())
             
         for code, credit in dept_map.items():
-            # Matches 'EEE-22' out of 'EEE-2201'
             m = re.match(r'^([A-Z]{2,6}[\-\s]*\d{2})', code, re.I)
             level = m.group(1).upper() if m else None
-            
             if level in scraped_levels and code not in scraped_codes:
-                # This is likely a failed/missing subject for THIS semester
                 subjects.append({
                     'code': code,
                     'name': 'Hidden Failure (Auto-Inferred)',
-                    'grade': 'F',
-                    'gp': 0.0,
-                    'is_inferred': True
+                    'grade': 'F', 'gp': 0.0, 'is_inferred': True
                 })
 
-    with get_connection() as conn:
-        for s in subjects:
-            code = str(s.get('code', '')).strip()
-            if not code:
-                continue
-            subj_name = str(s.get('name', '')).strip()
-            gp = _parse_gp(s.get('gp', 0))
-            
-            # Use PDF credit mapping if available, otherwise fallback to 3.0
-            ch = get_subject_credits(code, profile_name)
-            
-            conn.execute("""
-                INSERT OR REPLACE INTO subject_grades
-                    (profile_name, reg_no, exam_id, subject_code, subject_name, grade_point, credit_hours)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (profile_name, reg_no, exam_id, code, subj_name, gp, ch))
-        conn.commit()
+    sql = """
+        INSERT OR REPLACE INTO subject_grades
+        (profile_name, reg_no, exam_id, subject_code, subject_name, grade_point, credit_hours)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """
+    
+    for s in subjects:
+        code = str(s.get('code', '')).strip()
+        if not code: continue
+        subj_name = str(s.get('name', '')).strip()
+        gp = _parse_gp(s.get('gp', 0))
+        ch = get_subject_credits(code, profile_name)
+        params = (profile_name, reg_no, exam_id, code, subj_name, gp, ch)
+        
+        if statement_list is not None:
+            statement_list.append((sql, params))
+        else:
+            with get_connection() as conn:
+                conn.execute(sql, params)
 
 
-def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: str):
+def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: str, statement_list: list = None):
     """
     Idempotent upsert of one student's exam result.
     Also extracts and stores subject-level grades.
@@ -357,37 +353,50 @@ def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: st
     cgpa = _parse_gp(res.get('CGPA', 0))
     status = str(res.get('Result', res.get('Overall Result', 'Unknown')))
 
-    with get_connection() as conn:
-        conn.execute("""
-            INSERT OR REPLACE INTO exam_results
-                (profile_name, reg_no, exam_id, exam_name, result_status, sgpa, cgpa, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (profile_name, reg_no, exam_id, exam_name, status, sgpa, cgpa, json.dumps(res)))
-        conn.commit()
+    sql = """
+        INSERT OR REPLACE INTO exam_results
+            (profile_name, reg_no, exam_id, exam_name, result_status, sgpa, cgpa, raw_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    params = (profile_name, reg_no, exam_id, exam_name, status, sgpa, cgpa, json.dumps(res))
+
+    if statement_list is not None:
+        statement_list.append((sql, params))
+    else:
+        with get_connection() as conn:
+            conn.execute(sql, params)
 
     # Now upsert subject grades from raw_json
     subjects = res.get('Subjects', [])
-    upsert_subject_grades(profile_name, reg_no, exam_id, subjects)
+    upsert_subject_grades(profile_name, reg_no, exam_id, subjects, statement_list)
 
 
-def upsert_student(profile_name: str, reg_no: int, name: str, sess_id: str):
+def upsert_student(profile_name: str, reg_no: int, name: str, sess_id: str, statement_list: list = None):
     """Idempotent student upsert — updates name if reg already exists."""
-    with get_connection() as conn:
-        conn.execute("""
-            INSERT INTO students (profile_name, reg_no, name, sess_id)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(profile_name, reg_no) DO UPDATE SET name=excluded.name, sess_id=excluded.sess_id
-        """, (profile_name, reg_no, name, sess_id))
-        conn.commit()
+    sql = """
+        INSERT INTO students (profile_name, reg_no, name, sess_id)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(profile_name, reg_no) DO UPDATE SET name=excluded.name, sess_id=excluded.sess_id
+    """
+    params = (profile_name, reg_no, name, sess_id)
+    if statement_list is not None:
+        statement_list.append((sql, params))
+    else:
+        with get_connection() as conn:
+            conn.execute(sql, params)
 
 
-def update_scan_log(profile_name: str, exam_id: str, student_count: int):
-    with get_connection() as conn:
-        conn.execute("""
-            INSERT OR REPLACE INTO scan_log (profile_name, exam_id, scanned_at, student_count)
-            VALUES (?, ?, ?, ?)
-        """, (profile_name, exam_id, time.time(), student_count))
-        conn.commit()
+def update_scan_log(profile_name: str, exam_id: str, student_count: int, statement_list: list = None):
+    sql = """
+        INSERT OR REPLACE INTO scan_log (profile_name, exam_id, scanned_at, student_count)
+        VALUES (?, ?, ?, ?)
+    """
+    params = (profile_name, exam_id, time.time(), student_count)
+    if statement_list is not None:
+        statement_list.append((sql, params))
+    else:
+        with get_connection() as conn:
+            conn.execute(sql, params)
 
 
 def get_scan_log() -> list:
@@ -411,42 +420,53 @@ def should_rescan(profile_name: str, exam_id: str, interval_minutes: int) -> boo
         return (time.time() - row[0]) >= (interval_minutes * 60)
 
 
-# ---------------------------------------------------------------------------
-# High-level save functions
-# ---------------------------------------------------------------------------
-
 def save_profile_and_results(profile_name: str, pro_id: str, sess_id: str,
                               results_list: list, exam_id: str, exam_name: str):
     """
     Saves a newly scraped batch as a new profile.
-    Idempotent — safe to call multiple times; students are upserted.
+    Uses BATCHING for cloud performance.
     """
-    with get_connection() as conn:
-        conn.execute("""
-            INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp)
-            VALUES (?, ?, ?, ?)
-        """, (profile_name, pro_id, sess_id, time.time()))
-        conn.commit()
+    stmts = []
+    stmts.append((
+        "INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)",
+        (profile_name, pro_id, sess_id, time.time())
+    ))
 
     for res in results_list:
         reg_no = int(res.get('Registration No', res.get('Reg', 0)))
         student_name = str(res.get('Name', res.get('Student Name', 'Unknown')))
         student_sess = str(res.get('_sess_id', sess_id))
-        upsert_student(profile_name, reg_no, student_name, student_sess)
-        upsert_exam_result(profile_name, res, exam_id, exam_name)
+        upsert_student(profile_name, reg_no, student_name, student_sess, stmts)
+        upsert_exam_result(profile_name, res, exam_id, exam_name, stmts)
 
-    update_scan_log(profile_name, exam_id, len(results_list))
+    update_scan_log(profile_name, exam_id, len(results_list), stmts)
+
+    with get_connection() as conn:
+        if hasattr(conn, 'batch'):
+            conn.batch(stmts)
+        else:
+            # Fallback for sqlite3 (sequential)
+            for sql, params in stmts:
+                conn.execute(sql, params)
     return True
 
 
 def save_exam_analytics_only(profile_name: str, exam_id: str, exam_name: str, results_list: list):
     """
     Saves ONLY exam results (and subject grades) for an existing profile.
-    Does NOT touch the profile row or students list.
+    Uses BATCHING for cloud performance.
     """
+    stmts = []
     for res in results_list:
-        upsert_exam_result(profile_name, res, exam_id, exam_name)
-    update_scan_log(profile_name, exam_id, len(results_list))
+        upsert_exam_result(profile_name, res, exam_id, exam_name, stmts)
+    update_scan_log(profile_name, exam_id, len(results_list), stmts)
+
+    with get_connection() as conn:
+        if hasattr(conn, 'batch'):
+            conn.batch(stmts)
+        else:
+            for sql, params in stmts:
+                conn.execute(sql, params)
     return True
 
 
