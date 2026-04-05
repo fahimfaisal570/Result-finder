@@ -98,9 +98,21 @@ if not profiles:
     st.stop()
 
 # ---------------------------------------------------------------------------
-# SIDEBAR — Batch & Semester selection
+# SIDEBAR — Connectivity & Selection
 # ---------------------------------------------------------------------------
 st.sidebar.header("🧊 Slice & Dice (OLAP)")
+
+# Connection Status Indicator
+is_cloud = db.is_using_turso()
+status_color = "#10b981" if is_cloud else "#3b82f6"
+status_label = "Cloud (Turso)" if is_cloud else "Local (SQLite)"
+st.sidebar.markdown(f"""
+    <div style='padding: 10px; border-radius: 8px; background: rgba(128,128,128,0.1); border-left: 5px solid {status_color}; margin-bottom: 20px;'>
+        <div style='font-size: 0.75rem; color: #858585; text-transform: uppercase;'>Storage Engine</div>
+        <div style='font-weight: bold; color: {status_color};'>{status_label}</div>
+    </div>
+""", unsafe_allow_html=True)
+
 sorted_profiles = sorted(list(profiles.keys()))
 profile_name = st.sidebar.selectbox("📂 Select Batch:", sorted_profiles)
 

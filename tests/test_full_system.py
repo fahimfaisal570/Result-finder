@@ -79,7 +79,7 @@ class TestFullSystem(unittest.TestCase):
         # Check initial CGPA
         eff1 = db.get_effective_cgpa_per_student(profile)
         self.assertEqual(eff1[0]['effective_cgpa'], 2.0)
-        self.assertEqual(eff1[0]['improvement_count'], 0)
+        self.assertEqual(eff1[0]['improvement_count'], 1) # 2.0 is an improvement candidate
         
         # Retake scan (Higher Grade)
         exam2_results = [{
@@ -93,7 +93,7 @@ class TestFullSystem(unittest.TestCase):
         # Check improved CGPA
         eff2 = db.get_effective_cgpa_per_student(profile)
         self.assertEqual(eff2[0]['effective_cgpa'], 4.0)
-        self.assertEqual(eff2[0]['improvement_count'], 1)
+        self.assertEqual(eff2[0]['improvement_count'], 0) # 4.0 is NOT an improvement candidate
         
         # Retake scan (Lower Grade - Should be ignored by effective CGPA)
         exam3_results = [{
@@ -106,7 +106,7 @@ class TestFullSystem(unittest.TestCase):
         
         eff3 = db.get_effective_cgpa_per_student(profile)
         self.assertEqual(eff3[0]['effective_cgpa'], 4.0) # Still 4.0!
-        self.assertEqual(eff3[0]['improvement_count'], 1)
+        self.assertEqual(eff3[0]['improvement_count'], 0)
 
     def tearDown(self):
         # We don't manually delete the file here to avoid PermissionError on Windows.

@@ -31,7 +31,7 @@ def migrate(url, token):
     if url.startswith("libsql://"):
         url = url.replace("libsql://", "https://")
         
-    print(f"Connecting to Turso: {url}")
+    print(f"Connecting to Turso (HTTPS Mode): {url}")
     try:
         client = libsql_client.create_client_sync(url, auth_token=token)
     except Exception as e:
@@ -49,57 +49,80 @@ def migrate(url, token):
         print("Existing tables dropped successfully.")
         
         print("\n--- PHASE 2: GATHERING & CLEANING LOCAL DATA ---")
-        sql_statements = []
+        create_statements = []
+        insert_statements = []
+        index_statements = []
+        
         for line in local_conn.iterdump():
             if line.startswith(("BEGIN TRANSACTION", "COMMIT")): continue
             
-            # Clean: Remove "main." prefix
+            # Clean: Remove "main." prefix and double-quoted "main". prefix
             cleaned = line.replace('"main".', '').replace('main.', '')
             if not cleaned.strip() or cleaned.startswith('--'): continue
             
             # Make CREATE idempotent
-            if "CREATE TABLE " in cleaned: cleaned = cleaned.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
-            if "CREATE INDEX " in cleaned: cleaned = cleaned.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
-            if "CREATE UNIQUE INDEX " in cleaned: cleaned = cleaned.replace("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ")
-            
-            sql_statements.append(cleaned)
+            if "CREATE TABLE " in cleaned: 
+                cleaned = cleaned.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
+                create_statements.append(cleaned)
+            elif "INSERT INTO " in cleaned:
+                insert_statements.append(cleaned)
+            elif "CREATE INDEX " in cleaned or "CREATE UNIQUE INDEX " in cleaned:
+                cleaned = cleaned.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ")
+                cleaned = cleaned.replace("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS ")
+                index_statements.append(cleaned)
+            else:
+                # Other statements (like triggers etc if any)
+                create_statements.append(cleaned)
         
-        print(f"Collected {len(sql_statements)} SQL statements.")
+        print(f"Collected: {len(create_statements)} Schema, {len(insert_statements)} Data, {len(index_statements)} Index statements.")
 
-        print("\n--- PHASE 3: UPLOADING TO TURSO (Batch Mode) ---")
+        print("\n--- PHASE 3: UPLOADING SCHEMA ---")
+        # Run schema statements one by one or in small batches
+        client.batch(create_statements)
+        print("Schema created successfully.")
+
+        print("\n--- PHASE 4: UPLOADING DATA (Batch Mode) ---")
         success_count = 0
         error_count = 0
         start_time = time.time()
         
-        # libsql-client .batch() is highly performant
-        batch_size = 50 
-        for i in range(0, len(sql_statements), batch_size):
-            batch_slice = sql_statements[i:i+batch_size]
+        # Log errors to a file
+        log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "migration_errors.log")
+        with open(log_file, "w") as log:
+            log.write(f"Migration started at {time.ctime()}\n")
+
+        batch_size = 10 
+        for i in range(0, len(insert_statements), batch_size):
+            batch_slice = insert_statements[i:i+batch_size]
             try:
                 client.batch(batch_slice)
                 success_count += len(batch_slice)
             except Exception as e:
                 # If a batch fails, retry one by one for detailed logging
-                print(f"⚠️ Batch around line {i} failed. Retrying one by one...")
                 for line in batch_slice:
                     try:
                         client.execute(line)
                         success_count += 1
                     except Exception as le:
-                        # Log error but continue unless it's critical
-                        print(f"❌ SQL Execution Error: {le}")
-                        print(f"   Statement: {line[:100]}...")
                         error_count += 1
+                        with open(log_file, "a") as log:
+                            # Log the full exception type and message
+                            log.write(f"\n[{type(le).__name__}] ERROR: {str(le)}\n")
+                            log.write(f"SQL: {line[:1000]}\n")
             
-            if (i + batch_slice.__len__()) % 500 == 0 or i + batch_slice.__len__() >= len(sql_statements):
-                progress = min(100, (i + len(batch_slice)) / len(sql_statements) * 100)
+            if (i + len(batch_slice)) % 500 == 0 or i + len(batch_slice) >= len(insert_statements):
+                progress = min(100, (i + len(batch_slice)) / len(insert_statements) * 100)
                 print(f"Progress: {progress:.1f}% ({success_count} success, {error_count} errors)")
 
+        print("\n--- PHASE 5: UPLOADING INDEXES ---")
+        if index_statements:
+            client.batch(index_statements)
+            print("Indexes created successfully.")
+
         duration = time.time() - start_time
-        print(f"\n--- PHASE 4: FINAL INTEGRITY CHECK ---")
+        print(f"\n--- PHASE 6: FINAL INTEGRITY CHECK ---")
         remote_tables_res = client.execute("SELECT name FROM sqlite_master WHERE type='table'")
         remote_tables = [r[0] for r in remote_tables_res.rows]
-        print(f"Remote tables found: {remote_tables}")
         
         for table in TABLES_TO_DROP:
             if table in remote_tables:
@@ -111,6 +134,8 @@ def migrate(url, token):
 
         print(f"\nMigration completed in {duration:.1f} seconds.")
         print(f"Total: {success_count} success, {error_count} errors.")
+        if error_count > 0:
+            print(f"See {log_file} for details.")
         
     except Exception as e:
         print(f"❌ Critical failure: {e}")

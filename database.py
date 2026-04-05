@@ -144,11 +144,14 @@ def get_connection():
                         turso_url = turso_url.replace("libsql://", "https://")
                     
                     client = libsql_client.create_client_sync(turso_url, auth_token=turso_token)
+                    logger.info(f"Connected to Turso Cloud (HTTPS Mode): {turso_url}")
                     return LibsqlConnectionWrapper(client)
                 except Exception as e:
+                    logger.error(f"Failed to connect to Turso: {e}")
                     st.error(f"Failed to connect to Turso: {e}. Falling back to local.")
 
     # 2. Local Fallback (Original logic)
+    logger.info(f"Using local SQLite database: {DB_PATH}")
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
