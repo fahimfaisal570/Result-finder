@@ -82,7 +82,7 @@ def get_performance_archetypes(df_pivot, df_main, is_first_sem=False):
         return f"{primary}{trend}"
 
     features['Archetype'] = features.apply(get_compound_status, axis=1)
-    return features[['Archetype']]
+    return features[['Archetype', 'std_gp']]
 
 def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=False):
     """
@@ -221,7 +221,7 @@ selected_subjects  = st.sidebar.multiselect("📚 Slice by Subjects:", subjects_
 cgpa_range         = st.sidebar.slider("🎓 CGPA Range:", 0.0, 4.0, (0.0, 4.0))
 
 st.sidebar.divider()
-show_strategic_brief = st.sidebar.toggle("📜 Strategic Insights Mode", value=True, help="Display an executive summary for the Department Head.")
+show_strategic_brief = st.sidebar.toggle("📜 Strategic Insights Mode", value=False, help="Display an executive summary for the Department Head.")
 st.sidebar.info("Analytics engine optimized for university graduation standards.")
 
 # ---------------------------------------------------------------------------
@@ -346,6 +346,12 @@ with tabs[0]:
         st.markdown("#### ⭕ First-Chance Pass Ratio")
         has_failed_count  = int(df_main['first_chance_fail'].sum())
         all_passed_count  = len(df_main) - has_failed_count
+        
+        # Display the Overall Pass Rate as a high-leverage metric
+        pass_rate = (all_passed_count / len(df_main)) * 100 if not df_main.empty else 0
+        st.metric("Overall Pass Rate (1st Attempt)", f"{pass_rate:.1f}%", 
+                  help="Percentage of students who passed all subjects in their first attempt.")
+
         status_df = pd.DataFrame({
             'Status': ['Passed (1st Chance)', 'Failed (Any Subject)'],
             'Count':  [all_passed_count, has_failed_count]
@@ -455,10 +461,10 @@ with tabs[1]:
                 clust_df = df_main.merge(clusters, left_on='reg_no', right_index=True)
                 clust_df['momentum'] = (clust_df['sgpa'] - clust_df['cgpa']).round(2) if not is_first_sem else 0.0
                 
-                # Innovative Visualization: Strategic Quadrant (Y: Performance, X: Momentum)
-                # Fallback: In 1st sem, plot vs ID/Rank since momentum is 0
-                x_col = 'momentum' if not is_first_sem else 'reg_no'
-                x_title = 'Academic Momentum (Change from History)' if not is_first_sem else 'Student Distribution (Registration No)'
+                # Innovative Visualization: Strategic Quadrant (Y: Performance, X: Momentum/Variance)
+                # Fallback: In 1st sem, plot vs Subject Variance (Consistency) since momentum is 0
+                x_col = 'momentum' if not is_first_sem else 'std_gp'
+                x_title = 'Academic Momentum' if not is_first_sem else 'Subject Variance (Lower = More Consistent)'
                 
                 scatter = alt.Chart(clust_df).mark_circle(size=140).encode(
                     x=alt.X(f'{x_col}:Q', title=x_title, 
