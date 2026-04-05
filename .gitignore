@@ -35,6 +35,7 @@ temp_*.json
 .venv
 venv/
 ENV/
+.streamlit/
 
 # OS-specific
 .DS_Store

@@ -66,8 +66,22 @@ class LibsqlResultWrapper:
     def __init__(self, result_set):
         self.result_set = result_set
         self.rows = result_set.rows
+        self.columns = result_set.columns
         self._index = 0
         
+    @property
+    def description(self):
+        # sqlite3 description is a tuple of (name, None, None, None, None, None, None)
+        return tuple((col, None, None, None, None, None, None) for col in self.columns)
+
+    @property
+    def rowcount(self):
+        return getattr(self.result_set, 'rows_affected', -1)
+
+    @property
+    def lastrowid(self):
+        return getattr(self.result_set, 'last_insert_rowid', None)
+
     def __iter__(self):
         return iter(self.rows)
         
