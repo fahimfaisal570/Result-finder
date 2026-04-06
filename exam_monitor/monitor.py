@@ -59,13 +59,21 @@ def send_email(new_exams):
             body += f"• {ex_name} (ID: {ex_id})\n"
         body += "\n"
     
-    body += "\nCheck it now: https://ducmc.du.ac.bd/result.php"
-    body += "\nSent via Result Finder Automated Monitor."
+    body += f"Check results: https://ducmc.du.ac.bd/result.php\n"
+    body += f"Result Finder: https://fec-result-finder.streamlit.app/\n"
+    body += f"Result Analytics: https://fec-result-analytics.streamlit.app/\n\n"
+    body += "Sent via Result Finder Automated Monitor."
 
     msg = MIMEMultipart()
     msg['From'] = smtp_user
     msg['To'] = receiver
     msg['Subject'] = subject
+    
+    # Priority headers to trigger phone notifications
+    msg['X-Priority'] = '1 (Highest)'
+    msg['X-MSMail-Priority'] = 'High'
+    msg['Importance'] = 'High'
+    
     msg.attach(MIMEText(body, 'plain'))
 
     try:
