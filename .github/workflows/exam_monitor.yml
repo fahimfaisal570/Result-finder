@@ -1,19 +1,19 @@
 name: Exam Publication Monitor
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'
-    - cron: '1-59/10 * * * *'
-    - cron: '2-59/10 * * * *'
-    - cron: '3-59/10 * * * *'
-    - cron: '4-59/10 * * * *'
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch: # Manual trigger only
+
+# Concurrency to prevent overlapping runs
+concurrency:
+  group: exam-monitor
+  cancel-in-progress: false
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
 
     steps:
     - name: Checkout Repository
@@ -36,3 +36,18 @@ jobs:
       with:
         commit_message: "chore: update known exams [skip ci]"
         file_pattern: 'exam_monitor/known_exams.json'
+
+    - name: Wait 10 minutes before re-triggering
+      run: sleep 600
+
+    - name: Re-trigger workflow via GitHub API
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO: ${{ github.repository }}
+      run: |
+        curl -X POST \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Authorization: token $GITHUB_TOKEN" \
+          https://api.github.com/repos/$REPO/actions/workflows/exam_monitor.yml/dispatches \
+          -d '{"ref":"main"}'
+        echo "Workflow re-triggered successfully at $(date)"
