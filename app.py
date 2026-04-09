@@ -267,7 +267,7 @@ class BatchManager:
         
     def save_new_batch(self, name, results_list, pro_id, exam_id):
         profiles = self.load_profiles()
-        regs_data = [[int(r['Reg']), r.get('_sess_id', 'AUTO'), r['Name']] for r in results_list]
+        regs_data = [[int(r.get('Registration No', 0)), r.get('_sess_id', 'AUTO'), r.get('Name', 'Unknown')] for r in results_list]
         profiles[name] = {
             "regs": regs_data,
             "pro_id": pro_id,

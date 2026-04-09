@@ -32,10 +32,6 @@ else:
     import queue
     input_func = input
 import json
-try:
-    from streamlit.runtime.scriptrunner import get_script_run_ctx, add_report_ctx
-except ImportError:
-    get_script_run_ctx = add_report_ctx = lambda *args, **kwargs: None
 
 import threading
 
@@ -50,11 +46,6 @@ USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1'
 ]
-
-# Shared Caches (for Web Dashboard integration)
-SESSIONS_CACHE = {}
-PROGRAMS_CACHE = {}
-SESSION_HINTS = {} # {(pro_id, exam_id): sess_id} - Speeds up "AUTO" session discovery
 
 HEADERS = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -120,7 +111,7 @@ cookie_lock = threading.Lock()
 
 class BatchManager:
     def __init__(self):
-        self.filename = os.path.join(SCRIPT_DIR, "saved_profiles.json")
+        self.filename = os.path.join(SCRIPT_DIR, ".ducmc_batches.json")
         self.profiles = self.load_profiles()
         
     def load_profiles(self):
@@ -142,24 +133,8 @@ class BatchManager:
             return False
             
     def save_new_batch(self, name, regs_data, sess_id=None, pro_id=None, latest_exam_id=None):
-        main_regs = []
-        readd_regs = []
-        for item in regs_data:
-            if isinstance(item, (list, tuple)):
-                r = int(item[0])
-                s = str(item[1])
-                n = item[2] if len(item) > 2 else "Unknown"
-                if str(s) == str(sess_id): main_regs.append([r, s, n])
-                else: readd_regs.append([r, s, n])
-            else:
-                main_regs.append([int(item), str(sess_id or "AUTO"), "Unknown"])
-        
-        # Sort each group by registration number
-        main_regs.sort(key=lambda x: x[0])
-        readd_regs.sort(key=lambda x: x[0])
-        
         self.profiles[name] = {
-            "regs": main_regs + readd_regs,
+            "regs": regs_data, # List of [reg, sess, name]
             "sess_id": sess_id,
             "pro_id": pro_id,
             "latest_exam_id": latest_exam_id
@@ -189,30 +164,12 @@ class BatchManager:
                 lookup[reg] = item[1:] # Store [sess, name]
                 
             for item in regs_data:
-                if isinstance(item, (list, tuple)):
-                    r_val = str(item[0])
-                    s_val = item[1]
-                    n_val = item[2] if len(item) > 2 else (lookup.get(r_val, ["AUTO", "Unknown"])[1])
-                else:
-                    r_val = str(item)
-                    s_val = self.profiles[name].get("sess_id", "AUTO")
-                    n_val = lookup.get(r_val, ["AUTO", "Unknown"])[1]
-                lookup[r_val] = [s_val, n_val]
+                reg = str(item[0])
+                sess = item[1]
+                name_val = item[2] if len(item) > 2 else (lookup.get(reg, ["AUTO", "Unknown"])[1])
+                lookup[reg] = [sess, name_val]
             
-            # update and re-sort (Main first, then Re-adds)
-            sess_id = self.profiles[name].get("sess_id")
-            m_list = []
-            r_list = []
-            for r, v in lookup.items():
-                item = [int(r), str(v[0]), str(v[1])]
-                if str(v[0]) == str(sess_id): m_list.append(item)
-                else: r_list.append(item)
-            
-            # Sort each group by registration number
-            m_list.sort(key=lambda x: x[0])
-            r_list.sort(key=lambda x: x[0])
-            
-            self.profiles[name]["regs"] = m_list + r_list
+            self.profiles[name]["regs"] = sorted([[int(r), v[0], v[1]] for r, v in lookup.items()], key=lambda x: x[0])
             self.save_profiles()
             
     def remove_from_batch(self, name, rs_rem):
@@ -234,7 +191,7 @@ batch_manager = BatchManager()
 
 class MetaCacheManager:
     def __init__(self):
-        self.filename = os.path.join(SCRIPT_DIR, "system_cache.json")
+        self.filename = os.path.join(SCRIPT_DIR, ".ducmc_meta_cache.json")
         self.ttl = 86400  # 24 hours
         
     def get_cache(self):
@@ -288,8 +245,6 @@ def make_request(url, data=None, headers=None, retries=4):
     for attempt in range(retries):
         conn = http_pool.get_connection()
         try:
-            # Added explicit 15s timeout to prevent 'stuck' threads
-            conn.timeout = 15
             conn.request(method, path, body=encoded_data, headers=req_headers)
             response = conn.getresponse()
             
@@ -316,25 +271,6 @@ def make_request(url, data=None, headers=None, retries=4):
             
     return None
 
-def format_session(sess_id):
-    """Transforms session notation into the standard '21-22' format."""
-    # Handle already formatted strings or session names
-    if "-" in str(sess_id) and len(str(sess_id)) <= 5: return sess_id
-    
-    # Try to extract a 4-digit year (e.g. 2021)
-    s_str = str(sess_id)
-    year_match = re.search(r"(20\d{2})", s_str)
-    if year_match:
-        y = int(year_match.group(1))
-        return "{}-{}".format(y-2000, y-1999)
-    
-    # Handle 2-digit numeric input
-    if s_str.isdigit() and len(s_str) == 2:
-        y = int(s_str)
-        return "{}-{}".format(y, y+1)
-        
-    return sess_id
-
 def extract_options_from_html(html):
     pattern = r'<option[^>]+value\s*=\s*["\']?([^"\'>\s]*)["\']?[^>]*>(.*?)</option>'
     matches = re.findall(pattern, html, re.DOTALL | re.IGNORECASE)
@@ -344,22 +280,16 @@ def extract_options_from_html(html):
         if val: results.append((val, clean_text))
     return results
 
-def fetch_programs_and_sessions():
-    """Fetches sessions and programs, ensuring a valid session cookie exists."""
-    # Always ensure a session handshake (visit BASE_URL) if cookies are missing.
-    # This prevents the portal from blocking session-less AJAX requests after a few attempts.
-    if not SESSION_COOKIES:
-        make_request(BASE_URL)
 
+def fetch_programs_and_sessions():
     cached_progs, cached_sess = meta_cache.get_cache()
     if cached_progs and cached_sess:
-        PROGRAMS_CACHE.update(cached_progs)
-        SESSIONS_CACHE.update(cached_sess)
+        # Restore as ordered dicts
         return collections.OrderedDict(cached_progs), collections.OrderedDict(cached_sess)
 
-    html = make_request("https://ducmc.du.ac.bd/result.php")
+    html = make_request(BASE_URL)
     if not html: 
-        print("[!] Failed to connect to {} - Check your internet.".format("result.php"))
+        print("[!] Failed to connect to {} - Check your internet.".format(BASE_URL))
         return collections.OrderedDict(), collections.OrderedDict()
     
     programs = collections.OrderedDict()
@@ -374,11 +304,10 @@ def fetch_programs_and_sessions():
         block_lower = block.lower()
         first_opt_text = options[0][1].lower() if options else ""
         
-        if 'id="sess_id"' in block_lower or 'session' in first_opt_text or 'session_id' in block_lower:
+        if 'session' in first_opt_text or 'session_id' in block_lower:
             for val, text in options: sessions[val] = text
-        elif 'id="pro_id"' in block_lower or 'course name' in first_opt_text or 'course_name' in block_lower:
-             for val, text in options: 
-                 if val != "0": programs[val] = text
+        elif 'course name' in first_opt_text or 'course_name' in block_lower:
+            categories = [o[0] for o in options if o[0] != "0"]
                 
     # Parallelize category crawl for programs
     if categories:
@@ -398,40 +327,12 @@ def fetch_programs_and_sessions():
             t = threading.Thread(target=fetch_cat_progs, args=(cat_id,))
             t.daemon = True; t.start(); threads.append(t)
         for t in threads: t.join()
-        
-    # Apply Sorting, Formatting, and Discipline Filtering
-    if programs:
-        whitelist = ["computer science", "civil engineering", "electrical and electronic"]
-        filtered = {k: v for k, v in programs.items() 
-                   if "b.sc." in v.lower() and any(w in v.lower() for w in whitelist)}
-        # Sort programs alphabetically by name
-        sorted_pgs = sorted(filtered.items(), key=lambda x: x[1])
-        programs = collections.OrderedDict(sorted_pgs)
-        
-    if sessions:
-        # Format session names and sort by year descending
-        formatted_sess = []
-        for sid, sname in sessions.items():
-            fname = format_session(sname)
-            # Filter: only keep sessions starting from 2016-17 onwards
-            # Matches "2016", "2017", or "16", "17" in the formatted string
-            year_match = re.search(r"(\d{2,4})", fname)
-            if year_match:
-                year_val = int(year_match.group(1))
-                if year_val >= 2016 or (year_val >= 16 and year_val < 100):
-                    formatted_sess.append((sid, fname))
-        
-        # Sort by the formatted name descending (e.g. 21-22 > 20-21)
-        formatted_sess.sort(key=lambda x: x[1], reverse=True)
-        sessions = collections.OrderedDict(formatted_sess)
                     
     if not programs: 
         print("[!] Warning: Zero programs identified. Chained menu crawl failed.")
     else:
         meta_cache.set_cache(dict(programs), dict(sessions))
-    
-    PROGRAMS_CACHE.update(programs)
-    SESSIONS_CACHE.update(sessions)
+        
     return programs, sessions
 
 def fetch_exams(pro_id):
@@ -440,62 +341,6 @@ def fetch_exams(pro_id):
     if not html: return collections.OrderedDict()
     options = extract_options_from_html(html)
     return collections.OrderedDict(options)
-
-def run_batch_scan_engine(tasks, pro_id, exam_id="0", all_sessions=None, progress_callback=None, target_college="all", num_threads=5):
-    """
-    Unified CLI-Native scanning engine. 
-    Tasks can be (reg, sess) or (reg, sess, exam).
-    """
-    # Ensure session handshake only if sessions aren't already available
-    if not all_sessions:
-        fetch_programs_and_sessions()
-        
-    # Immediate Startup Feedback: Update the UI right now so user knows we are active
-    if progress_callback:
-        try: progress_callback(0, len(tasks), "Engine firing up... Probing portal.")
-        except: pass
-    
-    # Capture Streamlit context if available
-    try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx, add_report_ctx
-        ctx = get_script_run_ctx()
-    except ImportError:
-        ctx = add_report_ctx = None
-    
-    results_lock = threading.Lock()
-    print_lock = threading.Lock()
-    completed_tasks = [0]
-    all_results = []
-    
-    task_queue = queue.Queue()
-    for t in tasks: task_queue.put(t)
-    
-    progress_queue = queue.Queue()
-    def wrapped_callback(current, total, status_text=None):
-        progress_queue.put((current, total, status_text))
-
-    # Launch worker threads
-    worker_count = min(num_threads, len(tasks))
-    t_args = (task_queue, pro_id, exam_id, all_results, results_lock, print_lock, len(tasks), completed_tasks, target_college, all_sessions, wrapped_callback)
-    threads = []
-    for _ in range(worker_count):
-        time.sleep(random.uniform(0.05, 0.15))
-        t = threading.Thread(target=worker_thread, args=t_args)
-        t.daemon = True; t.start(); threads.append(t)
-        
-    # Main thread processes the queue while workers run
-    while any(t.is_alive() for t in threads) or not progress_queue.empty():
-        try:
-            p_data = progress_queue.get(timeout=0.1)
-            if progress_callback:
-                try: progress_callback(*p_data)
-                except: pass
-            progress_queue.task_done()
-        except queue.Empty:
-            continue
-
-    for t in threads: t.join()
-    return all_results
 
 def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all"):
     data = {'pro_id': str(pro_id), 'sess_id': str(sess_id), 'exam_id': str(exam_id), 'gdata': '99', 'reg_no': str(reg_no)}
@@ -507,9 +352,7 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
     if "Student's Name" not in html:
         if "no record found" in html.lower() or "not found" in html.lower() or "no data found" in html.lower():
             return "NOT_FOUND", False
-        if "challenge" in html.lower() or "captcha" in html.lower() or "blocked" in html.lower():
-            return "BLOCKED", False
-        return "PARSING_ERROR (No Table Found)", False
+        return None, False
     
     is_student_found = True
     if target_college != "all":
@@ -534,7 +377,7 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
     else:
         name_fb = re.search(r"(?:Student\'?s?\s+)?Name\s*[:\-]?\s*<[^>]+>\s*([^<]+)", html, re.IGNORECASE)
         if name_fb: info['Name'] = re.sub(r'<[^>]*>', '', name_fb.group(1)).strip()
-        else: return "PARSING_ERROR (Name Not Found)", False
+        else: return None, False
         
     # Flexible GPA/CGPA Extraction
     pattern = r'(?:C\.?G\.?P\.?A\.?|G\.?P\.?A\.?|S\.?G\.?P\.?A\.?|Y\.?G\.?P\.?A\.?)[^\d]*([\d\.]+)'
@@ -552,27 +395,18 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
         if status_match:
             info['Overall Result'] = status_match.group(1).strip()
             
-    # Subject Extraction Logic: Resilient Tag-Agnostic Parser
+    # Subject Extraction Logic
     subjects = []
-    tr_matches = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL | re.IGNORECASE)
-    for tr in tr_matches:
-        td_matches = re.findall(r'<td[^>]*>(.*?)</td>', tr, re.DOTALL | re.IGNORECASE)
-        if len(td_matches) >= 5:
-            serial_raw = re.sub(r'<[^>]*>', '', td_matches[0]).strip()
-            if serial_raw.isdigit():
-                code = re.sub(r'<[^>]*>', '', td_matches[1]).strip()
-                name = re.sub(r'<[^>]*>', '', td_matches[2]).strip()
-                grade = re.sub(r'<[^>]*>', '', td_matches[3]).strip()
-                gp_raw = re.sub(r'<[^>]*>', '', td_matches[4]).strip()
-                gp_match = re.search(r'([\d\.]+)', gp_raw)
-                if gp_match:
-                    subjects.append({'code': code, 'name': name, 'grade': grade, 'gp': gp_match.group(1)})
+    sub_pattern = r'<tr>\s*<td>\d+</td>\s*<td>([^<]+)</td>\s*<td[^>]*>([^<]+)</td>\s*<td>([^<]+)</td>\s*<td>([\d\.]+)</td>\s*</tr>'
+    sub_matches = re.findall(sub_pattern, html, re.DOTALL | re.IGNORECASE)
+    for code, name, grade, gp in sub_matches:
+        subjects.append({'code': code.strip(), 'name': name.strip(), 'grade': grade.strip(), 'gp': gp.strip()})
     info['Subjects'] = subjects
     
     info['_sess_id'] = sess_id
     return info, is_student_found
 
-def generate_html_report(results, report_title, pro_id=None, sess_id=None):
+def generate_html_report(results, report_title):
     """Builds a responsive HTML report optimized for Mobile."""
     
     # Sort results by Registration No
@@ -598,121 +432,112 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
             valid_cgpa_results.append((cgpa, res))
         except (ValueError, TypeError): pass
     valid_cgpa_results.sort(key=lambda x: x[0], reverse=True)
+
     css = """
     <style>
-    :root { 
-        --primary: #3b82f6; 
-        --bg: #111827; 
-        --text: #f3f4f6; 
-        --border: #374151; 
-        --card-bg: #1f2937;
-        --header-bg: #374151;
-        --accent: #60a5fa;
-    }
     body { 
-        font-family: 'Outfit', -apple-system, system-ui, sans-serif; 
-        background-color: var(--bg); color: var(--text); line-height: 1.5; margin: 0; padding: 20px 10px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+        padding: 15px 5px; 
+        background-color: #ffffff; 
+        color: #000000; 
+        line-height: 1.3; 
+        margin: 0;
     }
-    #cli-report-root .container { max-width: 900px; margin: 0 auto; }
-    #cli-report-root .report-block { 
-        background: var(--card-bg); padding: 20px; border-radius: 12px; margin-bottom: 30px;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); 
-        border-top: 5px solid var(--primary);
+    .container { width: 100%; max-width: 100%; margin: 0; padding: 0 5px; }
+    
+    /* Screenshot blocks */
+    .report-block { 
+        margin-bottom: 40px; 
+        page-break-after: always;
+        width: 100%;
+        overflow: hidden; /* Prevent any horizontal sliding */
     }
-    #cli-report-root .title-section { text-align: center; margin-bottom: 20px; border-bottom: 2px solid var(--header-bg); padding-bottom: 15px; }
-    #cli-report-root h1 { color: var(--primary); font-size: 1.5em; margin: 0 0 5px 0; }
-    #cli-report-root h2 { color: var(--primary); font-size: 1.1em; margin: 15px 0 10px 0; font-weight: 700; border-left: 4px solid var(--primary); padding-left: 10px; }
-    #cli-report-root .summary-text { font-size: 0.9em; font-weight: 600; color: #64748b; }
-    #cli-report-root .table-container { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); background: var(--card-bg); }
-    #cli-report-root table { width: 100%; border-collapse: collapse; min-width: 600px; }
-    #cli-report-root th { background: var(--header-bg); color: var(--text); font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; opacity: 0.8; }
-    #cli-report-root th, #cli-report-root td { padding: 12px 10px; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-    #cli-report-root tr:hover { background-color: var(--header-bg); }
-    #cli-report-root .col-sl { width: 45px; text-align: center; }
-    #cli-report-root .col-reg { width: 85px; }
-    #cli-report-root .col-res { width: 90px; }
-    #cli-report-root .col-gpa, #cli-report-root .col-cgpa { width: 60px; text-align: center; }
-    #cli-report-root .data-bold { font-weight: 700; color: var(--text); }
-    #cli-report-root .award-text { color: var(--accent); font-weight: 700; }
+    
+    .title-section { margin-bottom: 12px; }
+    h1 { font-size: 1.2em; margin: 0 0 8px 0; color: #000; word-wrap: break-word; }
+    h2 { font-size: 1.05em; margin: 15px 0 8px 0; display: flex; align-items: center; gap: 6px; }
+    
+    .summary-text { font-size: 0.8em; margin-bottom: 8px; display: block; }
 
-    @media (max-width: 600px) {
-        #cli-report-root .report-block { padding: 12px; border-radius: 8px; }
-        #cli-report-root h1 { font-size: 1.3em; }
+    /* Classic Table */
+    table { 
+        border-collapse: collapse; 
+        width: 100%; 
+        font-size: 0.75em; /* Small font to fit phone screen */
+        table-layout: fixed;
+    }
+    th, td { 
+        border: 1px solid #d0d0d0; 
+        padding: 5px 3px; 
+        text-align: left; 
+        word-wrap: break-word;
+        overflow: hidden;
+    }
+    th { background-color: #f0f0f0; font-weight: 700; }
+    
+    /* Phone-optimized column widths */
+    .col-sl { width: 30px; text-align: center; }
+    .col-reg { width: 65px; }
+    .col-name { width: auto; }
+    .col-res { width: 68px; }
+    .col-gpa { width: 40px; text-align: center; }
+    .col-cgpa { width: 40px; text-align: center; }
+    .col-award { width: 75px; }
+
+    .data-bold { font-weight: 700; color: #000; }
+    .award-text { color: #f39c12; font-weight: 700; font-size: 0.85em; }
+
+    @media (max-width: 380px) {
+        table { font-size: 0.7em; }
+        .col-reg { width: 58px; }
+        .col-res { width: 62px; }
     }
     </style>
     """
 
-    html = ["<div id='cli-report-root'>", css, "<div class='container'>"]
+    html = ["<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no'><title>{0}</title>{1}</head><body><div class='container'>".format(report_title, css)]
     
-    # --- Data Categorization (Main vs Re-adds) ---
-    main_list = []
-    readd_list = []
-    for r in results:
-        s_id_final = r.get('_sess_id', sess_id)
-        # If session differs from the master session (sess_id), it's a re-add
-        if sess_id and str(s_id_final) != str(sess_id):
-            readd_list.append(r)
-        else:
-            main_list.append(r)
-
-    def render_results_table(data_list, title_text, is_readd=False):
-        if not data_list: return ""
-        sec_html = f"<h2>{title_text} ({len(data_list)})</h2>"
-        sec_html += "<div class='table-container'><table><thead><tr><th class='col-sl'>Sl</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-res'>Result</th><th class='col-gpa'>GPA</th><th class='col-cgpa'>CGPA</th></tr></thead><tbody>"
-        
-        for sl, res in enumerate(data_list, 1):
-            reg_val = str(res['Registration No'])
-            s_id_final = res.get('_sess_id', sess_id)
-            name_display = res['Name']
-            
-            # Show session tag for re-adds
-            reg_display = reg_val
-            if is_readd:
-                 reg_display = f"{reg_val} <small style='opacity:0.6; font-size:0.8em;'>[{s_id_final}]</small>"
-
-            if pro_id and sess_id:
-                # Point to transcript page with the student's specific session
-                name_display = f'<a href="/transcript?reg={res["Registration No"]}&pro_id={pro_id}&sess_id={s_id_final}&profile={res["Name"]}" target="_self" style="text-decoration:none; color:inherit; border-bottom:1px dotted var(--accent); cursor:pointer;">{res["Name"]}</a>'
-                
-            sec_html += "<tr><td class='col-sl'>{0}</td><td class='col-reg data-bold'>{1}</td><td>{2}</td><td class='col-res'>{3}</td><td class='col-gpa data-bold'>{4}</td><td class='col-cgpa data-bold'>{5}</td></tr>".format(
-                sl, reg_display, name_display, res['Overall Result'], res['GPA'], res['CGPA']
-            )
-        sec_html += "</tbody></table></div>"
-        return sec_html
-
-    # Block 1: Results Summary (Categorized)
-    html.append("<div class='report-block'><div class='title-section'><h1>&#127891; {0}</h1><span class='summary-text'>Total Found: {1}</span></div>".format(report_title, len(results)))
-    
-    # 1. Main Batch Table
-    html.append(render_results_table(main_list, "&#128202; Main Batch Results"))
-    
-    # 2. Re-adds Table
-    html.append(render_results_table(readd_list, "&#128221; Re-adds (Senior Batches)", is_readd=True))
-    
+    # Block 1: Results Summary
+    html.append("<div class='report-block'>")
+    html.append("<div class='title-section'>")
+    html.append("<h1>🎓 {0}</h1>".format(report_title))
+    html.append("<span class='summary-text'>Total Students Checked: {0}</span>".format(len(results)))
+    html.append("<h2>📊 Results Summary</h2>")
     html.append("</div>")
     
+    html.append("<table><thead><tr><th class='col-sl'>Sl No</th><th class='col-reg'>Reg No</th><th class='col-name'>Name</th><th class='col-res'>Result</th><th class='col-gpa'>GPA</th><th class='col-cgpa'>CGPA</th></tr></thead><tbody>")
+    for sl, res in enumerate(results, 1):
+        html.append("<tr><td class='col-sl'>{0}</td><td class='col-reg data-bold'>{1}</td><td class='col-name'>{2}</td><td class='col-res'>{3}</td><td class='col-gpa data-bold'>{4}</td><td class='col-cgpa data-bold'>{5}</td></tr>".format(
+            sl, res['Registration No'], res['Name'], res['Overall Result'], res['GPA'], res['CGPA']
+        ))
+    html.append("</tbody></table></div>")
+
+    # Block 2: Merit List
     if valid_gpa_results:
-        html.append("<div class='report-block'><h2>🏆 Merit List (Ranked by GPA)</h2>")
-        html.append("<div class='table-container'><table><thead><tr><th class='col-sl'>Sl</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-gpa'>GPA</th><th class='col-award'>Status</th></tr></thead><tbody>")
+        html.append("<div class='report-block'>")
+        html.append("<h2>🏆 Merit List (Ranked by GPA)</h2>")
+        html.append("<table><thead><tr><th class='col-sl'>Sl No</th><th class='col-reg'>Reg No</th><th class='col-name'>Name</th><th class='col-gpa'>GPA</th><th class='col-award'>Scholarship</th></tr></thead><tbody>")
         for sl, item in enumerate(valid_gpa_results, 1):
             res = item[1]
-            scholarship = "<span class='award-text'>Awarded</span>" if sl <= top_half_count else "Qualified"
-            html.append("<tr><td class='col-sl'>{0}</td><td class='col-reg data-bold'>{1}</td><td>{2}</td><td class='col-gpa data-bold'>{3}</td><td class='col-award'>{4}</td></tr>".format(
+            scholarship = "<span class='award-text'>🌟 Awarded</span>" if sl <= top_half_count else "---"
+            html.append("<tr><td class='col-sl'>{0}</td><td class='col-reg data-bold'>{1}</td><td class='col-name'>{2}</td><td class='col-gpa data-bold'>{3}</td><td class='col-award'>{4}</td></tr>".format(
                 sl, res['Registration No'], res['Name'], res['GPA'], scholarship
             ))
-        html.append("</tbody></table></div></div>")
-    
+        html.append("</tbody></table></div>")
+
+    # Block 3: CGPA Ranking
     if valid_cgpa_results:
-        html.append("<div class='report-block'><h2>🏅 CGPA Ranking List</h2>")
-        html.append("<div class='table-container'><table><thead><tr><th class='col-sl'>Sl</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-cgpa'>CGPA</th></tr></thead><tbody>")
+        html.append("<div class='report-block'>")
+        html.append("<h2>🏅 CGPA Ranking List</h2>")
+        html.append("<table><thead><tr><th class='col-sl'>Sl No</th><th class='col-reg'>Reg No</th><th class='col-name'>Name</th><th class='col-cgpa'>CGPA</th></tr></thead><tbody>")
         for sl, item in enumerate(valid_cgpa_results, 1):
             res = item[1]
-            html.append("<tr><td class='col-sl'>{0}</td><td class='col-reg data-bold'>{1}</td><td>{2}</td><td class='col-cgpa data-bold'>{3}</td></tr>".format(
+            html.append("<tr><td class='col-sl'>{0}</td><td class='col-reg data-bold'>{1}</td><td class='col-name'>{2}</td><td class='col-cgpa data-bold'>{3}</td></tr>".format(
                 sl, res['Registration No'], res['Name'], res['CGPA']
             ))
-        html.append("</tbody></table></div></div>")
-    
-    html.append("</div></div>")
+        html.append("</tbody></table></div>")
+
+    html.append("</div></body></html>")
     return "".join(html)
 
 def filter_dict_by_search(d, search_str):
@@ -733,15 +558,12 @@ def prompt_selection(items_dict, prompt_text, default_idx=0):
         if search.lower() == 'b': return 'b', 'b'
         if search: filtered_items = filter_dict_by_search(items_dict, search)
     
-    # Ensure items are sorted alphabetically by their display text
-    sorted_items = sorted(filtered_items.items(), key=lambda x: x[1])
-    keys = [item[0] for item in sorted_items]
-    
+    keys = list(filtered_items.keys())
     default_display = default_idx + 1 if default_idx < len(keys) else 1
     
     for i, key in enumerate(keys, 1): 
         ind = " [*]" if i == default_display else ""
-        print("[{0}]{1} {2}".format(i, ind, dict(sorted_items)[key]))
+        print("[{0}]{1} {2}".format(i, ind, filtered_items[key]))
         
     while True:
         try:
@@ -763,17 +585,19 @@ def prompt_preloaded_program(items_dict):
     e_id = "13" if "13" in items_dict else None
     cv_id = "12" if "12" in items_dict else None
         
-    print("\n[ Select Discipline ]")
-    print("[1] B.Sc. in Computer Science (CSE)" + ("" if c_id else " (N/A)"))
-    print("[2] B.Sc. in Electrical and Electronic (EEE)" + ("" if e_id else " (N/A)"))
-    print("[3] B.Sc. in Civil Engineering (Civil)" + ("" if cv_id else " (N/A)"))
+    print("\n[ Select Program ]")
+    print("[1] B.Sc. in Computer Science" + ("" if c_id else " (N/A)"))
+    print("[2] B.Sc. in EEE" + ("" if e_id else " (N/A)"))
+    print("[3] B.Sc. in Civil" + ("" if cv_id else " (N/A)"))
+    print("[4] ... List all others")
     
     while True:
-        c = input_func("Select (1-3) or 'b': ").strip().lower()
+        c = input_func("Select (1-4) or 'b': ").strip().lower()
         if c == 'b': return 'b', 'b'
         if c == '1' and c_id: return c_id, items_dict[c_id]
         if c == '2' and e_id: return e_id, items_dict[e_id]
         if c == '3' and cv_id: return cv_id, items_dict[cv_id]
+        if c == '4': return prompt_selection(items_dict, "All Programs")
         print("Invalid.")
 
 def prompt_custom_session(sessions, prompt_text):
@@ -804,154 +628,57 @@ def parse_range(range_str):
             print("Ignoring invalid part: '{}'".format(part))
     return result
 
-def parse_exam_info(name):
-    name_lower = name.lower()
-    legacy_map = {"part-i": 1, "part-ii": 2, "part-iii": 3, "part-iv": 4, "part i": 1, "part ii": 2, "part iii": 3, "part iv": 4}
-    y = None
-    for k, v in legacy_map.items():
-        if k in name_lower: y = v; break
-    if not y:
-        y_match = re.search(r"(\d+)(?:st|nd|rd|th)?\s+Year|Year\s*[-\s]*(\d+)", name, re.I)
-        y = int(y_match.group(1) or y_match.group(2)) if y_match else None
-    s_match = re.search(r"(\d+)(?:st|nd|rd|th)?\s+Sem|Sem\s*[-\s]*(\d+)", name, re.I)
-    sem = int(s_match.group(1) or s_match.group(2)) if s_match else 0
-    
-    # Normalize absolute semesters (1-8) used by older batches (e.g. 6th Sem -> Year 3, Sem 2)
-    if sem > 2:
-        if not y: y = (sem + 1) // 2
-        sem = 1 if sem % 2 != 0 else 2
-        
-    ey_match = re.search(r"(?:Examination|Exam)[-\s]*(\d{4})|(?:\b|[^0-9])(20\d{2})(?:\b|[^0-9])", name, re.I)
-    ey = int(ey_match.group(1) or ey_match.group(2)) if ey_match else None
-    if "professional" in name_lower and not sem: sem = 1
-    return y, sem, ey
-
-def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None):
-    """
-    Precision Exam Classification System.
-    Groups exams into exactly 8 'Main' semester slots and handles retakes/legacy formats.
-    """
-    mains_slots = {} # slot_idx -> list of [id, name, y, sem, ey, score]
+def classify_exams(exams_dict, batch_session=None):
+    mains_list = []
     retakes = collections.OrderedDict()
     if not exams_dict: return collections.OrderedDict(), retakes
     
-    # Identify batch start year
-    batch_start_year = None
+    def parse_exam_info(name):
+        # 1. Look for Year
+        y_match = re.search(r"(\d+)(?:st|nd|rd|th)?\s+Year|Year\s*[-\s]*(\d+)", name, re.I)
+        # 2. Look for Semester
+        s_match = re.search(r"(\d+)(?:st|nd|rd|th)?\s+Sem|Sem\s*[-\s]*(\d+)", name, re.I)
+        # 3. Look for Exam Year
+        ey_match = re.search(r"(?:Examination|Exam)[-\s]*(\d{4})|(?:\b|[^0-9])(20\d{2})(?:\b|[^0-9])", name, re.I)
+        
+        y = int(y_match.group(1) or y_match.group(2)) if y_match else None
+        sem = int(s_match.group(1) or s_match.group(2)) if s_match else 0
+        ey = int(ey_match.group(1) or ey_match.group(2)) if ey_match else None
+        return y, sem, ey
+
+    session_start_year = None
     if batch_session:
         s_match = re.search(r"(\d{4})", str(batch_session))
-        if s_match: batch_start_year = int(s_match.group(1))
+        if s_match: session_start_year = int(s_match.group(1))
 
-    # Extended Exclusion List
-    exclusions = ["retake", "improvement", "clearance", "junior", "special", "backlog", "short", "carry"]
-    
     for k, v in exams_dict.items():
         v_l = v.lower()
-        if any(x in v_l for x in exclusions):
+        if any(x in v_l for x in ["retake", "improvement", "clearance", "junior"]):
             retakes[k] = v; continue
             
         curr_y, curr_sem, curr_ey = parse_exam_info(v)
         
-        # Look for explicit session year in parentheses like (2018-2019)
-        name_sess_match = re.search(r"\((\d{4})[-\s]*\d{4}\)", v)
-        name_sess_year = int(name_sess_match.group(1)) if name_sess_match else None
-        
-        # Determine if it's a 'Main' exam candidate
-        is_candidate = False
-        if not batch_start_year:
-            is_candidate = True # Allow all if no session pinning
-        elif name_sess_year is not None:
-            # IF session is explicit, it MUST match exactly
-            if name_sess_year == batch_start_year:
-                is_candidate = True
-            else:
-                is_candidate = False # Hard-exclude mismatch
+        is_main = False
+        if not session_start_year:
+             is_main = True
+             
         elif curr_y and curr_ey:
-            calc_inc = curr_ey - curr_y
-            # Adaptive Year Tolerance fallback (only for exams without session tags)
-            if batch_start_year < 2019:
-                if calc_inc in [batch_start_year, batch_start_year + 1, batch_start_year - 1]:
-                    is_candidate = True
-            else:
-                if calc_inc == batch_start_year:
-                    is_candidate = True
-        
-        if is_candidate and curr_y:
-            # Enforce 8-Exam Constraint (4 years * 2 semesters)
-            # Default to sem 1 if missing for mapping
-            s_idx = max(0, curr_sem - 1) if curr_sem else 0
-            slot_idx = (curr_y - 1) * 2 + s_idx
-            
-            if 0 <= slot_idx < 8:
-                # Scoring for de-duplication
-                score = 0
-                if batch_session and str(batch_session) in v: score += 10 # Session Tag Match
-                
-                # Boost if calendar offset matches explicit batch start year
-                if batch_start_year and curr_y and curr_ey:
-                    if (curr_ey - curr_y) == batch_start_year:
-                        score += 20
-                        
-                v_slug = re.sub(r'\s+', ' ', v_l)
-                if "new curriculum" in v_slug: score += 5
-                if "old syllabus" in v_slug or "old curriculum" in v_slug: score -= 5
-                
-                if slot_idx not in mains_slots: mains_slots[slot_idx] = []
-                mains_slots[slot_idx].append({'id': k, 'name': v, 'y': curr_y, 'sem': curr_sem, 'ey': curr_ey, 'score': score})
-            else:
-                retakes[k] = v
+             calc_inc = curr_ey - curr_y
+             if calc_inc == session_start_year:
+                  is_main = True     
+         
+        if is_main:
+            mains_list.append((k, v, curr_y or 0, curr_sem or 0, curr_ey or 0))
         else:
             retakes[k] = v
 
-    # Final De-duplication & Probe Verification (Pick best passing candidate per slot)
-    mains_final_list = []
-    
-    probe_sess_id = "AUTO"
-    if probe_regs and pro_id:
-        for ks, vs in SESSIONS_CACHE.items():
-            if str(vs) == str(batch_session):
-                probe_sess_id = ks
-                break
-
-    for slot_idx in sorted(mains_slots.keys()):
-        candidates = mains_slots[slot_idx]
-        # Sort by score desc, then by Exam ID desc (most recent)
-        candidates.sort(key=lambda x: (x['score'], int(x['id'])), reverse=True)
-        
-        best = None
-        for cand in candidates:
-            if probe_regs and pro_id:
-                is_valid = False
-                for pr in probe_regs:
-                    res, is_found = fetch_student_result(pr, pro_id, probe_sess_id, cand['id'])
-                    if is_found and res:
-                        is_valid = True
-                        break
-                    time.sleep(random.uniform(0.05, 0.1))
-                if is_valid:
-                    best = cand
-                    break
-                else:
-                    retakes[cand['id']] = cand['name']
-            else:
-                best = cand
-                break
-        
-        if best:
-            mains_final_list.append((best['id'], best['name'], best['y'], best['sem'], best['ey']))
-            # Add other candidates for this slot to retakes
-            for cand in candidates:
-                if cand['id'] != best['id'] and cand['id'] not in retakes:
-                    retakes[cand['id']] = cand['name']
-
-    # Final result sorting (Newest exams first for display)
-    mains_final_list.sort(key=lambda x: (x[2], x[3], x[4]), reverse=True)
+    mains_list.sort(key=lambda x: (x[2], x[3], x[4]), reverse=True)
     mains = collections.OrderedDict()
-    for i in mains_final_list: mains[i[0]] = i[1]
-    
+    for i in mains_list: mains[i[0]] = i[1]
     return mains, retakes
-def handle_exam_selection(exams_dict, batch_session=None, probe_regs=None, pro_id=None):
+def handle_exam_selection(exams_dict, batch_session=None):
     if not exams_dict: return ('b', None, False)
-    mains, others = classify_exams(exams_dict, batch_session, probe_regs, pro_id)
+    mains, others = classify_exams(exams_dict, batch_session)
     print("\n[ Select Examination ]")
     m_keys = list(mains.keys())
     if not m_keys:
@@ -984,63 +711,34 @@ def handle_exam_selection(exams_dict, batch_session=None, probe_regs=None, pro_i
         except: pass
         print("Invalid.")
 
-def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock, print_lock, total_tasks, completed_tasks, target_college, all_sessions=None, progress_callback=None):
+def worker_thread(task_queue, pro_id, exam_id, all_results, results_lock, print_lock, total_tasks, completed_tasks, target_college, all_sessions=None):
     while True:
         try: item = task_queue.get_nowait()
         except queue.Empty: break
-        
-        # Mandatory Human-like initial delay (Jitter) - Synced with CLI for performance
-        time.sleep(random.uniform(0.1, 0.4))
-        
-        # Flex-tasks: (reg, sess) or (reg, sess, exam)
-        if len(item) == 3:
-            reg_no, sess_id, exam_id = item
-        else:
-            reg_no, sess_id = item
-            exam_id = exam_id_default
+        reg_no, sess_id = item
         
         sessions_to_try = [sess_id]
         if sess_id == "AUTO" and all_sessions:
-            # Shift known successful sessions to front of queue
-            hint = SESSION_HINTS.get((pro_id, exam_id))
-            all_keys = list(all_sessions.keys())
-            if hint and hint in all_keys:
-                all_keys.remove(hint)
-                sessions_to_try = [hint] + all_keys
-            else:
-                sessions_to_try = all_keys
+            sessions_to_try = list(all_sessions.keys())
             
         student_found_in_any_session = False
         
         for tsid in sessions_to_try:
-            # SAFETY JITTER: Restored human-like behavior to satisfy portal rate-limiting
-            time.sleep(random.uniform(0.15, 0.4))
-            
-            if progress_callback:
-                try: 
-                    # Report granular status so user knows it's NOT stuck
-                    progress_callback(completed_tasks[0], total_tasks, "Exam {0}: Checking Session {1}...".format(str(exam_id)[:10], tsid))
-                except: pass
-            
             retries = 0
             while True:
-                # Secondary jitter for retry cycles
-                time.sleep(random.uniform(0.1, 0.2))
+                time.sleep(random.uniform(0.05, 0.15))
                 res, is_any = fetch_student_result(reg_no, pro_id, tsid, exam_id, target_college)
                 if res == "NETWORK_ERROR":
                     retries += 1
                     if retries >= 3:
+                        with print_lock: print("[!] Reg {0} Permanent Block! Skipping...".format(reg_no))
                         res = None; break
-                    # Stabilization delay: Give WAF/Server time to cool down
-                    time.sleep(random.uniform(5.0, 10.0))
+                    time.sleep(random.uniform(10.0, 15.0))
                     continue
                 
-                # Robust Discovery Logic: Match GPA or Subjects
-                if res and isinstance(res, dict) and (res.get('GPA') != '-' or res.get('Subjects')):
+                # Robust Discovery Logic: Only stop if GPA is found
+                if res and isinstance(res, dict) and (res.get('GPA') != '-' or res.get('CGPA') != '-'):
                     student_found_in_any_session = True
-                    # Pin session for this batch to optimize subsequent worker lookups
-                    if sess_id == "AUTO":
-                        SESSION_HINTS[(pro_id, exam_id)] = tsid
                     break
                 res = None; break
             if student_found_in_any_session: break
@@ -1048,13 +746,7 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
         with results_lock:
             completed_tasks[0] += 1
             current = completed_tasks[0]
-            if res: 
-                res['_exam_id'] = str(exam_id)
-                res['_sess_id'] = str(tsid) # Store the session where student was found
-                all_results.append(res)
-            if progress_callback:
-                try: progress_callback(current, total_tasks, "Finished Exam {0}".format(str(exam_id)[:10]))
-                except: pass
+            if res: all_results.append(res)
                 
         with print_lock:
             if res:
@@ -1182,7 +874,7 @@ def manage_profiles(programs, sessions):
                     
                     # Step 3: Fast Scan
                     print("\nChecking {} students for new entries...".format(len(discovery_tasks)))
-                    discovered_items = []
+                    discovered_regs = []
                     found_lock = threading.Lock()
                     
                     def discovery_worker():
@@ -1196,8 +888,8 @@ def manage_profiles(programs, sessions):
                                         retries += 1
                                         time.sleep(random.uniform(2.0, 5.0))
                                         continue
-                                    if res and isinstance(res, dict) and 'GPA' in res:
-                                        with found_lock: discovered_items.append([int(reg), sess, res.get('Name', 'Unknown')])
+                                    if res and res != "NETWORK_ERROR" and 'GPA' in res:
+                                        with found_lock: discovered_regs.append(int(reg))
                                     break
                                 q.task_done()
                             except queue.Empty: break
@@ -1206,21 +898,17 @@ def manage_profiles(programs, sessions):
                     for t in discovery_tasks: q.put(t)
                     threads = []
                     for _ in range(min(30, len(discovery_tasks))):
-                        thr = threading.Thread(target=discovery_worker); thr.start(); threads.append(thr)
+                        thr = threading.Thread(target=discovery_worker)
+                        thr.start(); threads.append(thr)
                     for thr in threads: thr.join()
                     
                     # Filtering
-                    existing_regs = set()
-                    raw_exist = p_data.get("regs", [])
-                    for r_item in raw_exist:
-                        if isinstance(r_item, list): existing_regs.add(r_item[0])
-                        else: existing_regs.add(int(r_item))
+                    existing_regs = set(p_data.get("regs", []))
+                    new_regs = [r for r in discovered_regs if r not in existing_regs]
                     
-                    new_entries = [i for i in discovered_items if i[0] not in existing_regs]
-                    
-                    if new_entries:
-                        batch_manager.add_to_batch(p_name, new_entries)
-                        print("✅ Discovery complete! Added {} new students.".format(len(new_entries)))
+                    if new_regs:
+                        batch_manager.add_to_batch(p_name, new_regs)
+                        print("✅ Discovery complete! Added {} new students.".format(len(new_regs)))
                     else:
                         print("ℹ️ No new students found in these ranges.")
                 elif act == '2':
@@ -1488,7 +1176,7 @@ def manage_profiles(programs, sessions):
 
 def hidden_menu_handler(programs, sessions):
     print("\n" + "="*40)
-    print("             🌟 ACADEMIC TRANSCRIPT 🌟")
+    print("             🌟 AMOLNAMA 🌟")
     print("="*40)
     
     if not batch_manager.profiles:
@@ -1536,15 +1224,13 @@ def hidden_menu_handler(programs, sessions):
         
         print("\n--- Student Directory [{}] ---".format(p_name))
         for i, (r, s, n) in enumerate(all_sorted, 1):
-            s_str = str(s)
-            ms_str = str(main_sess)
-            if s_str == ms_str or s_str == "AUTO":
+            if s == main_sess or s == "AUTO":
                 tag = "[Main]"
             else:
-                s_name = sessions.get(s_str, s_str)
+                s_name = sessions.get(s, str(s))
                 # Extract year (e.g., 2021-2022 -> 21)
                 y_match = re.search(r"20(\d{2})", s_name)
-                y_suffix = y_match.group(1) if y_match else s_str
+                y_suffix = y_match.group(1) if y_match else s
                 tag = "[Readd:{}]".format(y_suffix)
                 
             print("{:2}. {:20} (Reg: {}) {}".format(i, n[:20], r, tag))
@@ -1576,67 +1262,30 @@ def hidden_menu_handler(programs, sessions):
         elif opt == '2':
             print("\n⏳ Exhaustive Scan... (May take 1 min)")
             history = []
-            # NARROWING THE SCOPE: Strictly filter exams by year to increase speed and prevent false positives
-            # 1. Determine the earliest possible year for this student
-            reg_year_suffix = str(reg_no)[0:2] # Heuristic: First two digits of older reg numbers
-            # Safer: Use the session year if provided
-            start_search_year = 0
-            if sess_id and sess_id != "AUTO":
-                # Matches "2022" or similar from session name
-                sess_name = sessions.get(sess_id, "")
-                y_match = re.search(r"20(\d{2})", sess_name)
-                if y_match: start_search_year = int("20" + y_match.group(1))
-            
-            # 2. Build filtered exam list
-            filtered_eids = []
-            for eid, ename in exams_cache.items():
-                _, _, ey = parse_exam_info(ename)
-                if ey and start_search_year:
-                    # Allow a 1-year buffer for early publications or overlaps
-                    if ey < (start_search_year - 1):
-                        continue
-                filtered_eids.append(eid)
-                
-            print("\n🔍 Deep Probing {} relevant examinations...".format(len(filtered_eids)))
-            
+            all_exam_ids = sorted(list(exams_cache.keys()), reverse=True)
             q = queue.Queue()
-            for eid in filtered_eids: q.put(eid)
+            for eid in all_exam_ids: q.put(eid)
             h_lock = threading.Lock()
-            
             def history_worker():
                 while True:
                     try: eid = q.get_nowait()
                     except queue.Empty: break
                     
-                    # SAFETY JITTER: Maintain human-like pace
-                    time.sleep(random.uniform(0.15, 0.4))
+                    # Jitter
+                    time.sleep(random.uniform(0.1, 0.4))
                     
-                    # IDENTITY GUARD: Use PINNED session for 100% accuracy, fall back only if AUTO
                     s_to_try = [sess_id] if sess_id != "AUTO" else sorted(list(sessions.keys()), reverse=True)
-                    
                     for tsid in s_to_try:
                         time.sleep(random.uniform(0.05, 0.15))
                         res, _ = fetch_student_result(reg_no, pro_id, tsid, eid)
-                        
-                        # Verify Result - Must have GPA or Subjects to be valid
                         if res and isinstance(res, dict) and (res.get('GPA') != '-' or res.get('Subjects')):
-                            # OPTIONAL: Name check if session exists to prevent ID collisions
-                            found_name = res.get('Name', '').lower()
-                            if st_name and st_name != "Student" and st_name.lower() not in found_name and found_name not in st_name.lower():
-                                # Collision detected (ID matches but Name differs hugely)
-                                continue
-                                
                             with h_lock:
                                 res['_exam_name'] = exams_cache[eid]
                                 history.append(res)
                             break
                     print(".", end="", flush=True)
-                    sys.stdout.flush()
-            
             threads = []
-            # Optimized Thread Count for Stability
-            thread_count = min(12, len(filtered_eids))
-            for _ in range(thread_count):
+            for _ in range(15):
                 t = threading.Thread(target=history_worker)
                 t.daemon = True; t.start(); threads.append(t)
             for t in threads: t.join()
@@ -1649,63 +1298,53 @@ def hidden_menu_handler(programs, sessions):
     except Exception as e:
         print("Error: {}".format(e))
         return
-            
-def generate_transcript_report(records, title, name, return_html=False):
-    css = """
-    :root { 
-        --bg: #111827; --text: #f3f4f6; --card: #1f2937; --border: #374151; 
-        --primary: #3b82f6; --accent: #60a5fa; --header: #374151;
-    }
-    #cli-transcript-root { background-color: var(--bg); color: var(--text); padding: 25px; font-family: 'Outfit', sans-serif; min-height: 100vh; }
-    #cli-transcript-root .header-card { background: var(--card); padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 25px; border: 1px solid var(--border); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-width: 900px; margin-left: auto; margin-right: auto; }
-    #cli-transcript-root h2 { margin: 0 0 10px 0; font-size: 1.2em; color: var(--primary); }
-    #cli-transcript-root p { margin: 0; font-size: 1em; color: var(--text); opacity: 0.9; }
-    #cli-transcript-root .exam-block { background: var(--card); border: 1px solid var(--border); border-left: 5px solid var(--primary); border-radius: 6px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-width: 900px; margin-left: auto; margin-right: auto; overflow: hidden; }
-    #cli-transcript-root .exam-title { color: var(--accent); padding: 15px 20px; font-weight: 600; font-size: 0.95em; margin: 0; background: var(--header); }
-    #cli-transcript-root table { width: 100%; border-collapse: collapse; }
-    #cli-transcript-root th, #cli-transcript-root td { padding: 12px 20px; text-align: left; }
-    #cli-transcript-root th { background: var(--header); color: var(--text); font-weight: 700; font-size: 0.85em; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); opacity: 0.8; }
-    #cli-transcript-root td { border-bottom: 1px solid var(--border); font-size: 0.9em; color: var(--text); }
-    #cli-transcript-root .summary { background: var(--header); padding: 12px 20px; font-weight: 600; color: var(--text); font-size: 0.9em; border-top: 1px solid var(--border); border-radius: 0 0 6px 6px; display: flex; gap: 5px;}
-    """
-    # CSS Prefixing for Dashboard Injection
-    css_wrapped = "<div id='cli-transcript-root'><style>" + css + "</style>"
+
+def generate_transcript_report(records, title, name):
+    fname = "Amolnama_{}_{}.html".format(name.replace(" ", "_"), time.strftime("%H%M%S"))
+    downloads_dir = "/storage/emulated/0/Download"
+    fpath = os.path.join(downloads_dir if os.path.exists(downloads_dir) else SCRIPT_DIR, fname)
     
-    # Header Section
-    reg_val = records[0].get('Registration No', '-') if records else '-'
-    html = css_wrapped + "<div class='header-card'><h2>&#127775; Student Record</h2><p><b>" + str(name) + "</b> (Reg: " + str(reg_val) + ")</p></div>"
+    html = """<html><head><meta charset='utf-8'><title>Amolnama - {name}</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; background: #f4f7f6; color: #222; }}
+        .header {{ text-align: center; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); font-weight: 600; }}
+        .exam-block {{ background: #fff; margin-top: 20px; padding: 15px; border-radius: 8px; border-left: 5px solid #3498db; }}
+        .exam-title {{ color: #2980b9; font-weight: 700; margin-bottom: 10px; font-size: 1.1em; letter-spacing: 0.5px; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th, td {{ border: 1px solid #ccc; padding: 10px; text-align: left; font-size: 0.95em; font-weight: 600; }}
+        th {{ background: #f8f9fa; color: #444; font-weight: 700; }}
+        .summary {{ margin-top: 10px; font-weight: 700; color: #333; font-size: 1em; background: #ebf5fb; padding: 8px; border-radius: 4px; }}
+    </style>
+    </head><body>
+    <div class='header'>
+        <h3>🌟 Amolnama</h3>
+        <div><b>{name}</b> (Reg: {reg})</div>
+    </div>
+    """.format(name=name, reg=records[0].get('Registration No', '-'))
 
     for r in records:
         html += "<div class='exam-block'>"
-        
-        exam_name_parsed = r.get('_exam_name', title)
-        html += "<div class='exam-title'>&#128197; {}</div>".format(exam_name_parsed)
+        pub_str = " | Published: {}".format(r['Pub Date']) if r.get('Pub Date') and r['Pub Date'] != '-' else ""
+        html += "<div class='exam-title'>📅 {}{}</div>".format(r.get('_exam_name', title), pub_str)
         
         if r.get('Subjects'):
-            html += "<table><thead><tr><th>Code</th><th>Subject</th><th>Grade</th><th>GP</th></tr></thead><tbody>"
+            html += "<table><tr><th>Code</th><th>Subject</th><th>Grade</th><th>GP</th></tr>"
             for s in r['Subjects']:
                 html += "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(s.get('code','-'), s['name'], s['grade'], s['gp'])
-            html += "</tbody></table>"
+            html += "</table>"
             
+        # Hide footer for Retake/Improvement
         e_name = r.get('_exam_name', '').lower()
         is_extra = any(x in e_name for x in ["retake", "improvement", "clearance", "special", "junior"])
         
         if not is_extra:
-            html += "<div class='summary'>"
-            html += "Result: {} | GPA: {} | CGPA: {}".format(r.get('Overall Result', '-'), r.get('GPA', '-'), r.get('CGPA', '-'))
-            html += "</div>"
+            html += "<div class='summary'>Result: {} | GPA: {} | CGPA: {}</div>".format(
+                r.get('Overall Result', '-'), r.get('GPA', '-'), r.get('CGPA', '-')
+            )
         html += "</div>"
-        
-    html += "</div>" # Close cli-transcript-root
-    if return_html: return html
+    html += "</body></html>"
     
-    # Wrap in standard HTML for saving to file
-    html_file = f"<html><head><meta charset='utf-8'><title>Student Record - {name}</title></head><body>{html}</body></html>"
-
-    fname = "Student_Record_{}_{}.html".format(name.replace(" ", "_"), time.strftime("%H%M%S"))
-    downloads_dir = "/storage/emulated/0/Download"
-    fpath = os.path.join(downloads_dir if os.path.exists(downloads_dir) else SCRIPT_DIR, fname)
-    with open(fpath, "w", encoding="utf-8") as f: f.write(html_file)
+    with open(fpath, "w", encoding="utf-8") as f: f.write(html)
     print("\n✅ Document saved: {}".format(fpath))
     
     try:
@@ -1795,11 +1434,7 @@ def main():
                         if pro_id:
                             print("\nAuto-Loading Program: {}".format(programs.get(pro_id, pro_id)))
                             mb_sess_id = p_data.get("sess_id")
-                            
-                            # Use ONLY 'Main' students for the probe verification (strict)
-                            probe_regs = [int(r[0]) for r in mb_regs_raw if str(r[1]) == str(mb_sess_id)][:5]
-                            
-                            # Full list for task scanning
+                            # Extract just the raw registration numbers for mb_regs
                             mb_regs = []
                             for item in mb_regs_raw:
                                 if isinstance(item, list): mb_regs.append(int(item[0]))
@@ -1845,7 +1480,7 @@ def main():
             
         elif state == 5: # Categorized Selection
             full_sess_str = sessions.get(mb_sess_id, "")
-            e_res = handle_exam_selection(exams_cache, full_sess_str, probe_regs, pro_id)
+            e_res = handle_exam_selection(exams_cache, full_sess_str)
             if e_res[0] == 'b': state = 0; continue
             exam_id, exam_name = e_res[0], e_res[1]
             state = 7
@@ -1861,7 +1496,7 @@ def main():
             
     task_queue = queue.Queue()
     for t in tasks: task_queue.put(t)
-    num_threads = min(5, len(tasks))
+    num_threads = min(30, len(tasks))
     
     threads = []
     for _ in range(num_threads):

@@ -3,6 +3,3 @@
 
 [client]
 showSidebarNavigation = false
-
-[ui]
-favicon = "favicon.ico"

@@ -26,6 +26,16 @@ pro_id       = params.get("pro_id", "")
 profile_name = params.get("profile", "")
 sess_id      = params.get("sess_id", "AUTO")
 
+if not reg_str or not pro_id:
+    st.error("❌ Missing parameters. Please navigate from the main dashboard.")
+    st.stop()
+
+try:
+    st_reg = int(reg_str) # parsed here early
+except:
+    st.error("❌ Invalid registration number.")
+    st.stop()
+
 # Pinpoint Fallback: If sess_id is missing/AUTO but we have a profile name, resolve it from the profile
 if (sess_id == "AUTO" or not sess_id) and profile_name:
     try:
@@ -33,18 +43,17 @@ if (sess_id == "AUTO" or not sess_id) and profile_name:
             profiles = json.load(f)
         if profile_name in profiles:
             p_data = profiles[profile_name]
-            sess_id = p_data.get("sess_id", "AUTO")
+            p_regs = p_data.get("regs", [])
+            # Search for this specific student in the profile to get their unique session
+            for r in p_regs:
+                if isinstance(r, list) and int(r[0]) == st_reg:
+                    sess_id = str(r[1])
+                    break
+            
+            # Fallback to batch-level session if not found in individual regs
+            if sess_id == "AUTO" or not sess_id:
+                sess_id = p_data.get("sess_id", "AUTO")
     except: pass
-
-if not reg_str or not pro_id:
-    st.error("❌ Missing parameters. Please navigate from the main dashboard.")
-    st.stop()
-
-try:
-    st_reg = int(reg_str) # Renamed reg to st_reg
-except:
-    st.error("❌ Invalid registration number.")
-    st.stop()
 
 st.title("📄 Student Record")
 st.caption(f"**Name:** {profile_name} &nbsp;|&nbsp; **Registration:** {st_reg}")

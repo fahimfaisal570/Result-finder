@@ -165,7 +165,7 @@ if results and not profile_name == "Saved Profile": # Don't re-save if already a
                         regs_for_save.append([
                             int(res.get('Registration No', 0)),
                             str(res.get('_sess_id', sess_id)),
-                            str(res.get('Student Name', 'Unknown'))
+                            str(res.get('Name', 'Unknown'))
                         ])
                     
                     profiles[batch_name] = {
