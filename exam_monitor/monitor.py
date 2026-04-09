@@ -66,17 +66,15 @@ def send_email(dept_name, exams):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     content_hash = hashlib.md5(f"{dept_name}{list(exams.keys())}{timestamp}".encode()).hexdigest()[:8]
     
-    body = f"New exam(s) detected for {dept_name}:\n\n"
+    body = f"Respected Administrator,\n\n"
+    body += f"This is an official notification that new academic results have been published from the central university portal for the Department of {dept_name}.\n\n"
+    body += f"Published Examination(s):\n"
     for ex_id, ex_name in exams.items():
-        body += f"• {ex_name}\n  (Internal ID: {ex_id})\n"
+        body += f"• {ex_name}\n"
     
-    body += f"\nCheck official site: https://ducmc.du.ac.bd/result.php\n"
-    body += f"Quick Finder: https://fec-result-finder.streamlit.app/\n"
-    body += f"Analytics Dashboard: https://fec-result-analytics.streamlit.app/\n\n"
-    body += "---\n"
-    body += f"Sent via Result Finder Monitor\n"
-    body += f"Notification ID: {content_hash} | {timestamp}"
-
+    body += f"\nFor immediate access to the full result sheets, please log in to the Result Finder Dashboard or await the automated PDF delivery dispatch.\n\n"
+    body += f"Best Regards,\nResult Finder Monitoring Engine"
+    
     msg = MIMEMultipart()
     msg['From'] = smtp_user
     msg['To'] = receiver
