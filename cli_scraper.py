@@ -612,8 +612,9 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         #cli-report-root h1 { color: #000; font-size: 24px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 1px; }
         #cli-report-root h2 { color: #000; font-size: 18px; margin: 15px 0 10px 0; font-weight: bold; border-left: 4px solid #000; padding-left: 10px; }
         #cli-report-root .summary-text { font-size: 14px; font-weight: bold; color: #333; }
-        #cli-report-root .table-container { overflow-x: auto; margin-top: 10px; }
-        #cli-report-root table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 14px; }
+        #cli-report-root .table-container { overflow-x: auto; margin-top: 10px; break-inside: avoid; }
+        #cli-report-root table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 14px; margin-bottom: 20px; }
+        #cli-report-root tr { break-inside: avoid; page-break-inside: avoid; }
         #cli-report-root th { background: #f4f4f4; color: #000; font-weight: bold; text-align: center; text-transform: uppercase; font-size: 13px; }
         #cli-report-root th, #cli-report-root td { padding: 8px 10px; text-align: left; border: 1px solid #000; }
         #cli-report-root td.center { text-align: center; }
@@ -685,7 +686,7 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         html.append("<div class='table-container'><table><thead><tr><th class='col-sl'>Rank</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-gpa'>SGPA</th><th class='col-award'>Status</th></tr></thead><tbody>")
         for sl, item in enumerate(valid_gpa_results, 1):
             res = item[1]
-            scholarship = "<span class='award-text'>Eligible</span>" if sl <= top_half_count else "Qualified"
+            scholarship = "<span class='award-text'>Eligible</span>" if sl <= top_half_count else ""
             html.append("<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td><td class='col-gpa data-bold'>{3}</td><td class='col-award center'>{4}</td></tr>".format(
                 sl, res['Registration No'], res['Name'], res['GPA'], scholarship
             ))

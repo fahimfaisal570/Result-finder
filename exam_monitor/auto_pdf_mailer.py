@@ -95,6 +95,9 @@ def send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name):
     body += f"Department: {dept_name}\n"
     body += f"Examination: {exam_name}\n"
     body += f"Discovered Batch Profile: {profile_name}\n\n"
+    body += "🌐 Quick Access Dashboards:\n"
+    body += "• Result Finder: https://fec-result-finder.streamlit.app/\n"
+    body += "• Academic Analytics: https://fec-result-analytics.streamlit.app/\n\n"
     body += "This is an automated delivery from the Result Finder monitoring system."
     
     msg = MIMEMultipart()
