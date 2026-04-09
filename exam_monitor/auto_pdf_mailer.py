@@ -19,17 +19,12 @@ DEPT_EMAIL_SECRETS = {
     "14": "CSE_HEAD_EMAIL"    # CSE
 }
 
-def identify_batch_for_exam(pro_id, exam_name):
-    """Dynamically finds the appropriate saved profile for an exam."""
-    y, sem, ey = cs.parse_exam_info(exam_name)
-    if not y or not ey:
-        print(f"Could not parse year/exam_year from {exam_name}")
+def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
+    """Dynamically finds the appropriate saved profile for an exam via empirical probing.
+    Bypasses session jam issues by testing one student from each profile against the portal."""
+    if not exam_id: 
         return None, None
         
-    session_start_year = ey - y + 1
-    # Convert to 2-digit format used in sess_id (e.g., 2021 -> 21)
-    sess_id_target = str(session_start_year)[-2:]
-    
     profiles_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "saved_profiles.json")
     if not os.path.exists(profiles_path):
         print("saved_profiles.json not found")
@@ -38,13 +33,48 @@ def identify_batch_for_exam(pro_id, exam_name):
     try:
         with open(profiles_path, "r") as f:
             profiles = json.load(f)
-            
-        for p_name, p_data in profiles.items():
-            if str(p_data.get("pro_id")) == str(pro_id) and str(p_data.get("sess_id")) == sess_id_target:
-                return p_name, p_data
     except Exception as e:
         print(f"Error loading profiles: {e}")
+        return None, None
+
+    # Gather matching profiles
+    candidates = {}
+    for p_name, p_data in profiles.items():
+        if str(p_data.get("pro_id")) == str(pro_id) and len(p_data.get("regs", [])) > 0:
+            candidates[p_name] = p_data
+            
+    if not candidates:
+        return None, None
         
+    print(f"Probing {len(candidates)} profiles to identify target batch for Exam {exam_id}...")
+    cs.fetch_programs_and_sessions()
+    
+    # Sort candidates by session id descending (newest first) to optimize search
+    sorted_candidates = sorted(candidates.items(), key=lambda x: int(x[1].get('sess_id', 0)), reverse=True)
+    
+    for p_name, p_data in sorted_candidates:
+        sess_id = str(p_data.get("sess_id"))
+        regs_raw = p_data.get("regs", [])
+        
+        # Pick up to 5 evenly distributed standard registration numbers to test
+        samples = []
+        std_regs = [str(r) for r in regs_raw if not isinstance(r, list)]
+        if std_regs:
+            step = max(1, len(std_regs) // 5)
+            samples = std_regs[::step][:5]
+            
+        # Fallback to re-adds if no standard students exist
+        if not samples and regs_raw:
+            r = regs_raw[0]
+            if isinstance(r, list): samples.append(str(r[0]))
+            
+        for test_reg in samples:
+            res_data, success = cs.fetch_student_result(test_reg, pro_id, sess_id, exam_id)
+            if success and isinstance(res_data, dict) and 'Total Credit' in res_data:
+                print(f"✅ Empirical Match! Profile '{p_name}' owns this exam.")
+                return p_name, p_data
+                
+    print(f"❌ Empirical probe failed. No profiles contain results for this exam.")
     return None, None
 
 def send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name):
@@ -97,7 +127,7 @@ def send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name):
 def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     print(f"\n--- Initiating Auto-Scan Flow for {exam_name} ---")
     
-    profile_name, p_data = identify_batch_for_exam(pro_id, exam_name)
+    profile_name, p_data = identify_batch_for_exam(pro_id, exam_name, exam_id=exam_id)
     if not p_data:
         print(f"⚠️ No matching automated batch profile found for {exam_name}.")
         return False
