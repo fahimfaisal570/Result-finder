@@ -8,13 +8,7 @@ import hashlib
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-try:
-    import auto_pdf_mailer
-except ImportError:
-    # Handle if run from outside directory
-    import sys
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    import auto_pdf_mailer
+# auto_pdf_mailer import is now deferred to main() to allow fast-boot detection without dependencies.
 
 # Configuration
 AJAX_URL = "https://ducmc.du.ac.bd/ajax/get_program_by_exam.php"
@@ -129,10 +123,16 @@ def main(check_only=False):
                     print(f"  -> Found {len(main_exams)} new main exams!")
                     
                     if not check_only:
-                        # 2. Text Notification (Admin)
+                        # 2. Lazy Import of heavy modules
+                        import sys
+                        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                        if root_dir not in sys.path: sys.path.append(root_dir)
+                        import auto_pdf_mailer
+                        
+                        # 3. Text Notification (Admin)
                         send_email(dept_name, main_exams)
                         
-                        # 3. PDF Batch Automation (Admin + Dept Heads)
+                        # 4. PDF Batch Automation (Admin + Dept Heads)
                         for eid, name in main_exams.items():
                             print(f"    [PDF Pipeline] Triggering for: {name}")
                             try:
