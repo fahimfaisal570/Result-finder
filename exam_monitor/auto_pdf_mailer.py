@@ -3,7 +3,7 @@ import sys
 import json
 import smtplib
 import re
-import pdfkit
+# import pdfkit  # Moved inside function for fast-boot optimization
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
@@ -168,6 +168,7 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     full_title = f"Department: {dept_name} | Exam: {exam_name} | Target Batch: {profile_name}"
     html_report = cs.generate_html_report(results, full_title, pro_id=pro_id, sess_id=sess_id)
     
+    import pdfkit  # Defer import for fast-boot optimization
     print("📄 Rendering HTML to PDF Format...")
     try:
         # options to ensure CSS renders correctly and fits the page

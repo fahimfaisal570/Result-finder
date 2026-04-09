@@ -97,7 +97,7 @@ def send_email(dept_name, exams):
     except Exception as e:
         print(f"Failed to send email for {dept_name}: {e}")
 
-def main():
+def main(check_only=False):
     if not os.path.exists(KNOWN_EXAMS_FILE):
         print("State file not found. Creating a new one.")
         known_state = {pid: [] for pid in PROGRAMS}
@@ -115,48 +115,55 @@ def main():
             new_found = {eid: name for eid, name in current_exams.items() if eid not in known_ids}
             
             if new_found:
-                print(f"  -> Found {len(new_found)} new exams!")
-                
                 # 1. Main Exam Filtering
                 main_exams = {}
                 for eid, name in new_found.items():
                     name_lower = name.lower()
                     exclusions = ["retake", "improvement", "special", "clearance", "backlog", "junior", "short", "carry"]
                     if any(ext in name_lower for ext in exclusions):
-                        print(f"    [SKIP] Found non-main exam: {name}")
-                    else:
-                        main_exams[eid] = name
+                        continue
+                    main_exams[eid] = name
                         
                 if main_exams:
-                    # 2. Text Notification (Admin)
-                    send_email(dept_name, main_exams)
+                    any_new = True
+                    print(f"  -> Found {len(main_exams)} new main exams!")
                     
-                    # 3. PDF Batch Automation (Admin + Dept Heads)
-                    for eid, name in main_exams.items():
-                        print(f"    [PDF Pipeline] Triggering for: {name}")
-                        try:
-                            auto_pdf_mailer.process_and_mail(pid, dept_name, eid, name)
-                        except Exception as e:
-                            print(f"    [!] PDF Pipeline Error for {name}: {e}")
+                    if not check_only:
+                        # 2. Text Notification (Admin)
+                        send_email(dept_name, main_exams)
+                        
+                        # 3. PDF Batch Automation (Admin + Dept Heads)
+                        for eid, name in main_exams.items():
+                            print(f"    [PDF Pipeline] Triggering for: {name}")
+                            try:
+                                auto_pdf_mailer.process_and_mail(pid, dept_name, eid, name)
+                            except Exception as e:
+                                print(f"    [!] PDF Pipeline Error for {name}: {e}")
                 
-                any_new = True
-                # Update state for this department immediately
-                known_state[pid] = list(current_exams.keys())
-                
-                # Atomic save after each department to satisfy persistence
-                with open(KNOWN_EXAMS_FILE, "w") as f:
-                    json.dump(known_state, f, indent=4)
-                
-                print(f"  -> State updated for {dept_name}.")
-                # Anti-spam delay
-                time.sleep(5)
+                if not check_only:
+                    # Update state for this department immediately
+                    known_state[pid] = list(current_exams.keys())
+                    # Atomic save
+                    with open(KNOWN_EXAMS_FILE, "w") as f:
+                        json.dump(known_state, f, indent=4)
+                    print(f"  -> State updated for {dept_name}.")
+                    time.sleep(5)
         except Exception as e:
             print(f"  [!] Fatal error scanning {dept_name}: {e}")
 
     if any_new:
         print("Monitor run completed with updates.")
+        # Signal to GitHub Actions that we need to upscale to the heavy PDF job
+        if os.getenv('GITHUB_OUTPUT'):
+            with open(os.getenv('GITHUB_OUTPUT'), 'a') as f:
+                f.write("new_exams=true\n")
     else:
         print("No new exams detected.")
+        if os.getenv('GITHUB_OUTPUT'):
+            with open(os.getenv('GITHUB_OUTPUT'), 'a') as f:
+                f.write("new_exams=false\n")
 
 if __name__ == "__main__":
-    main()
+    import sys
+    check_only = "--check-only" in sys.argv
+    main(check_only=check_only)
