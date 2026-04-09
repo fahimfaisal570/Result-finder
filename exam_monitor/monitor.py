@@ -33,17 +33,24 @@ def extract_options_from_html(html):
     return results
 
 def fetch_current_exams(pro_id):
+    import time
     url = f"{AJAX_URL}?program_id={pro_id}&pedata=99"
-    try:
-        # Standard urllib to avoid external dependencies in GitHub Runner
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        req = urllib_req.Request(url, headers=headers)
-        with urllib_req.urlopen(req, timeout=15) as response:
-            html = response.read().decode('utf-8', 'ignore')
-            return extract_options_from_html(html)
-    except Exception as e:
-        print(f"Error fetching for program {pro_id}: {e}")
-        return {}
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Standard urllib to avoid external dependencies in GitHub Runner
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            req = urllib_req.Request(url, headers=headers)
+            with urllib_req.urlopen(req, timeout=15) as response:
+                html = response.read().decode('utf-8', 'ignore')
+                return extract_options_from_html(html)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"  [!] Attempt {attempt+1} failed for {pro_id}: {e}. Retrying in {2**(attempt+1)}s...")
+                time.sleep(2 ** (attempt + 1))
+                continue
+            print(f"Error fetching for program {pro_id}: {e}")
+            return {}
 
 def send_email(dept_name, exams):
     smtp_user = os.getenv("EMAIL_USER")
