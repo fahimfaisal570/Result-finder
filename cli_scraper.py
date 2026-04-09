@@ -1008,7 +1008,9 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
         student_found_in_any_session = False
         
         for tsid in sessions_to_try:
-            # Minimal jitter to prevent IP pooling blocks without sacrificing speed
+            # SAFETY JITTER: Restored human-like behavior to satisfy portal rate-limiting
+            time.sleep(random.uniform(0.15, 0.4))
+            
             if progress_callback:
                 try: 
                     # Report granular status so user knows it's NOT stuck
@@ -1017,13 +1019,15 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
             
             retries = 0
             while True:
+                # Secondary jitter for retry cycles
+                time.sleep(random.uniform(0.1, 0.2))
                 res, is_any = fetch_student_result(reg_no, pro_id, tsid, exam_id, target_college)
                 if res == "NETWORK_ERROR":
                     retries += 1
                     if retries >= 3:
                         res = None; break
-                    # Jittered retry for network recovery
-                    time.sleep(random.uniform(1.0, 3.0))
+                    # Stabilization delay: Give WAF/Server time to cool down
+                    time.sleep(random.uniform(5.0, 10.0))
                     continue
                 
                 # Robust Discovery Logic: Match GPA or Subjects
