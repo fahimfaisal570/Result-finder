@@ -4,7 +4,7 @@ Invoked when user clicks a student name on the main dashboard.
 Runs CLI Exhaustive Scan and renders the transcript HTML (Student Record).
 """
 import streamlit as st
-import sys, os, json, queue, threading, time
+import sys, os, json, queue, threading, time, re
 
 # Add parent dir to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
