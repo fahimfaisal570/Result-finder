@@ -54,6 +54,7 @@ USER_AGENTS = [
 # Shared Caches (for Web Dashboard integration)
 SESSIONS_CACHE = {}
 PROGRAMS_CACHE = {}
+SESSION_HINTS = {} # {(pro_id, exam_id): sess_id} - Speeds up "AUTO" session discovery
 
 HEADERS = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -551,12 +552,16 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
         if status_match:
             info['Overall Result'] = status_match.group(1).strip()
             
-    # Subject Extraction Logic
+    # Subject Extraction Logic: Resilient Tag-Agnostic Parser
     subjects = []
-    sub_pattern = r'<tr>\s*<td>\d+</td>\s*<td>([^<]+)</td>\s*<td[^>]*>([^<]+)</td>\s*<td>([^<]+)</td>\s*<td>([\d\.]+)</td>\s*</tr>'
+    # Flexible row pattern to handle varying attributes in <tr> and <td>
+    sub_pattern = r'<tr[^>]*>\s*<td[^>]*>\d+</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>([\d\.]+)</td>\s*</tr>'
     sub_matches = re.findall(sub_pattern, html, re.DOTALL | re.IGNORECASE)
-    for code, name, grade, gp in sub_matches:
-        subjects.append({'code': code.strip(), 'name': name.strip(), 'grade': grade.strip(), 'gp': gp.strip()})
+    for code_raw, name_raw, grade_raw, gp in sub_matches:
+        code = re.sub(r'<[^>]*>', '', code_raw).strip()
+        name = re.sub(r'<[^>]*>', '', name_raw).strip()
+        grade = re.sub(r'<[^>]*>', '', grade_raw).strip()
+        subjects.append({'code': code, 'name': name, 'grade': grade, 'gp': gp.strip()})
     info['Subjects'] = subjects
     
     info['_sess_id'] = sess_id
@@ -991,34 +996,42 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
         
         sessions_to_try = [sess_id]
         if sess_id == "AUTO" and all_sessions:
-            sessions_to_try = list(all_sessions.keys())
+            # Shift known successful sessions to front of queue
+            hint = SESSION_HINTS.get((pro_id, exam_id))
+            all_keys = list(all_sessions.keys())
+            if hint and hint in all_keys:
+                all_keys.remove(hint)
+                sessions_to_try = [hint] + all_keys
+            else:
+                sessions_to_try = all_keys
             
         student_found_in_any_session = False
         
         for tsid in sessions_to_try:
-            # Secondary jitter for session discovery - Synced with CLI for performance
-            time.sleep(random.uniform(0.05, 0.15))
-            
+            # Minimal jitter to prevent IP pooling blocks without sacrificing speed
             if progress_callback:
                 try: 
                     # Report granular status so user knows it's NOT stuck
                     progress_callback(completed_tasks[0], total_tasks, "Exam {0}: Checking Session {1}...".format(str(exam_id)[:10], tsid))
                 except: pass
+            
             retries = 0
             while True:
-                time.sleep(random.uniform(0.05, 0.15))
                 res, is_any = fetch_student_result(reg_no, pro_id, tsid, exam_id, target_college)
                 if res == "NETWORK_ERROR":
                     retries += 1
                     if retries >= 3:
                         res = None; break
-                    # Faster retry for dashboard responsiveness (2-5s instead of 10-15s)
-                    time.sleep(random.uniform(2.0, 5.0))
+                    # Jittered retry for network recovery
+                    time.sleep(random.uniform(1.0, 3.0))
                     continue
                 
-                # Robust Discovery Logic: Match CLI baseline (GPA or Subjects)
+                # Robust Discovery Logic: Match GPA or Subjects
                 if res and isinstance(res, dict) and (res.get('GPA') != '-' or res.get('Subjects')):
                     student_found_in_any_session = True
+                    # Pin session for this batch to optimize subsequent worker lookups
+                    if sess_id == "AUTO":
+                        SESSION_HINTS[(pro_id, exam_id)] = tsid
                     break
                 res = None; break
             if student_found_in_any_session: break
