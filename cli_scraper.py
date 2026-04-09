@@ -607,6 +607,10 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         #cli-report-root .report-block { 
             background: #fff; padding: 20px; border-radius: 0; margin-bottom: 30px;
             border: 1px solid #000;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            display: inline-block;
+            width: 100%;
         }
         #cli-report-root .title-section { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 15px; }
         #cli-report-root h1 { color: #000; font-size: 24px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 1px; }
