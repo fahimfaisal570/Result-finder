@@ -1571,30 +1571,67 @@ def hidden_menu_handler(programs, sessions):
         elif opt == '2':
             print("\n⏳ Exhaustive Scan... (May take 1 min)")
             history = []
-            all_exam_ids = sorted(list(exams_cache.keys()), reverse=True)
+            # NARROWING THE SCOPE: Strictly filter exams by year to increase speed and prevent false positives
+            # 1. Determine the earliest possible year for this student
+            reg_year_suffix = str(reg_no)[0:2] # Heuristic: First two digits of older reg numbers
+            # Safer: Use the session year if provided
+            start_search_year = 0
+            if sess_id and sess_id != "AUTO":
+                # Matches "2022" or similar from session name
+                sess_name = sessions.get(sess_id, "")
+                y_match = re.search(r"20(\d{2})", sess_name)
+                if y_match: start_search_year = int("20" + y_match.group(1))
+            
+            # 2. Build filtered exam list
+            filtered_eids = []
+            for eid, ename in exams_cache.items():
+                _, _, ey = parse_exam_info(ename)
+                if ey and start_search_year:
+                    # Allow a 1-year buffer for early publications or overlaps
+                    if ey < (start_search_year - 1):
+                        continue
+                filtered_eids.append(eid)
+                
+            print("\n🔍 Deep Probing {} relevant examinations...".format(len(filtered_eids)))
+            
             q = queue.Queue()
-            for eid in all_exam_ids: q.put(eid)
+            for eid in filtered_eids: q.put(eid)
             h_lock = threading.Lock()
+            
             def history_worker():
                 while True:
                     try: eid = q.get_nowait()
                     except queue.Empty: break
                     
-                    # Jitter
-                    time.sleep(random.uniform(0.1, 0.4))
+                    # SAFETY JITTER: Maintain human-like pace
+                    time.sleep(random.uniform(0.15, 0.4))
                     
+                    # IDENTITY GUARD: Use PINNED session for 100% accuracy, fall back only if AUTO
                     s_to_try = [sess_id] if sess_id != "AUTO" else sorted(list(sessions.keys()), reverse=True)
+                    
                     for tsid in s_to_try:
                         time.sleep(random.uniform(0.05, 0.15))
                         res, _ = fetch_student_result(reg_no, pro_id, tsid, eid)
+                        
+                        # Verify Result - Must have GPA or Subjects to be valid
                         if res and isinstance(res, dict) and (res.get('GPA') != '-' or res.get('Subjects')):
+                            # OPTIONAL: Name check if session exists to prevent ID collisions
+                            found_name = res.get('Name', '').lower()
+                            if st_name and st_name != "Student" and st_name.lower() not in found_name and found_name not in st_name.lower():
+                                # Collision detected (ID matches but Name differs hugely)
+                                continue
+                                
                             with h_lock:
                                 res['_exam_name'] = exams_cache[eid]
                                 history.append(res)
                             break
                     print(".", end="", flush=True)
+                    sys.stdout.flush()
+            
             threads = []
-            for _ in range(15):
+            # Optimized Thread Count for Stability
+            thread_count = min(12, len(filtered_eids))
+            for _ in range(thread_count):
                 t = threading.Thread(target=history_worker)
                 t.daemon = True; t.start(); threads.append(t)
             for t in threads: t.join()

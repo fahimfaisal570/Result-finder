@@ -79,19 +79,37 @@ def update_progress(current, total, status_text=None):
         progress_bar.progress(val, text=f"🏁 Processed {current}/{total} exams.")
         status_msg.caption(f"🏁 Processed {current}/{total} exams.")
 
-# Prepare tasks: (reg, "AUTO", exam)
-# This is the EXACT exhaustive logic from the CLI (Option [2])
-# We probe EVERY exam across EVERY session for absolute completeness.
-exam_tasks = [(st_reg, "AUTO", eid) for eid in all_exams.keys()]
+# --- Smart Scope Hardening (Aligned with Result finder.py heuristics) ---
+# 1. Determine student start year from session (e.g. Session 22 -> 2022)
+start_search_year = 0
+if sess_id and sess_id != "AUTO":
+    # Try to extract year from session name (e.g. "Session 2022-2023")
+    sess_name = sessions.get(sess_id, "")
+    y_match = re.search(r"20(\d{2})", sess_name)
+    if y_match: start_search_year = int("20" + y_match.group(1))
+
+# 2. Filter exams: Only scan exams from the student's cohort year onwards
+filtered_exam_ids = []
+for eid, ename in all_exams.items():
+    _, _, ey = cs.parse_exam_info(ename)
+    if ey and start_search_year:
+        if ey < (start_search_year - 1): # 1-year buffer for overlaps
+            continue
+    filtered_exam_ids.append(eid)
+
+# 3. Build tasks: Use PINNED session for 100% accuracy, fall back to AUTO only if unknown
+# This prevents reg-number collisions across different batches (the result 890 issue)
+exam_tasks = [(st_reg, sess_id, eid) for eid in filtered_exam_ids]
 
 # --- Absolute CLI-Native Exhaustive Scan ---
+status_msg.info(f"🔍 Deep Probing {len(filtered_exam_ids)} relevant examinations from {start_search_year or 'all years'}...")
 history = cs.run_batch_scan_engine(
     tasks=exam_tasks,
     pro_id=pro_id,
     exam_id="0",
-    all_sessions=sessions, # FULL portal list
+    all_sessions=sessions, 
     progress_callback=update_progress,
-    num_threads=15
+    num_threads=12 # Balanced for stability
 )
 progress_bar.empty()
 status_msg.empty()
