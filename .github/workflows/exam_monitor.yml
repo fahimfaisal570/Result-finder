@@ -28,7 +28,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y wkhtmltopdf
+        sudo apt-get install -y wkhtmltopdf xvfb libfontconfig
         python -m pip install --upgrade pip
         pip install pdfkit
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -41,7 +41,7 @@ jobs:
         CIVIL_HEAD_EMAIL: ${{ secrets.CIVIL_HEAD_EMAIL }}
         EEE_HEAD_EMAIL: ${{ secrets.EEE_HEAD_EMAIL }}
         CSE_HEAD_EMAIL: ${{ secrets.CSE_HEAD_EMAIL }}
-      run: python exam_monitor/monitor.py
+      run: xvfb-run python exam_monitor/monitor.py
 
     - name: Commit and Push changes
       uses: stefanzweifel/git-auto-commit-action@v5

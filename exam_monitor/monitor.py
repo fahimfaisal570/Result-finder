@@ -107,46 +107,54 @@ def main():
 
     any_new = False
     for pid, dept_name in PROGRAMS.items():
-        print(f"Checking {dept_name}...")
-        current_exams = fetch_current_exams(pid)
-        
-        known_ids = set(known_state.get(pid, []))
-        new_found = {eid: name for eid, name in current_exams.items() if eid not in known_ids}
-        
-        if new_found:
-            print(f"  -> Found {len(new_found)} new exams!")
+        try:
+            print(f"Checking {dept_name}...")
+            current_exams = fetch_current_exams(pid)
             
-            # 1. Main Exam Filtering
-            main_exams = {}
-            for eid, name in new_found.items():
-                name_lower = name.lower()
-                exclusions = ["retake", "improvement", "special", "clearance", "backlog", "junior", "short", "carry"]
-                if any(ext in name_lower for ext in exclusions):
-                    print(f"    [SKIP] Found non-main exam: {name}")
-                else:
-                    main_exams[eid] = name
-                    
-            if main_exams:
-                # 2. Text Notification (Admin)
-                send_email(dept_name, main_exams)
+            known_ids = set(known_state.get(pid, []))
+            new_found = {eid: name for eid, name in current_exams.items() if eid not in known_ids}
+            
+            if new_found:
+                print(f"  -> Found {len(new_found)} new exams!")
                 
-                # 3. PDF Batch Automation (Admin + Dept Heads)
-                for eid, name in main_exams.items():
-                    print(f"    [PDF Pipeline] Triggering for: {name}")
-                    auto_pdf_mailer.process_and_mail(pid, dept_name, eid, name)
-            
-            any_new = True
-            # Update state for this department immediately
-            known_state[pid] = list(current_exams.keys())
-            # Anti-spam delay
-            print("  -> Sleeping 5s for anti-spam...")
-            time.sleep(5)
+                # 1. Main Exam Filtering
+                main_exams = {}
+                for eid, name in new_found.items():
+                    name_lower = name.lower()
+                    exclusions = ["retake", "improvement", "special", "clearance", "backlog", "junior", "short", "carry"]
+                    if any(ext in name_lower for ext in exclusions):
+                        print(f"    [SKIP] Found non-main exam: {name}")
+                    else:
+                        main_exams[eid] = name
+                        
+                if main_exams:
+                    # 2. Text Notification (Admin)
+                    send_email(dept_name, main_exams)
+                    
+                    # 3. PDF Batch Automation (Admin + Dept Heads)
+                    for eid, name in main_exams.items():
+                        print(f"    [PDF Pipeline] Triggering for: {name}")
+                        try:
+                            auto_pdf_mailer.process_and_mail(pid, dept_name, eid, name)
+                        except Exception as e:
+                            print(f"    [!] PDF Pipeline Error for {name}: {e}")
+                
+                any_new = True
+                # Update state for this department immediately
+                known_state[pid] = list(current_exams.keys())
+                
+                # Atomic save after each department to satisfy persistence
+                with open(KNOWN_EXAMS_FILE, "w") as f:
+                    json.dump(known_state, f, indent=4)
+                
+                print(f"  -> State updated for {dept_name}.")
+                # Anti-spam delay
+                time.sleep(5)
+        except Exception as e:
+            print(f"  [!] Fatal error scanning {dept_name}: {e}")
 
     if any_new:
-        # Update state file
-        with open(KNOWN_EXAMS_FILE, "w") as f:
-            json.dump(known_state, f, indent=4)
-        print("State updated.")
+        print("Monitor run completed with updates.")
     else:
         print("No new exams detected.")
 

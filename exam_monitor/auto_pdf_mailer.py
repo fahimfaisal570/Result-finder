@@ -179,8 +179,7 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
             'margin-left': '0.75in',
             'encoding': "UTF-8",
             'enable-local-file-access': None,
-            'no-stop-slow-scripts': None,
-            'javascript-delay': 2000
+            'quiet': ''
         }
         pdf_bytes = pdfkit.from_string(html_report, False, options=options)
     except Exception as e:
