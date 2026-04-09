@@ -597,7 +597,6 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
             cgpa = float(res['CGPA'])
             valid_cgpa_results.append((cgpa, res))
         except (ValueError, TypeError): pass
-    valid_cgpa_results.sort(key=lambda x: x[0], reverse=True)
     css = """
     <style>
         body { 
@@ -611,7 +610,7 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         }
         #cli-report-root .title-section { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 15px; }
         #cli-report-root h1 { color: #000; font-size: 24px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 1px; }
-        #cli-report-root h2 { color: #000; font-size: 18px; margin: 15px 0 10px 0; font-weight: bold; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        #cli-report-root h2 { color: #000; font-size: 18px; margin: 15px 0 10px 0; font-weight: bold; border-left: 4px solid #000; padding-left: 10px; }
         #cli-report-root .summary-text { font-size: 14px; font-weight: bold; color: #333; }
         #cli-report-root .table-container { overflow-x: auto; margin-top: 10px; }
         #cli-report-root table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 14px; }
@@ -619,32 +618,11 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         #cli-report-root th, #cli-report-root td { padding: 8px 10px; text-align: left; border: 1px solid #000; }
         #cli-report-root td.center { text-align: center; }
         #cli-report-root .col-sl { width: 45px; text-align: center; }
-        #cli-report-root .col-reg { width: 90px; }
+        #cli-report-root .col-reg { width: 90px; text-align: center; }
         #cli-report-root .col-res { width: 90px; text-align: center; }
         #cli-report-root .col-gpa, #cli-report-root .col-cgpa { width: 60px; text-align: center; }
         #cli-report-root .data-bold { font-weight: bold; }
         #cli-report-root .award-text { font-weight: bold; font-style: italic; }
-        
-        /* New detailed student blocks */
-        .student-block-detail {
-            page-break-inside: avoid;
-            margin-bottom: 30px;
-            border: 1px solid #000;
-            padding: 15px;
-        }
-        .student-header-detail {
-            font-size: 16px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid #000;
-        }
-        .summary-detail {
-            margin-top: 15px;
-            font-weight: bold;
-            text-align: right;
-            font-size: 15px;
-        }
     </style>
     """
 
@@ -663,91 +641,66 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         else:
             main_list.append(r)
 
-    def render_detailed_students(data_list, title_text):
+    def render_results_table(data_list, title_text, is_readd=False):
         if not data_list: return ""
         sec_html = f"<h2>{title_text} ({len(data_list)})</h2>"
-        for r in data_list:
-            reg = r.get('Registration No', 'N/A')
-            s_id_final = r.get('_sess_id', sess_id)
-            name = r.get('Name') or r.get('Student Name', 'Unknown')
-            status = r.get('Overall Result', '-')
-            gpa = r.get('GPA', '-')
-            cgpa = r.get('CGPA', '-')
+        sec_html += "<div class='table-container'><table><thead><tr><th class='col-sl'>Sl</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-res'>Result</th><th class='col-gpa'>SGPA</th><th class='col-cgpa'>CGPA</th></tr></thead><tbody>"
+        
+        for sl, res in enumerate(data_list, 1):
+            reg_val = str(res['Registration No'])
+            s_id_final = res.get('_sess_id', sess_id)
+            name_display = res['Name']
             
-            # Sub-link to transcript if inside Streamlit UI
-            name_display = name
+            # Show session tag for re-adds
+            reg_display = reg_val
+            if is_readd:
+                 reg_display = f"{reg_val} <small style='font-size:0.8em;'>[{s_id_final}]</small>"
+
             if pro_id and sess_id:
-                name_display = f'<a href="/transcript?reg={reg}&pro_id={pro_id}&sess_id={s_id_final}&profile={name}" target="_self" style="text-decoration:none; color:inherit;">{name}</a>'
-            
-            sec_html += f"""
-            <div class="student-block-detail">
-                <div class="student-header-detail">
-                    Registration No: {reg} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; Student Name: {name_display}
-                </div>
-            """
-            if r.get('Subjects'):
-                sec_html += """
-                <table>
-                    <tr>
-                        <th width="15%">Course Code</th>
-                        <th width="55%">Course Title</th>
-                        <th width="15%">Letter Grade</th>
-                        <th width="15%">Grade Point</th>
-                    </tr>
-                """
-                for s in r['Subjects']:
-                    sec_html += f"""
-                    <tr>
-                        <td class="center">{s.get('code','')}</td>
-                        <td>{s.get('name','')}</td>
-                        <td class="center">{s.get('grade','')}</td>
-                        <td class="center">{s.get('gp','')}</td>
-                    </tr>
-                    """
-                sec_html += "</table>"
+                # Point to transcript page with the student's specific session
+                name_display = f'<a href="/transcript?reg={res["Registration No"]}&pro_id={pro_id}&sess_id={s_id_final}&profile={res["Name"]}" target="_self" style="text-decoration:none; color:inherit; border-bottom:1px dotted #000; cursor:pointer;">{res["Name"]}</a>'
                 
-            sec_html += f"""
-                <div class="summary-detail">
-                    Status: {status} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; GPA: {gpa} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; CGPA: {cgpa}
-                </div>
-            </div>
-            """
+            sec_html += "<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold'>{1}</td><td>{2}</td><td class='col-res center'>{3}</td><td class='col-gpa data-bold'>{4}</td><td class='col-cgpa data-bold'>{5}</td></tr>".format(
+                sl, reg_display, name_display, res['Overall Result'], res['GPA'], res['CGPA']
+            )
+        sec_html += "</tbody></table></div>"
         return sec_html
 
-    # Title
-    html.append("<div class='title-section'><h1>Faridpur Engineering College</h1>")
+    # Block 1: Results Summary (Categorized)
+    html.append("<div class='report-block'><div class='title-section'><h1>Faridpur Engineering College</h1>")
     html.append(f"<h2>{report_title}</h2>")
-    html.append(f"<span class='summary-text'>Official Transcript Record &nbsp;|&nbsp; Generated: {timestamp_str}</span></div>")
+    html.append(f"<span class='summary-text'>Official Batch Report &nbsp;|&nbsp; Generated: {timestamp_str}</span></div>")
     
-    # Render detailed results directly
-    html.append(render_detailed_students(main_list, "Regular Batch Results"))
-    html.append(render_detailed_students(readd_list, "Re-add / Senior Results"))
-
-    # Render Rankings at bottom
-    if valid_gpa_results or valid_cgpa_results:
-        html.append("<div style='page-break-before: always;'></div>")
-        html.append("<div class='title-section'><h2>Official Merit Rankings</h2></div>")
-        
+    # 1. Main Batch Table (Registration Wise SGPA/CGPA)
+    html.append(render_results_table(main_list, "Registration-Wise Result (Regular Batch)"))
+    
+    # 2. Re-adds Table
+    html.append(render_results_table(readd_list, "Registration-Wise Result (Re-adds & Seniors)", is_readd=True))
+    
+    html.append("</div>") # End block 1
+    
+    # Block 2: Scholarship Eligibility (Ranked by SGPA)
     if valid_gpa_results:
-        html.append(f"<h3>Semester GPA Ranking</h3>")
-        html.append("<div class='table-container'><table><thead><tr><th class='col-sl'>Rank</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-gpa'>GPA</th><th>Status</th></tr></thead><tbody>")
+        html.append("<div class='report-block'><h2>Scholarship Eligibility List (Ranked by SGPA)</h2>")
+        html.append("<div class='table-container'><table><thead><tr><th class='col-sl'>Rank</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-gpa'>SGPA</th><th class='col-award'>Status</th></tr></thead><tbody>")
         for sl, item in enumerate(valid_gpa_results, 1):
             res = item[1]
-            scholarship = "Distinction" if sl <= top_half_count else "Qualified"
-            html.append("<tr><td class='col-sl'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td><td class='col-gpa data-bold center'>{3}</td><td class='center'>{4}</td></tr>".format(
+            scholarship = "<span class='award-text'>Eligible</span>" if sl <= top_half_count else "Qualified"
+            html.append("<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td><td class='col-gpa data-bold'>{3}</td><td class='col-award center'>{4}</td></tr>".format(
                 sl, res['Registration No'], res['Name'], res['GPA'], scholarship
             ))
-        html.append("</tbody></table></div><br><br>")
+        html.append("</tbody></table></div></div>")
     
+    # Block 3: CGPA Ranking List
     if valid_cgpa_results:
-        html.append(f"<h3>Cumulative CGPA Ranking</h3>")
+        html.append("<div class='report-block'><h2>Overall Batch CGPA Ranking</h2>")
         html.append("<div class='table-container'><table><thead><tr><th class='col-sl'>Rank</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-cgpa'>CGPA</th></tr></thead><tbody>")
         for sl, item in enumerate(valid_cgpa_results, 1):
             res = item[1]
-            html.append("<tr><td class='col-sl'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td><td class='col-cgpa data-bold center'>{3}</td></tr>".format(
+            html.append("<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td><td class='col-cgpa data-bold'>{3}</td></tr>".format(
                 sl, res['Registration No'], res['Name'], res['CGPA']
             ))
-        html.append("</tbody></table></div>")
+        html.append("</tbody></table></div></div>")
     
     html.append("</div></div>")
     return "".join(html)

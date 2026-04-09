@@ -92,142 +92,7 @@ def send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name):
     except Exception as e:
         print(f"❌ Failed to send PDF email: {e}")
 
-def generate_thesis_pdf_html(results, exam_name, dept_name, profile_name):
-    # Sort results
-    def get_reg_sort_key(res):
-        try: return (0, int(res['Registration No']))
-        except Exception: return (1, str(res['Registration No']))
-    results.sort(key=get_reg_sort_key)
 
-    import datetime
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <meta charset="utf-8">
-    <title>Official Academic Result</title>
-    <style>
-        body {{
-            font-family: "Times New Roman", Times, serif;
-            margin: 0;
-            padding: 20px;
-            color: #000;
-            background-color: #fff;
-        }}
-        .header {{
-            text-align: center;
-            border-bottom: 2px solid #000;
-            padding-bottom: 20px;
-            margin-bottom: 40px;
-        }}
-        .header h1 {{ margin: 0; font-size: 26px; text-transform: uppercase; letter-spacing: 1px; }}
-        .header h2 {{ margin: 8px 0; font-size: 20px; font-weight: normal; }}
-        .header h3 {{ margin: 5px 0; font-size: 16px; color: #222; font-style: italic; }}
-        .header h4 {{ margin: 5px 0; font-size: 14px; font-weight: bold; margin-top: 15px; }}
-        
-        .student-block {{
-            page-break-inside: avoid;
-            margin-bottom: 30px;
-            border: 1px solid #000;
-            padding: 15px;
-        }}
-        .student-header {{
-            font-size: 16px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            padding-bottom: 5px;
-            border-bottom: 1px solid #000;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }}
-        th, td {{
-            border: 1px solid #000;
-            padding: 8px;
-            text-align: left;
-        }}
-        th {{ background-color: #f8f9fa; font-weight: bold; text-align: center; }}
-        td.center {{ text-align: center; }}
-        .summary {{
-            margin-top: 15px;
-            font-weight: bold;
-            text-align: right;
-            font-size: 15px;
-        }}
-        .footer {{
-            text-align: center;
-            font-size: 11px;
-            color: #555;
-            margin-top: 50px;
-            border-top: 1px dashed #ccc;
-            padding-top: 10px;
-        }}
-    </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>Faridpur Engineering College</h1>
-            <h2>Department of {dept_name}</h2>
-            <h3>{exam_name}</h3>
-            <h4>Official Result Batch Profile: {profile_name}</h4>
-        </div>
-    """
-
-    for r in results:
-        reg = r.get('Registration No', 'N/A')
-        name = r.get('Name') or r.get('Student Name', 'Unknown')
-        status = r.get('Overall Result', '-')
-        gpa = r.get('GPA', '-')
-        cgpa = r.get('CGPA', '-')
-        
-        html += f"""
-        <div class="student-block">
-            <div class="student-header">
-                Registration No: {reg} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; Student Name: {name}
-            </div>
-        """
-        
-        if r.get('Subjects'):
-            html += """
-            <table>
-                <tr>
-                    <th width="15%">Course Code</th>
-                    <th width="55%">Course Title</th>
-                    <th width="15%">Letter Grade</th>
-                    <th width="15%">Grade Point</th>
-                </tr>
-            """
-            for s in r['Subjects']:
-                html += f"""
-                <tr>
-                    <td class="center">{s.get('code','')}</td>
-                    <td>{s.get('name','')}</td>
-                    <td class="center">{s.get('grade','')}</td>
-                    <td class="center">{s.get('gp','')}</td>
-                </tr>
-                """
-            html += "</table>"
-            
-        html += f"""
-            <div class="summary">
-                Status: {status} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; GPA: {gpa} &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; CGPA: {cgpa}
-            </div>
-        </div>
-        """
-        
-    html += f"""
-        <div class="footer">
-            Generated Automatically by Result Finder Monitor Engine<br>
-            Timestamp: {timestamp}
-        </div>
-    </body>
-    </html>
-    """
-    return html
 
 def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     print(f"\n--- Initiating Auto-Scan Flow for {exam_name} ---")
@@ -269,7 +134,9 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
         return False
         
     print(f"✅ Downloaded {len(results)} student records. Generating Printable Thesis HTML format...")
-    html_report = generate_thesis_pdf_html(results, exam_name, dept_name, profile_name)
+    # Inject profile_name into title so it appears nicely in the central PDF rendering engine
+    full_title = f"Department: {dept_name} | Exam: {exam_name} | Target Batch: {profile_name}"
+    html_report = cs.generate_html_report(results, full_title, pro_id=pro_id, sess_id=sess_id)
     
     print("📄 Rendering HTML to PDF Format...")
     try:
