@@ -8,6 +8,13 @@ import hashlib
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+try:
+    import auto_pdf_mailer
+except ImportError:
+    # Handle if run from outside directory
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    import auto_pdf_mailer
 
 # Configuration
 AJAX_URL = "https://ducmc.du.ac.bd/ajax/get_program_by_exam.php"
@@ -109,12 +116,31 @@ def main():
         new_found = {eid: name for eid, name in current_exams.items() if eid not in known_ids}
         
         if new_found:
-            print(f"  -> Found {len(new_found)} new exams! Sending separate email...")
-            send_email(dept_name, new_found)
+            print(f"  -> Found {len(new_found)} new exams!")
+            
+            # 1. Main Exam Filtering
+            main_exams = {}
+            for eid, name in new_found.items():
+                name_lower = name.lower()
+                exclusions = ["retake", "improvement", "special", "clearance", "backlog", "junior", "short", "carry"]
+                if any(ext in name_lower for ext in exclusions):
+                    print(f"    [SKIP] Found non-main exam: {name}")
+                else:
+                    main_exams[eid] = name
+                    
+            if main_exams:
+                # 2. Text Notification (Admin)
+                send_email(dept_name, main_exams)
+                
+                # 3. PDF Batch Automation (Admin + Dept Heads)
+                for eid, name in main_exams.items():
+                    print(f"    [PDF Pipeline] Triggering for: {name}")
+                    auto_pdf_mailer.process_and_mail(pid, dept_name, eid, name)
+            
             any_new = True
             # Update state for this department immediately
             known_state[pid] = list(current_exams.keys())
-            # Anti-spam delay between separate emails
+            # Anti-spam delay
             print("  -> Sleeping 5s for anti-spam...")
             time.sleep(5)
 
