@@ -70,7 +70,7 @@ def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
             
         for test_reg in samples:
             res_data, success = cs.fetch_student_result(test_reg, pro_id, sess_id, exam_id)
-            if success and isinstance(res_data, dict) and 'Total Credit' in res_data:
+            if success and isinstance(res_data, dict) and len(res_data.get('Subjects', [])) > 0:
                 print(f"✅ Empirical Match! Profile '{p_name}' owns this exam.")
                 return p_name, p_data
                 
