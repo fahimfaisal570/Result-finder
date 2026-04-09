@@ -52,12 +52,23 @@ def fetch_current_exams(pro_id):
             print(f"Error fetching for program {pro_id}: {e}")
             return {}
 
-def send_email(dept_name, exams):
+# Department mapping to Github Secrets for Email Routing
+DEPT_EMAIL_SECRETS = {
+    "12": "CIVIL_HEAD_EMAIL", # Civil Engineering
+    "13": "EEE_HEAD_EMAIL",   # EEE
+    "14": "CSE_HEAD_EMAIL"    # CSE
+}
+
+def send_email(dept_name, exams, pro_id):
     smtp_user = os.getenv("EMAIL_USER")
     smtp_pass = os.getenv("EMAIL_PASS")
-    receiver = os.getenv("RECEIVER_EMAIL")
+    admin_receiver = os.getenv("RECEIVER_EMAIL")
+    
+    # Identify Department Head
+    head_secret_key = DEPT_EMAIL_SECRETS.get(str(pro_id))
+    head_email = os.getenv(head_secret_key) if head_secret_key else None
 
-    if not all([smtp_user, smtp_pass, receiver]):
+    if not all([smtp_user, smtp_pass, admin_receiver]):
         print(f"Skipping email for {dept_name}: Missing SMTP credentials.")
         return
 
@@ -78,7 +89,10 @@ def send_email(dept_name, exams):
     
     msg = MIMEMultipart()
     msg['From'] = smtp_user
-    msg['To'] = receiver
+    recipients = [admin_receiver]
+    if head_email:
+        recipients.append(head_email)
+    msg['To'] = ", ".join(recipients)
     msg['Subject'] = subject
     
     # Priority headers to trigger phone notifications
@@ -92,11 +106,11 @@ def send_email(dept_name, exams):
         # Use SSL for Gmail
         server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
         server.login(smtp_user, smtp_pass)
-        server.send_message(msg)
+        server.send_message(msg, to_addrs=recipients)
         server.quit()
-        print(f"Notification email sent to {receiver} for {dept_name}")
+        print(f"✅ Initial Alert sent to {', '.join(recipients)}")
     except Exception as e:
-        print(f"Failed to send email for {dept_name}: {e}")
+        print(f"❌ Failed to send alert email for {dept_name}: {e}")
 
 def main(check_only=False):
     if not os.path.exists(KNOWN_EXAMS_FILE):
@@ -136,8 +150,8 @@ def main(check_only=False):
                         if root_dir not in sys.path: sys.path.append(root_dir)
                         import auto_pdf_mailer
                         
-                        # 3. Text Notification (Admin)
-                        send_email(dept_name, main_exams)
+                        # 3. Text Notification (Admin + Head)
+                        send_email(dept_name, main_exams, pid)
                         
                         # 4. PDF Batch Automation (Admin + Dept Heads)
                         for eid, name in main_exams.items():
