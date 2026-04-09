@@ -58,7 +58,7 @@ def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
         
         # Pick up to 5 evenly distributed standard registration numbers to test
         samples = []
-        std_regs = [str(r) for r in regs_raw if not isinstance(r, list)]
+        std_regs = [str(r[0]) for r in regs_raw if isinstance(r, (list, tuple))]
         if std_regs:
             step = max(1, len(std_regs) // 5)
             samples = std_regs[::step][:5]
