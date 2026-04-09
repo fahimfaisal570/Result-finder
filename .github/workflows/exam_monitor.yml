@@ -38,6 +38,9 @@ jobs:
         EMAIL_USER: ${{ secrets.EMAIL_USER }}
         EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+        CIVIL_HEAD_EMAIL: ${{ secrets.CIVIL_HEAD_EMAIL }}
+        EEE_HEAD_EMAIL: ${{ secrets.EEE_HEAD_EMAIL }}
+        CSE_HEAD_EMAIL: ${{ secrets.CSE_HEAD_EMAIL }}
       run: python exam_monitor/monitor.py
 
     - name: Commit and Push changes
