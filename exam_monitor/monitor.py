@@ -165,5 +165,10 @@ def main(check_only=False):
 
 if __name__ == "__main__":
     import sys
-    check_only = "--check-only" in sys.argv
-    main(check_only=check_only)
+    import traceback
+    try:
+        check_only = "--check-only" in sys.argv
+        main(check_only=check_only)
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)
