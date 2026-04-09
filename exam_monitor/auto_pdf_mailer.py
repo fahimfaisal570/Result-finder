@@ -176,11 +176,12 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     try:
         # options to ensure CSS renders correctly and fits the page
         options = {
-            'page-size': 'A4',
-            'margin-top': '0.75in',
-            'margin-right': '0.75in',
-            'margin-bottom': '0.75in',
-            'margin-left': '0.75in',
+            'page-height': '5000mm', # Force continuous one-page scroll
+            'page-width': '230mm',  # Slightly wider for aesthetics
+            'margin-top': '0mm',
+            'margin-right': '0mm',
+            'margin-bottom': '0mm',
+            'margin-left': '0mm',
             'encoding': "UTF-8",
             'enable-local-file-access': None,
             'quiet': ''

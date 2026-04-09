@@ -605,24 +605,23 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         }
         #cli-report-root .container { max-width: 900px; margin: 0 auto; }
         #cli-report-root .report-block { 
-            background: #fff; padding: 20px; border-radius: 0; margin-bottom: 30px;
+            background: #fff; padding: 25px; border-radius: 0; margin-bottom: 40px;
             border: 1px solid #000;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-            display: inline-block;
-            width: 100%;
+            display: block;
+            box-sizing: border-box;
+            page-break-inside: avoid;
         }
-        #cli-report-root .title-section { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 15px; }
-        #cli-report-root h1 { color: #000; font-size: 24px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 1px; }
+        #cli-report-root .title-section { text-align: center; margin-bottom: 25px; border-bottom: 2px solid #000; padding-bottom: 15px; }
+        #cli-report-root h1 { color: #000; font-size: 26px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 1px; }
         #cli-report-root h2 { 
-            color: #000; font-size: 18px; margin: 15px 0 10px 0; font-weight: bold; 
-            border-left: 4px solid #000; padding-left: 10px;
-            break-after: avoid; page-break-after: avoid;
+            color: #000; font-size: 20px; margin: 20px 0 10px 0; font-weight: bold; 
+            border-left: 5px solid #000; padding-left: 12px;
+            page-break-after: avoid;
         }
-        #cli-report-root .summary-text { font-size: 14px; font-weight: bold; color: #333; }
-        #cli-report-root .table-container { overflow-x: auto; margin-top: 10px; break-inside: avoid; page-break-inside: avoid; }
-        #cli-report-root table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 14px; margin-bottom: 20px; table-layout: fixed; }
-        #cli-report-root tr { break-inside: avoid; page-break-inside: avoid; }
+        #cli-report-root .summary-text { font-size: 15px; font-weight: bold; color: #333; }
+        #cli-report-root .table-container { overflow-x: visible; margin-top: 15px; page-break-inside: avoid; }
+        #cli-report-root table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px; table-layout: auto; }
+        #cli-report-root tr { page-break-inside: avoid; }
         #cli-report-root th { background: #f4f4f4; color: #000; font-weight: bold; text-align: center; text-transform: uppercase; font-size: 13px; }
         #cli-report-root th, #cli-report-root td { padding: 8px 10px; text-align: left; border: 1px solid #000; }
         #cli-report-root td.center { text-align: center; }
