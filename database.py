@@ -322,9 +322,26 @@ def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: st
     Also extracts and stores subject-level grades.
     """
     reg_no = int(res.get('Registration No', res.get('Reg', 0)))
-    sgpa = _parse_gp(res.get('GPA', res.get('SGPA', 0)))
-    cgpa = _parse_gp(res.get('CGPA', 0))
+    raw_sgpa = res.get('GPA', res.get('SGPA', '-'))
+    raw_cgpa = res.get('CGPA', '-')
+    
+    sgpa = _parse_gp(raw_sgpa)
+    cgpa = _parse_gp(raw_cgpa)
     status = str(res.get('Result', res.get('Overall Result', 'Unknown')))
+
+    # Fallback to compute SGPA IFF authorities omitted it explicitly (indicated by '-' or null)
+    # or if it results in 0.0 for a student who is 'Promoted/Passed'
+    is_sgpa_missing = str(raw_sgpa).strip() in ['-', '', 'None']
+    if is_sgpa_missing:
+        subjects = res.get('Subjects', [])
+        if subjects:
+            total_points = sum(_parse_gp(s.get('gp', 0)) * get_subject_credits(s.get('code', ''), profile_name) for s in subjects)
+            total_credits = sum(get_subject_credits(s.get('code', ''), profile_name) for s in subjects)
+            if total_credits > 0:
+                sgpa = round(total_points / total_credits, 2)
+    
+    # We will compute CGPA fallback dynamically on read (in get_student_data_for_exam)
+    # because computing retake-aware CGPA here requires querying the database.
 
     sql = """
         INSERT OR REPLACE INTO exam_results
@@ -651,11 +668,43 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
 
             # Extract SGPA: prefer raw_json GPA field (always stored correctly by scraper)
             sgpa = sgpa_col
-            if sgpa == 0.0 and raw_json_str:
+            raw_sgpa_str = None
+            raw_cgpa_str = None
+            if raw_json_str:
                 try:
                     raw = json.loads(raw_json_str)
-                    sgpa = _parse_gp(raw.get('GPA', raw.get('SGPA', 0)) or 0)
+                    raw_sgpa_str = str(raw.get('GPA', raw.get('SGPA', '-')))
+                    raw_cgpa_str = str(raw.get('CGPA', '-'))
+                    if sgpa == 0.0:
+                        sgpa = _parse_gp(raw_sgpa_str)
                 except Exception:
+                    pass
+
+            # Fallback for missing SGPA IFF it was truly omitted in the scrape
+            if sgpa == 0.0 and grades and (raw_sgpa_str in ['-', '', 'None']):
+                total_points = sum(gp * ch for _, gp, ch in grades)
+                total_credits = sum(ch for _, _, ch in grades)
+                if total_credits > 0:
+                    sgpa = round(total_points / total_credits, 2)
+
+            # Fallback for missing CGPA IFF it was truly omitted in the scrape
+            if (cgpa is None or cgpa == 0.0) and (raw_cgpa_str in ['-', '', 'None']):
+                # Dynamically calculate the retake-aware CGPA up to this specific exam instance
+                try:
+                    calc_cur = conn.execute("""
+                        SELECT MAX(grade_point), credit_hours
+                        FROM subject_grades
+                        WHERE profile_name=? AND reg_no=? AND CAST(exam_id AS INTEGER) <= ?
+                        GROUP BY subject_code
+                    """, (profile_name, reg_no, int(exam_id)))
+                    best_grades = calc_cur.fetchall()
+                    if best_grades:
+                        total_cgpa_points = sum(gp * ch for gp, ch in best_grades if ch > 0)
+                        total_cgpa_credits = sum(ch for gp, ch in best_grades if ch > 0)
+                        if total_cgpa_credits > 0:
+                            cgpa = round(total_cgpa_points / total_cgpa_credits, 2)
+                except ValueError:
+                    # If exam_id happens to be non-integer, skip historical filter
                     pass
 
             # Robust status mapping

@@ -35,7 +35,29 @@ def load_subject_df(profile_name, exam_id):
 def load_exams(profile_name):
     return db.get_exams_for_profile(profile_name)
 
-def get_performance_archetypes(df_pivot, df_main, is_first_sem=False):
+def get_promotion_rules(exam_label):
+    import re
+    promo_target = None
+    is_even_sem = False
+    yr = None
+    
+    yr_match = re.search(r"(\d)[a-z]{2}\s*Yr", exam_label, re.IGNORECASE)
+    sem_match = re.search(r"(\d)[a-z]{2}\s*Sem", exam_label, re.IGNORECASE)
+    
+    if yr_match:
+        yr = int(yr_match.group(1))
+        if yr == 1: promo_target = 2.00
+        elif yr == 2: promo_target = 2.25
+        elif yr == 3: promo_target = 2.50
+        elif yr == 4: promo_target = 2.75
+        
+    if sem_match:
+        sem = int(sem_match.group(1))
+        is_even_sem = (sem == 2)
+        
+    return promo_target, is_even_sem, yr
+
+def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem=False, is_first_sem=False):
     """
     Identifies academic personas based on State (current), Pattern (variance), and Trend (trajectory).
     """
@@ -54,35 +76,58 @@ def get_performance_archetypes(df_pivot, df_main, is_first_sem=False):
     features.set_index('reg_no', inplace=True)
     features['momentum'] = features['sgpa'] - features['cgpa'] if not is_first_sem else 0.0
     
-    # 2. Dynamic Thresholds (Relative Percentiles)
-    p85_sgpa = features['sgpa'].quantile(0.85)
-    p15_sgpa = features['sgpa'].quantile(0.15)
-    high_std = features['std_gp'].median() * 1.5
+    # 2. Dynamic Thresholds (Percentile Quartiles)
+    p75_sgpa = features['sgpa'].quantile(0.75)
+    p50_sgpa = features['sgpa'].quantile(0.50)
+    
     rising_threshold = 0.15
     slipping_threshold = -0.15
 
     # 3. Compound Labeling Heuristic
     def get_compound_status(row):
-        is_specialist = row['std_gp'] >= high_std
+        base = "Average"
+        detail = "Average"
         
-        state = "Steady"
-        if row['sgpa'] >= p85_sgpa or row['cgpa'] >= 3.5:
-            state = "Top"
-        elif row['sgpa'] <= p15_sgpa:
-            state = "At-Risk"
-            
+        # Promotion overrides define the lowest tier
+        if promo_target is not None:
+            if row['cgpa'] < promo_target:
+                if is_even_sem:
+                    base = "Non-Promoted (Failed)"
+                else:
+                    base = "Critical (Action Req.)"
+                detail = base
+            elif row['cgpa'] <= (promo_target + 0.15):
+                base = "At-Risk (Promotion)"
+                detail = base
+                
+        # If not overridden by the absolute promotion system, assign relative batch percentile state
+        if detail == "Average":
+            if row['sgpa'] >= p75_sgpa or row['cgpa'] >= 3.5:
+                base = "Top"
+                detail = "Top"
+            elif row['sgpa'] >= p50_sgpa:
+                base = "Steady"
+                detail = "Steady"
+            else:
+                base = "Average"
+                detail = "Average"
+                
         trend = ""
-        if not is_first_sem:
-            if row['momentum'] >= rising_threshold:
-                trend = " ↑ (Improving)"
-            elif row['momentum'] <= slipping_threshold:
-                trend = " ↓ (Slipping)"
+        if not is_first_sem and row['cgpa'] > 0:
+            # Thorough momentum categorization: Use Percentage Variance instead of flat point difference.
+            # A 0.10 jump is massive for a 3.8 CGPA, but less so for a 2.0 CGPA.
+            variance_ratio = (row['sgpa'] - row['cgpa']) / row['cgpa']
             
-        primary = "Specialist" if is_specialist else state
-        return f"{primary}{trend}"
+            # Subcategory boundary: 5% deviation from historic cumulative norm
+            if variance_ratio >= 0.05:
+                trend = " ↑ (Improving)"
+            elif variance_ratio <= -0.05:
+                trend = " ↓ (Declining)"
+            
+        return pd.Series([f"{base}{trend}", detail])
 
-    features['Archetype'] = features.apply(get_compound_status, axis=1)
-    return features[['Archetype', 'std_gp']]
+    features[['Archetype', 'Detailed_Status']] = features.apply(get_compound_status, axis=1)
+    return features[['Archetype', 'Detailed_Status', 'std_gp']]
 
 def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=False):
     """
@@ -103,9 +148,14 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
     
     # 2. Risk Tally
     if archetypes is not None:
-        risk_mask = archetypes['Archetype'].str.contains("At-Risk|Slipping", case=False)
+        risk_mask = archetypes['Archetype'].str.contains("At Risk", case=False)
         insights['risk_count'] = risk_mask.sum()
         insights['improving_count'] = archetypes['Archetype'].str.contains("Improving", case=False).sum()
+        
+        # Promotion specific trackers mapped via Detailed_Status
+        insights['promo_risk_count'] = archetypes['Detailed_Status'].str.contains("At-Risk \(Promotion\)", case=False).sum()
+        insights['critical_count'] = archetypes['Detailed_Status'].str.contains("Critical", case=False).sum()
+        insights['failed_count'] = archetypes['Detailed_Status'].str.contains("Non-Promoted", case=False).sum()
 
     # 3. Subject Bottlenecks (The "Killer" Subject)
     if not df_sub.empty:
@@ -231,18 +281,24 @@ df_sub  = df_sub_raw[df_sub_raw['subject_code'].isin(selected_subjects)].copy() 
 df_main = df_raw[(df_raw['cgpa'] >= cgpa_range[0]) & (df_raw['cgpa'] <= cgpa_range[1])].copy()
 
 # Resilience Detection: Is this the first semester scan?
-is_first_sem = df_main['cgpa'].sum() == 0
+# In 1st Sem, portal often repeats SGPA as CGPA. Detect by equality or sum.
+is_first_sem = (df_main['cgpa'].sum() == 0) or \
+               (df_main['sgpa'].equals(df_main['cgpa'])) or \
+               ("1st Yr 1st Sem" in selected_label)
 
 df_pivot = pd.DataFrame()
 if not df_sub.empty:
     df_pivot = df_sub.pivot_table(index='reg_no', columns='subject_code', values='gp', aggfunc='first')
+
+# Extract promotion conditions
+promo_target, is_even_sem, promo_yr = get_promotion_rules(selected_label)
 
 # ---------------------------------------------------------------------------
 # STRATEGIC INSIGHT BRIEF
 # ---------------------------------------------------------------------------
 if show_strategic_brief:
     # Pre-calculate personas for the brief
-    archetypes = get_performance_archetypes(df_pivot, df_main, is_first_sem=is_first_sem)
+    archetypes = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem)
     insights = get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=is_first_sem)
     
     with st.container(border=True):
@@ -280,6 +336,19 @@ if show_strategic_brief:
         
         with b_col1:
             st.markdown("##### 🚧 Academic Pressures")
+            
+            # Promotion Warning Injections
+            f_ct = insights.get('failed_count', 0)
+            c_ct = insights.get('critical_count', 0)
+            r_ct = insights.get('promo_risk_count', 0)
+            
+            if f_ct > 0:
+                st.error(f"**🔴 {f_ct} Student(s) Failed Promotion:** Did not meet the Year {promo_yr} **{promo_target} CGPA** threshold.")
+            if c_ct > 0:
+                st.error(f"**🚨 {c_ct} Student(s) Critically At-Risk:** Falling below the {promo_target} threshold mid-year. High probability of failing promotion.")
+            if r_ct > 0:
+                st.warning(f"**⚠️ {r_ct} Student(s) At-Risk:** Hovering dangerously close (+0.15 margin) to the {promo_target} year-end cutoff.")
+            
             if 'bottleneck' in insights:
                 st.warning(f"**Bottleneck Identified:** The subject **{insights['bottleneck']}** has the lowest cohort average (**{insights['bottleneck_gp']} GP**).")
             
@@ -456,7 +525,7 @@ with tabs[1]:
         st.markdown("#### 👽 Performance Personas (Strategic Quadrant)")
         if not df_pivot.empty:
             # Use the new compound persona logic
-            clusters = get_performance_archetypes(df_pivot, df_main, is_first_sem=is_first_sem)
+            clusters = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem)
             if clusters is not None:
                 clust_df = df_main.merge(clusters, left_on='reg_no', right_index=True)
                 clust_df['momentum'] = (clust_df['sgpa'] - clust_df['cgpa']).round(2) if not is_first_sem else 0.0
@@ -466,6 +535,41 @@ with tabs[1]:
                 x_col = 'momentum' if not is_first_sem else 'std_gp'
                 x_title = 'Academic Momentum' if not is_first_sem else 'Subject Variance (Lower = More Consistent)'
                 
+                # High-Contrast Color Mapping for subcategories (Neon=Improving, Base=Solid, Dark/Muted=Declining)
+                color_map = {
+                    "Top": "#2563eb",            # Solid Royal Blue
+                    "Top ↑ (Improving)": "#06b6d4", # Bright Cyan (Total distinction)
+                    "Top ↓ (Declining)": "#1e3a8a", # Deep Dark Navy
+                    
+                    "Steady": "#16a34a",         # Solid Medium Green
+                    "Steady ↑ (Improving)": "#bef264", # Neon Lime Green
+                    "Steady ↓ (Declining)": "#14532d", # Dark Forest Green
+                    
+                    "Average": "#eab308",        # Solid Yellow
+                    "Average ↑ (Improving)": "#fef08a", # Pale Bright Yellow
+                    "Average ↓ (Declining)": "#78350f", # Dark Muddy Brown
+                    
+                    "At-Risk (Promotion)": "#f43f5e",                 # Solid Rose
+                    "At-Risk (Promotion) ↑ (Improving)": "#fda4af",   # Light Rose Pink
+                    "At-Risk (Promotion) ↓ (Declining)": "#9f1239",   # Dark Rose
+                    
+                    "Critical (Action Req.)": "#9333ea",              # Solid Purple
+                    "Critical (Action Req.) ↑ (Improving)": "#d8b4fe",# Bright Lilac
+                    "Critical (Action Req.) ↓ (Declining)": "#581c87",# Deep Purple
+                    
+                    "Non-Promoted (Failed)": "#ef4444",               # Pure Red
+                    "Non-Promoted (Failed) ↑ (Improving)": "#fca5a5", # Bright Light Red
+                    "Non-Promoted (Failed) ↓ (Declining)": "#7f1d1d"  # Near-Black Red
+                }
+
+                # Filter the color map to only include active legends
+                active_domains = []
+                active_ranges = []
+                for k, v in color_map.items():
+                    if k in clust_df['Archetype'].values:
+                        active_domains.append(k)
+                        active_ranges.append(v)
+
                 scatter = alt.Chart(clust_df).mark_circle(size=140).encode(
                     x=alt.X(f'{x_col}:Q', title=x_title, 
                             axis=alt.Axis(grid=True),
@@ -473,13 +577,12 @@ with tabs[1]:
                     y=alt.Y('sgpa:Q', title='Semester GPA (SGPA)', 
                             scale=alt.Scale(domain=[clust_df['sgpa'].min()-0.2, 4.1])),
                     color=alt.Color('Archetype:N', 
-                                   scale=alt.Scale(domain=[s for s in clust_df['Archetype'].unique()], 
-                                                scheme='category10'),
-                                   title='Status & Trend' if not is_first_sem else 'Academic Persona'),
+                                   scale=alt.Scale(domain=active_domains, range=active_ranges),
+                                   title='Status & Trend'),
                     tooltip=['name', 'Archetype',
                              alt.Tooltip('sgpa:Q', format='.2f', title='Current SGPA'),
                              alt.Tooltip('cgpa:Q', format='.2f', title='Historical Average'),
-                             alt.Tooltip('momentum:Q', format='+.2f', title='Delta (Δ)')]
+                             alt.Tooltip(f'{x_col}:Q', format='.2f', title=x_title)]
                 ).properties(height=450).interactive()
                 
                 # Add a vertical zero-line for clarity in momentum mode
