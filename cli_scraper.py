@@ -518,7 +518,8 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
             # Check for float characters or '-'
             if re.match(r'^[\d\.]+$', c) or c == '-' or c.lower() in ['f', 'w', 'wh']:
                 try:
-                    gp_val = str(round(float(c), 2))
+                    # Cap at 4.0 to prevent Marks columns from inflating GPA
+                    gp_val = str(round(min(float(c), 4.0), 2))
                 except (ValueError, TypeError):
                     gp_val = "0.00"
                 break

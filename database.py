@@ -116,22 +116,36 @@ def get_dept_from_profile(profile_name: str) -> str:
     if 'civil' in p: return "Civil"
     return "CSE" # Default fallback
 
-def get_subject_credits(subject_code: str, profile_name: str) -> float:
-    """Lookup credits from the nested PDF mapping, default to 3.0."""
+def get_subject_credits(subject_code: str, profile_name: str, exam_name: str = None) -> float:
+    """Lookup credits from the nested PDF mapping with semester-aware override support."""
     code = str(subject_code).strip().upper().replace(' ', '-')
     dept = get_dept_from_profile(profile_name)
     
-    # Check the specific department bucket first
+    # 1. Semester-aware hard overrides for multi-part subjects (like Thesis)
+    if code == "CE-700" and exam_name:
+        if "2nd Semester" in exam_name:
+            return 3.0
+        if "1st Semester" in exam_name:
+            return 1.5
+
+    # 2. Check for specific Exam Overrides first
+    if exam_name:
+        overrides = _credit_map.get("Overrides", {})
+        # Try to find a match in the exam name
+        for exam_key, subjects in overrides.items():
+            if exam_key in exam_name:
+                if code in subjects:
+                    return subjects[code]
+    
+    # 3. Check the standard department bucket
     dept_map = _credit_map.get(dept, {})
     if code in dept_map:
         return dept_map[code]
     
-    # Fallback: check other departments just in case it's a shared GED/MATH code not caught in dept syllabus
-    for d in _credit_map.values():
-        if code in d:
-            return d[code]
-            
-    return 3.0
+    # 5. Global Fallback Policy
+    # We NO LONGER default to 3.0. Returning None allows the caller
+    # to detect missing mappings and fall back to portal data if needed.
+    return None
 def get_connection():
     """
     Returns a local SQLite database connection.
@@ -247,18 +261,42 @@ def migrate_schema_v2():
         logger.info("Schema v2 migration complete.")
 
 
+def migrate_schema_v3():
+    """
+    Idempotent migration to v3:
+    - Adds portal_sgpa to exam_results for shadow auditing.
+    - Adds portal_cgpa to exam_results for shadow auditing.
+    """
+    with get_connection() as conn:
+        # PRAGMA table_info returns (id, name, type, notnull, dflt_value, pk)
+        cur = conn.execute("PRAGMA table_info(exam_results)")
+        cols = [row[1] for row in cur.fetchall()]
+        
+        if 'portal_sgpa' not in cols:
+            conn.execute("ALTER TABLE exam_results ADD COLUMN portal_sgpa REAL")
+            logger.info("Added portal_sgpa column to exam_results.")
+        
+        if 'portal_cgpa' not in cols:
+            conn.execute("ALTER TABLE exam_results ADD COLUMN portal_cgpa REAL")
+            logger.info("Added portal_cgpa column to exam_results.")
+            
+        conn.commit()
+
+
 # ---------------------------------------------------------------------------
 # Core Upsert Helpers (idempotent — safe to call multiple times)
 # ---------------------------------------------------------------------------
 
 def _parse_gp(value) -> float:
     try:
-        return float(value)
+        val = float(value)
+        # Multi-layered safeguard: Cap at 4.0 to prevent marks/corrupted data from inflating GPA
+        return min(val, 4.0) if val > 0 else 0.0
     except (TypeError, ValueError):
         return 0.0
 
 
-def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects: list, statement_list: list = None):
+def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects: list, exam_name: str = None, statement_list: list = None):
     """
     Insert or replace individual subject grades.
     Includes 'Syllabus-Aware' failure inference.
@@ -306,7 +344,7 @@ def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects
         if not code: continue
         subj_name = str(s.get('name', '')).strip()
         gp = _parse_gp(s.get('gp', 0))
-        ch = get_subject_credits(code, profile_name)
+        ch = get_subject_credits(code, profile_name, exam_name)
         params = (profile_name, reg_no, exam_id, code, subj_name, gp, ch)
         
         if statement_list is not None:
@@ -318,37 +356,61 @@ def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects
 
 def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: str, statement_list: list = None):
     """
-    Idempotent upsert of one student's exam result.
-    Also extracts and stores subject-level grades.
+    Verified Source of Truth: Calculates SGPA locally using verified credits.
+    Stores the portal value in 'portal_sgpa' for background auditing.
     """
     reg_no = int(res.get('Registration No', res.get('Reg', 0)))
-    raw_sgpa = res.get('GPA', res.get('SGPA', '-'))
-    raw_cgpa = res.get('CGPA', '-')
+    raw_sgpa_str = str(res.get('GPA', res.get('SGPA', '-'))).strip()
+    raw_cgpa_str = str(res.get('CGPA', '-')).strip()
     
-    sgpa = _parse_gp(raw_sgpa)
-    cgpa = _parse_gp(raw_cgpa)
+    # Shadow values (what the website claims)
+    portal_sgpa = _parse_gp(raw_sgpa_str)
+    portal_cgpa = _parse_gp(raw_cgpa_str)
+    
     status = str(res.get('Result', res.get('Overall Result', 'Unknown')))
+    subjects = res.get('Subjects', [])
 
-    # Fallback to compute SGPA IFF authorities omitted it explicitly (indicated by '-' or null)
-    # or if it results in 0.0 for a student who is 'Promoted/Passed'
-    is_sgpa_missing = str(raw_sgpa).strip() in ['-', '', 'None']
-    if is_sgpa_missing:
-        subjects = res.get('Subjects', [])
-        if subjects:
-            total_points = sum(_parse_gp(s.get('gp', 0)) * get_subject_credits(s.get('code', ''), profile_name) for s in subjects)
-            total_credits = sum(get_subject_credits(s.get('code', ''), profile_name) for s in subjects)
-            if total_credits > 0:
-                sgpa = round(total_points / total_credits, 2)
+    # Local Verification Logic: Calculate SGPA from our mapping
+    sgpa = 0.0
+    tc = 0.0
+    is_mapping_incomplete = False
     
-    # We will compute CGPA fallback dynamically on read (in get_student_data_for_exam)
-    # because computing retake-aware CGPA here requires querying the database.
+    if subjects:
+        tp = 0.0
+        for s in subjects:
+            code = str(s.get('code', '')).strip().upper().replace(' ', '-')
+            gp = _parse_gp(s.get('gp', 0))
+            ch = get_subject_credits(code, profile_name, exam_name)
+            
+            if ch is None:
+                is_mapping_incomplete = True
+                logger.warning(f"Unknown subject observed: {code} in {profile_name}. Calibration needed.")
+                break
+            tp += gp * ch
+            tc += ch
+        
+        if not is_mapping_incomplete and tc > 0:
+            sgpa = round(tp / tc, 2)
+            
+            # Shadow Audit: Logging drift between local math and portal math
+            if raw_sgpa_str not in ['-', '', 'None'] and abs(sgpa - portal_sgpa) > 0.01:
+                logger.warning(f"Credit Drift Detected [Reg {reg_no} | {profile_name}]: Portal says {portal_sgpa}, We calculated {sgpa}.")
+        else:
+            # Fallback to portal SGPA IF we can't calculate it locally (mapping missing)
+            sgpa = portal_sgpa
+    else:
+        # Fallback if no subjects list was extracted at all
+        sgpa = portal_sgpa
+
+    # CGPA remains primarily portal-sourced as it requires multi-exam history
+    cgpa = portal_cgpa
 
     sql = """
         INSERT OR REPLACE INTO exam_results
-            (profile_name, reg_no, exam_id, exam_name, result_status, sgpa, cgpa, raw_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (profile_name, reg_no, exam_id, exam_name, result_status, sgpa, cgpa, portal_sgpa, portal_cgpa, raw_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
-    params = (profile_name, reg_no, exam_id, exam_name, status, sgpa, cgpa, json.dumps(res))
+    params = (profile_name, reg_no, exam_id, exam_name, status, sgpa, cgpa, portal_sgpa, portal_cgpa, json.dumps(res))
 
     if statement_list is not None:
         statement_list.append((sql, params))
@@ -356,9 +418,8 @@ def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: st
         with get_connection() as conn:
             conn.execute(sql, params)
 
-    # Now upsert subject grades from raw_json
-    subjects = res.get('Subjects', [])
-    upsert_subject_grades(profile_name, reg_no, exam_id, subjects, statement_list)
+    # Now upsert subject grades
+    upsert_subject_grades(profile_name, reg_no, exam_id, subjects, exam_name, statement_list)
 
 
 def upsert_student(profile_name: str, reg_no: int, name: str, sess_id: str, statement_list: list = None):
@@ -864,4 +925,5 @@ def migrate_legacy_json():
 # ---------------------------------------------------------------------------
 init_db()
 migrate_schema_v2()
+migrate_schema_v3()
 migrate_legacy_json()
