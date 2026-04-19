@@ -14,6 +14,9 @@ from __future__ import print_function
 import os
 import sys
 import time
+import datetime
+def get_bd_time():
+    return datetime.datetime.utcnow() + datetime.timedelta(hours=6)
 import re
 import ssl
 import subprocess
@@ -597,6 +600,7 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
             cgpa = float(res['CGPA'])
             valid_cgpa_results.append((cgpa, res))
         except (ValueError, TypeError): pass
+    valid_cgpa_results.sort(key=lambda x: x[0], reverse=True)
     css = """
     <style>
         body { 
@@ -635,7 +639,7 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
     """
 
     import datetime
-    timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp_str = get_bd_time().strftime("%Y-%m-%d %H:%M:%S")
 
     html = ["<div id='cli-report-root'>", css, "<div class='container'>"]
     
@@ -1111,7 +1115,7 @@ def manage_profiles(programs, sessions):
                         for name, data in imp_data.items():
                             final_name = name
                             if final_name in batch_manager.profiles:
-                                final_name = name + "_imported_" + time.strftime("%H%M%S")
+                                final_name = name + "_imported_" + get_bd_time().strftime("%H%M%S")
                             batch_manager.profiles[final_name] = data
                             count += 1
                         batch_manager.save_profiles()
@@ -1467,7 +1471,7 @@ def manage_profiles(programs, sessions):
                                 to_export[name] = batch_manager.profiles[name]
                     
                     if to_export:
-                        ts = time.strftime("%Y%m%d_%H%M%S")
+                        ts = get_bd_time().strftime("%Y%m%d_%H%M%S")
                         fname = "ducmc_export_{}.json".format(ts)
                         downloads_dir = "/storage/emulated/0/Download"
                         export_dir = downloads_dir if os.path.exists(downloads_dir) else SCRIPT_DIR
@@ -1700,7 +1704,7 @@ def generate_transcript_report(records, title, name, return_html=False):
     # Wrap in standard HTML for saving to file
     html_file = f"<html><head><meta charset='utf-8'><title>Student Record - {name}</title></head><body>{html}</body></html>"
 
-    fname = "Student_Record_{}_{}.html".format(name.replace(" ", "_"), time.strftime("%H%M%S"))
+    fname = "Student_Record_{}_{}.html".format(name.replace(" ", "_"), get_bd_time().strftime("%H%M%S"))
     downloads_dir = "/storage/emulated/0/Download"
     fpath = os.path.join(downloads_dir if os.path.exists(downloads_dir) else SCRIPT_DIR, fname)
     with open(fpath, "w", encoding="utf-8") as f: f.write(html_file)
@@ -1874,7 +1878,7 @@ def main():
         return
     
     clean_exam_name = "".join([c if c.isalnum() else "_" for c in str(exam_name)])[:50]
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    timestamp = get_bd_time().strftime("%Y%m%d_%H%M%S")
     fname = "Results_{0}_{1}.html".format(clean_exam_name, timestamp)
     downloads_dir = "/storage/emulated/0/Download"
     fpath = os.path.join(downloads_dir if os.path.exists(downloads_dir) else SCRIPT_DIR, fname)

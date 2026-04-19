@@ -5,7 +5,9 @@ import os
 import smtplib
 import time
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
+def get_bd_time():
+    return datetime.utcnow() + timedelta(hours=6)
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 # auto_pdf_mailer import is now deferred to main() to allow fast-boot detection without dependencies.
@@ -75,7 +77,7 @@ def send_email(dept_name, exams, pro_id):
     subject = f"🔔 New Exam: {dept_name}"
     
     # Generate a unique notification ID for anti-spam
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = get_bd_time().strftime("%Y-%m-%d %H:%M:%S")
     content_hash = hashlib.md5(f"{dept_name}{list(exams.keys())}{timestamp}".encode()).hexdigest()[:8]
     
     body = f"Academic results for the Department of {dept_name} have been published on the central university portal.\n\n"
