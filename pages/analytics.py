@@ -57,7 +57,7 @@ def get_promotion_rules(exam_label):
         
     return promo_target, is_even_sem, yr
 
-def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem=False, is_first_sem=False):
+def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem=False, is_first_sem=False, promo_yr=None):
     """
     Identifies academic personas based on State (current), Pattern (variance), and Trend (trajectory).
     """
@@ -94,7 +94,15 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
                 if is_even_sem:
                     base = "Non-Promoted (Failed)"
                 else:
-                    base = "Critical (Action Req.)"
+                    if promo_yr is not None:
+                        sem_index = (promo_yr * 2) - 1
+                        max_possible_cgpa = ((row['cgpa'] * sem_index) + (4.00 * 1.1)) / (sem_index + 1.1)
+                        if max_possible_cgpa < promo_target:
+                            base = "Readd"
+                        else:
+                            base = "Critical (Action Req.)"
+                    else:
+                        base = "Critical (Action Req.)"
                 detail = base
             elif row['cgpa'] <= (promo_target + 0.15):
                 base = "At-Risk (Promotion)"
@@ -155,7 +163,8 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
         # Promotion specific trackers mapped via Detailed_Status
         insights['promo_risk_count'] = archetypes['Detailed_Status'].str.contains("At-Risk \(Promotion\)", case=False).sum()
         insights['critical_count'] = archetypes['Detailed_Status'].str.contains("Critical", case=False).sum()
-        insights['failed_count'] = archetypes['Detailed_Status'].str.contains("Non-Promoted", case=False).sum()
+        insights['math_fail_count'] = archetypes['Detailed_Status'].str.contains("Readd", case=False).sum()
+        insights['failed_count'] = archetypes['Detailed_Status'].str.contains("Non-Promoted \(Failed\)", case=False).sum()
 
     # 3. Subject Bottlenecks (The "Killer" Subject)
     if not df_sub.empty:
@@ -298,7 +307,7 @@ promo_target, is_even_sem, promo_yr = get_promotion_rules(selected_label)
 # ---------------------------------------------------------------------------
 if show_strategic_brief:
     # Pre-calculate personas for the brief
-    archetypes = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem)
+    archetypes = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
     insights = get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=is_first_sem)
     
     with st.container(border=True):
@@ -338,10 +347,13 @@ if show_strategic_brief:
             st.markdown("##### 🚧 Academic Pressures")
             
             # Promotion Warning Injections
+            m_ct = insights.get('math_fail_count', 0)
             f_ct = insights.get('failed_count', 0)
             c_ct = insights.get('critical_count', 0)
             r_ct = insights.get('promo_risk_count', 0)
             
+            if m_ct > 0:
+                st.error(f"**⛔ {m_ct} Student(s) Readd Alert:** Deficit too high to reach Year {promo_yr} **{promo_target} CGPA** threshold even with perfect SGPA next semester.")
             if f_ct > 0:
                 st.error(f"**🔴 {f_ct} Student(s) Failed Promotion:** Did not meet the Year {promo_yr} **{promo_target} CGPA** threshold.")
             if c_ct > 0:
@@ -525,7 +537,7 @@ with tabs[1]:
         st.markdown("#### 👽 Performance Personas (Strategic Quadrant)")
         if not df_pivot.empty:
             # Use the new compound persona logic
-            clusters = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem)
+            clusters = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
             if clusters is not None:
                 clust_df = df_main.merge(clusters, left_on='reg_no', right_index=True)
                 clust_df['momentum'] = (clust_df['sgpa'] - clust_df['cgpa']).round(2) if not is_first_sem else 0.0
@@ -559,7 +571,11 @@ with tabs[1]:
                     
                     "Non-Promoted (Failed)": "#ef4444",               # Pure Red
                     "Non-Promoted (Failed) ↑ (Improving)": "#fca5a5", # Bright Light Red
-                    "Non-Promoted (Failed) ↓ (Declining)": "#7f1d1d"  # Near-Black Red
+                    "Non-Promoted (Failed) ↓ (Declining)": "#7f1d1d", # Near-Black Red
+                    
+                    "Readd": "#b91c1c",         # Darker Red
+                    "Readd ↑ (Improving)": "#f87171",
+                    "Readd ↓ (Declining)": "#450a0a"
                 }
 
                 # Filter the color map to only include active legends
@@ -570,7 +586,9 @@ with tabs[1]:
                         active_domains.append(k)
                         active_ranges.append(v)
 
-                scatter = alt.Chart(clust_df).mark_circle(size=140).encode(
+                danger_archetypes = [a for a in active_domains if "Readd" in a or "Non-Promoted" in a]
+                
+                base_scatter = alt.Chart(clust_df).mark_circle(size=140).encode(
                     x=alt.X(f'{x_col}:Q', title=x_title, 
                             axis=alt.Axis(grid=True),
                             scale=alt.Scale(domain=[clust_df[x_col].min()-0.1, clust_df[x_col].max()+0.1])),
@@ -579,11 +597,29 @@ with tabs[1]:
                     color=alt.Color('Archetype:N', 
                                    scale=alt.Scale(domain=active_domains, range=active_ranges),
                                    title='Status & Trend'),
+                    opacity=alt.condition(
+                        alt.FieldOneOfPredicate(field='Archetype', oneOf=danger_archetypes),
+                        alt.value(0.0),
+                        alt.value(1.0)
+                    ),
                     tooltip=['name', 'Archetype',
                              alt.Tooltip('sgpa:Q', format='.2f', title='Current SGPA'),
                              alt.Tooltip('cgpa:Q', format='.2f', title='Historical Average'),
                              alt.Tooltip(f'{x_col}:Q', format='.2f', title=x_title)]
-                ).properties(height=450).interactive()
+                )
+                
+                df_danger = clust_df[clust_df['Archetype'].isin(danger_archetypes)]
+                if not df_danger.empty:
+                    danger_overlay = alt.Chart(df_danger).mark_text(text='⛔', size=14).encode(
+                        x=f'{x_col}:Q', y='sgpa:Q',
+                        tooltip=['name', 'Archetype',
+                                 alt.Tooltip('sgpa:Q', format='.2f', title='Current SGPA'),
+                                 alt.Tooltip('cgpa:Q', format='.2f', title='Historical Average'),
+                                 alt.Tooltip(f'{x_col}:Q', format='.2f', title=x_title)]
+                    )
+                    scatter = (base_scatter + danger_overlay).properties(height=450).interactive()
+                else:
+                    scatter = base_scatter.properties(height=450).interactive()
                 
                 # Add a vertical zero-line for clarity in momentum mode
                 final_chart = scatter
