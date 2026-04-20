@@ -442,7 +442,7 @@ with tabs[0]:
             color=alt.Color("Status:N", scale=alt.Scale(
                 domain=['Passed (1st Chance)', 'Failed (Any Subject)'],
                 range=['#10b981', '#ef4444']
-            )),
+            ), legend=alt.Legend(orient="bottom")),
             tooltip=['Status', 'Count']
         ).properties(height=300)
         st.altair_chart(pie, use_container_width=True)
@@ -547,6 +547,10 @@ with tabs[1]:
                 x_col = 'momentum' if not is_first_sem else 'std_gp'
                 x_title = 'Academic Momentum' if not is_first_sem else 'Subject Variance (Lower = More Consistent)'
                 
+                # Mobile-first locator selectbox
+                student_list = ["None"] + sorted(clust_df['name'].unique().tolist())
+                spotlight_student = st.selectbox("🔍 Spotlight Focus (Find Student)", student_list, index=0)
+                
                 # High-Contrast Color Mapping for subcategories (Neon=Improving, Base=Solid, Dark/Muted=Declining)
                 color_map = {
                     "Top": "#2563eb",            # Solid Royal Blue
@@ -588,7 +592,7 @@ with tabs[1]:
 
                 danger_archetypes = [a for a in active_domains if "Readd" in a or "Non-Promoted" in a]
                 
-                base_scatter = alt.Chart(clust_df).mark_circle(size=140).encode(
+                base_scatter = alt.Chart(clust_df).mark_circle(size=250).encode(
                     x=alt.X(f'{x_col}:Q', title=x_title, 
                             axis=alt.Axis(grid=True),
                             scale=alt.Scale(domain=[clust_df[x_col].min()-0.1, clust_df[x_col].max()+0.1])),
@@ -596,6 +600,7 @@ with tabs[1]:
                             scale=alt.Scale(domain=[clust_df['sgpa'].min()-0.2, 4.1])),
                     color=alt.Color('Archetype:N', 
                                    scale=alt.Scale(domain=active_domains, range=active_ranges),
+                                   legend=alt.Legend(orient="bottom", columns=2, titleLimit=0, labelLimit=0),
                                    title='Status & Trend'),
                     opacity=alt.condition(
                         alt.FieldOneOfPredicate(field='Archetype', oneOf=danger_archetypes),
@@ -610,7 +615,7 @@ with tabs[1]:
                 
                 df_danger = clust_df[clust_df['Archetype'].isin(danger_archetypes)]
                 if not df_danger.empty:
-                    danger_overlay = alt.Chart(df_danger).mark_text(text='⛔', size=14).encode(
+                    danger_overlay = alt.Chart(df_danger).mark_text(text='⛔', size=18).encode(
                         x=f'{x_col}:Q', y='sgpa:Q',
                         tooltip=['name', 'Archetype',
                                  alt.Tooltip('sgpa:Q', format='.2f', title='Current SGPA'),
@@ -620,6 +625,14 @@ with tabs[1]:
                     scatter = (base_scatter + danger_overlay).properties(height=450).interactive()
                 else:
                     scatter = base_scatter.properties(height=450).interactive()
+                    
+                if spotlight_student != "None":
+                    df_spot = clust_df[clust_df['name'] == spotlight_student]
+                    if not df_spot.empty:
+                        spot_overlay = alt.Chart(df_spot).mark_circle(
+                            size=700, color='transparent', stroke='#fbbf24', strokeWidth=3
+                        ).encode(x=f'{x_col}:Q', y='sgpa:Q')
+                        scatter = scatter + spot_overlay
                 
                 # Add a vertical zero-line for clarity in momentum mode
                 final_chart = scatter
@@ -630,6 +643,12 @@ with tabs[1]:
                 st.altair_chart(final_chart, use_container_width=True)
                 caption = "🚀 **Right of center**: Improving performance | 🏛️ **Top Quadrant**: Excellence" if not is_first_sem else "🏛️ **Top Quadrant**: Excellence | 🎯 **Specialists**: Identified by subject variance."
                 st.caption(caption)
+                
+                # Mobile-Friendly Companion Data Table
+                with st.expander("🗃️ View Quadrant Data Matrix (Tap-Free)"):
+                    st_view_df = clust_df[['reg_no', 'name', 'sgpa', 'cgpa', 'Archetype']].sort_values('sgpa', ascending=False)
+                    st_view_df = st_view_df.rename(columns={'reg_no': 'Reg', 'name': 'Name', 'sgpa': 'SGPA', 'cgpa': 'CGPA', 'Archetype': 'Status'})
+                    st.dataframe(st_view_df, use_container_width=True, hide_index=True)
             else:
                 st.info("Not enough students for clustering (need ≥4 with complete subject data).")
         else:
@@ -646,7 +665,7 @@ with tabs[1]:
             heatmap = alt.Chart(corr_flat).mark_rect().encode(
                 x=alt.X('Subject A:N', axis=alt.Axis(labelAngle=-45)),
                 y='Subject B:N',
-                color=alt.Color('Correlation:Q', scale=alt.Scale(scheme='redblue', domain=[-1, 1])),
+                color=alt.Color('Correlation:Q', scale=alt.Scale(scheme='redblue', domain=[-1, 1]), legend=alt.Legend(orient="bottom", title="Correlation", gradientLength=200, titleLimit=0)),
                 tooltip=['Subject A', 'Subject B', alt.Tooltip('Correlation:Q', format='.2f')]
             ).properties(height=400, width='container')
             st.altair_chart(heatmap, use_container_width=True)
