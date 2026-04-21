@@ -87,6 +87,14 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
     def get_compound_status(row):
         base = "Average"
         detail = "Average"
+        target_sgpa = 0.0
+
+        if promo_target is not None and promo_yr is not None:
+            sem_index = (promo_yr * 2) - 1
+            # Calculate target SGPA to reach promo_target by end of year
+            # Inverse of: max_possible_cgpa = ((row['cgpa'] * sem_index) + (S * 1.1)) / (sem_index + 1.1)
+            target_sgpa = (promo_target * (sem_index + 1.1) - row['cgpa'] * sem_index) / 1.1
+            target_sgpa = max(0.0, round(target_sgpa, 2))
         
         # Promotion overrides define the lowest tier
         if promo_target is not None:
@@ -122,20 +130,16 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
                 
         trend = ""
         if not is_first_sem and row['cgpa'] > 0:
-            # Thorough momentum categorization: Use Percentage Variance instead of flat point difference.
-            # A 0.10 jump is massive for a 3.8 CGPA, but less so for a 2.0 CGPA.
             variance_ratio = (row['sgpa'] - row['cgpa']) / row['cgpa']
-            
-            # Subcategory boundary: 5% deviation from historic cumulative norm
             if variance_ratio >= 0.05:
                 trend = " ↑ (Improving)"
             elif variance_ratio <= -0.05:
                 trend = " ↓ (Declining)"
             
-        return pd.Series([f"{base}{trend}", detail])
+        return pd.Series([f"{base}{trend}", detail, target_sgpa])
 
-    features[['Archetype', 'Detailed_Status']] = features.apply(get_compound_status, axis=1)
-    return features[['Archetype', 'Detailed_Status', 'std_gp']]
+    features[['Archetype', 'Detailed_Status', 'Target_SGPA']] = features.apply(get_compound_status, axis=1)
+    return features[['Archetype', 'Detailed_Status', 'std_gp', 'Target_SGPA']]
 
 def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=False):
     """
@@ -170,8 +174,9 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
         arc_with_info = archetypes.merge(df_main[['reg_no', 'name']], left_index=True, right_on='reg_no', how='left').set_index('reg_no')
         def _student_list(mask_series):
             regs = archetypes[mask_series].index.tolist()
-            rows = arc_with_info.loc[arc_with_info.index.isin(regs), 'name'].reset_index()
-            return [(r['reg_no'], r['name']) for _, r in rows.iterrows()]
+            rows = arc_with_info.loc[arc_with_info.index.isin(regs), ['name', 'Target_SGPA']].reset_index()
+            return [(r['reg_no'], r['name'], r['Target_SGPA']) for _, r in rows.iterrows()]
+        
         insights['readd_students']    = _student_list(archetypes['Detailed_Status'].str.contains("Readd", case=False))
         insights['failed_students']   = _student_list(archetypes['Detailed_Status'].str.contains("Non-Promoted \(Failed\)", case=False))
         insights['critical_students'] = _student_list(archetypes['Detailed_Status'].str.contains("Critical", case=False))
@@ -463,9 +468,10 @@ if show_strategic_brief:
             c_ct = insights.get('critical_count', 0)
             r_ct = insights.get('promo_risk_count', 0)
             
-            def _render_student_list(student_pairs):
-                for reg, name in student_pairs:
-                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• **{name}** `{reg}`")
+            def _render_student_list(student_data):
+                for reg, name, target in student_data:
+                    target_str = f"Target: **{target:.2f}**" if target <= 4.0 else "**Impossible (>4.0)**"
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• **{name}** `{reg}` &nbsp;|&nbsp; Next Sem {target_str}")
 
             if m_ct > 0:
                 st.error(f"**⛔ {m_ct} Student(s) Readd Alert:** Deficit too high to reach Year {promo_yr} **{promo_target} CGPA** threshold even with perfect SGPA next semester.")
