@@ -509,12 +509,18 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
         if not code:
             continue
             
-        # Find GP: usually the last cell that looks like a number or '-'
+        # 4. Extract Grade and GP (Restricted to cells AFTER the code to avoid Serial No confusion)
         gp_val = "0.00"
         grade_val = "-"
         
-        # Look for the grade point (usually the last numeric-ish cell)
-        for c in reversed(cells):
+        try:
+            code_idx = cells.index(code)
+            search_area = cells[code_idx+1:]
+        except:
+            search_area = cells # Fallback if indexing fails
+            
+        # Find GP: usually the last numeric-ish cell in the search area
+        for c in reversed(search_area):
             # Check for float characters or '-'
             if re.match(r'^[\d\.]+$', c) or c == '-' or c.lower() in ['f', 'w', 'wh']:
                 try:
@@ -524,9 +530,8 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
                     gp_val = "0.00"
                 break
         
-        # Find Grade: A single/double letter (A, B+, F) - usually next to or before GP
-        # We look for the cell containing common grade letters
-        for c in cells:
+        # Find Grade: A single/double letter (A, B+, F) in the search area
+        for c in search_area:
             if re.match(r'^[A-D][\+\-]?$|^\bF\b$|^\bI\b$|^\bW\b$', c, re.I):
                 grade_val = c
                 break
