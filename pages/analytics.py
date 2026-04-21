@@ -295,6 +295,105 @@ show_strategic_brief = st.sidebar.toggle("📜 Strategic Insights Mode", value=F
 st.sidebar.info("Analytics engine optimized for university graduation standards.")
 
 # ---------------------------------------------------------------------------
+# INCOMPLETE HISTORY DETECTION (Readd / Cross-Batch Students)
+# Checks if any student has fewer exam records than the profile's scan count.
+# This is the signature of a readd student whose previous batch semesters
+# were never scanned into this profile.
+# ---------------------------------------------------------------------------
+_incomplete_students = db.get_incomplete_history_students(profile_name)
+if _incomplete_students:
+    with st.expander(
+        f"⚠️ Incomplete Scan History Detected — {len(_incomplete_students)} Student(s)",
+        expanded=True
+    ):
+        st.warning(
+            "The following student(s) have fewer semester records than this batch has published. "
+            "They are likely **readd students** whose Year 1 results exist under a previous batch. "
+            "Click **Scan & Fix** to retrieve their full academic history from the portal and recalculate their CGPA accurately.",
+            icon="🔍"
+        )
+
+        _p_data    = profiles.get(profile_name, {})
+        _pro_id    = _p_data.get("pro_id", "")
+
+        for _s in _incomplete_students:
+            _col1, _col2 = st.columns([4, 1])
+            _col1.markdown(
+                f"**{_s['name']}** &nbsp; `{_s['reg_no']}` &nbsp;|&nbsp; "
+                f"Found **{_s['student_exam_count']}** / **{_s['profile_exam_count']}** semester(s)"
+            )
+            _fix_key = f"fix_{profile_name}_{_s['reg_no']}"
+            if _col2.button("🔄 Scan & Fix", key=_fix_key, type="primary"):
+                import cli_scraper as cs
+                import re as _re
+
+                st.info(f"🔍 Scanning full academic history for **{_s['name']}** ({_s['reg_no']})…")
+
+                # Fetch portal session list and full exam catalogue for this program
+                with st.spinner("Fetching portal data…"):
+                    _programs, _sessions = cs.fetch_programs_and_sessions()
+                    _all_exams = cs.fetch_exams(_pro_id) if _pro_id else {}
+
+                if not _all_exams:
+                    st.error("❌ Could not load exam list. Portal may be down.")
+                else:
+                    # Smart Scope: filter exams to the student's cohort year
+                    _sess_id = _s.get("sess_id", "AUTO") or "AUTO"
+                    _start_year = 0
+                    if _sess_id and _sess_id != "AUTO":
+                        _sname = _sessions.get(_sess_id, "")
+                        _ym = _re.search(r"20(\d{2})", _sname)
+                        if _ym:
+                            _start_year = int("20" + _ym.group(1))
+
+                    _YEAR_PAT = _re.compile(r'\b(20\d{2})\b')
+                    _filtered_eids = []
+                    for _eid, _ename in _all_exams.items():
+                        if _start_year:
+                            _ey_matches = _YEAR_PAT.findall(_ename)
+                            _ey = int(_ey_matches[-1]) if _ey_matches else 0
+                            if _ey and _ey < (_start_year - 1):
+                                continue
+                        _filtered_eids.append(_eid)
+
+                    _tasks = [(_s['reg_no'], _sess_id, _eid) for _eid in _filtered_eids]
+
+                    _prog_bar = st.progress(0, text=f"Scanning {len(_filtered_eids)} exams…")
+                    def _fix_progress(cur, tot, txt=None):
+                        _prog_bar.progress(cur / tot if tot else 0,
+                                           text=txt or f"Scanned {cur}/{tot}")
+
+                    with st.spinner("Running deep scan (1–3 min)…"):
+                        _history = cs.run_batch_scan_engine(
+                            tasks=_tasks,
+                            pro_id=_pro_id,
+                            exam_id="0",
+                            all_sessions=_sessions,
+                            progress_callback=_fix_progress,
+                            num_threads=15
+                        )
+                    _prog_bar.empty()
+
+                    if not _history:
+                        st.warning("No results found. Portal may be busy. Try again later.")
+                    else:
+                        _saved = db.save_cross_batch_history(
+                            profile_name=profile_name,
+                            reg_no=_s['reg_no'],
+                            scanned_history=_history,
+                            exam_name_map=_all_exams
+                        )
+                        if _saved:
+                            st.success(
+                                f"✅ Successfully resolved **{_saved}** semester(s) for "
+                                f"**{_s['name']}**. Analytics will now reflect the correct CGPA."
+                            )
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.warning("Scan completed but no new main semester data was found for this student.")
+
+# ---------------------------------------------------------------------------
 # Apply filters
 # ---------------------------------------------------------------------------
 df_sub  = df_sub_raw[df_sub_raw['subject_code'].isin(selected_subjects)].copy() if not df_sub_raw.empty else df_sub_raw
@@ -312,6 +411,7 @@ if not df_sub.empty:
 
 # Extract promotion conditions
 promo_target, is_even_sem, promo_yr = get_promotion_rules(selected_label)
+
 
 # ---------------------------------------------------------------------------
 # STRATEGIC INSIGHT BRIEF

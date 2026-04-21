@@ -809,7 +809,143 @@ def get_subject_data_for_exam(profile_name: str, exam_id: str) -> list:
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
+
+# ---------------------------------------------------------------------------
+# Readd / Incomplete History Resolution
+# ---------------------------------------------------------------------------
+
+def get_incomplete_history_students(profile_name: str) -> list:
+    """
+    Detects students whose exam result count is less than the number of
+    exam scans in this profile's scan_log.
+
+    A student with fewer results than the profile's exam count is likely a
+    readd student whose earlier semesters (from a previous batch) were never
+    scanned into this profile.
+
+    Returns list of dicts: {reg_no, name, sess_id, student_exam_count, profile_exam_count}
+    """
+    with get_connection() as conn:
+        profile_exam_count = conn.execute(
+            "SELECT COUNT(*) FROM scan_log WHERE profile_name=?",
+            (profile_name,)
+        ).fetchone()[0]
+
+        if profile_exam_count == 0:
+            return []
+
+        cur = conn.execute("""
+            SELECT s.reg_no, s.name, s.sess_id,
+                   COUNT(DISTINCT er.exam_id) as student_exam_count
+            FROM students s
+            LEFT JOIN exam_results er
+                   ON s.profile_name = er.profile_name AND s.reg_no = er.reg_no
+            WHERE s.profile_name=?
+            GROUP BY s.reg_no
+            HAVING COUNT(DISTINCT er.exam_id) < ?
+            ORDER BY student_exam_count ASC
+        """, (profile_name, profile_exam_count))
+
+        results = []
+        for row in cur.fetchall():
+            results.append({
+                "reg_no":               row[0],
+                "name":                 row[1],
+                "sess_id":              row[2],
+                "student_exam_count":   row[3],
+                "profile_exam_count":   profile_exam_count,
+            })
+        return results
+
+
+def save_cross_batch_history(
+    profile_name: str,
+    reg_no: int,
+    scanned_history: list,
+    exam_name_map: dict
+) -> int:
+    """
+    Saves intelligently filtered cross-batch history for a readd student.
+
+    Process:
+    1. Attaches exam names from exam_name_map and filters out retake/improvement exams.
+    2. Groups remaining (main) exams by their semester label
+       (e.g. "1st year 1st Semester") extracted from the exam name.
+    3. For each semester group, keeps only the result with the highest numeric exam_id
+       ('latest exam wins' — handles students who repeated a semester due to readd).
+    4. Saves the winning results under (profile_name, reg_no) via the standard upsert
+       pipeline, so the existing CGPA calculation works automatically.
+
+    Returns the number of semester results saved.
+    """
+    RETAKE_KEYWORDS = [
+        "retake", "re-take", "improvement", "special",
+        "make-up", "makeup", "supplementary"
+    ]
+    # Matches patterns like "1st year 1st Semester", "2nd year 2nd Semester", etc.
+    SEM_PATTERN = re.compile(
+        r'(\d+(?:st|nd|rd|th)\s+year\s+\d+(?:st|nd|rd|th)\s+semester)',
+        re.IGNORECASE
+    )
+
+    # Step 1: Attach resolved exam names and filter retake/improvement exams
+    main_exams = []
+    for res in scanned_history:
+        eid = str(res.get('_exam_id', ''))
+        ename = exam_name_map.get(eid, res.get('_exam_name', ''))
+        if not ename:
+            continue
+        if any(kw in ename.lower() for kw in RETAKE_KEYWORDS):
+            continue
+        # Work on a copy to avoid mutating the caller's data
+        r = dict(res)
+        r['_resolved_exam_name'] = ename
+        r['_exam_id'] = eid
+        main_exams.append(r)
+
+    if not main_exams:
+        return 0
+
+    # Step 2: Group by semester label, keep latest exam_id per group
+    semester_groups = {}  # sem_label -> (exam_id_int, result_dict)
+    for res in main_exams:
+        ename = res['_resolved_exam_name']
+        m = SEM_PATTERN.search(ename)
+        sem_label = m.group(1).lower().strip() if m else ename.lower()
+
+        try:
+            eid_int = int(res['_exam_id'])
+        except (ValueError, TypeError):
+            eid_int = 0
+
+        if sem_label not in semester_groups:
+            semester_groups[sem_label] = (eid_int, res)
+        else:
+            current_eid, _ = semester_groups[sem_label]
+            if eid_int > current_eid:
+                semester_groups[sem_label] = (eid_int, res)
+
+    # Step 3: Save each winning semester result under the current profile
+    stmts = []
+    for sem_label, (eid_int, res) in semester_groups.items():
+        exam_id  = str(res['_exam_id'])
+        exam_name = res['_resolved_exam_name']
+        upsert_exam_result(profile_name, res, exam_id, exam_name, stmts)
+
+    if stmts:
+        with get_connection() as conn:
+            for sql, params in stmts:
+                conn.execute(sql, params)
+
+    logger.info(
+        f"save_cross_batch_history: saved {len(semester_groups)} semester(s) "
+        f"for reg_no={reg_no} under profile='{profile_name}'"
+    )
+    return len(semester_groups)
+
+
 def delete_exam(profile_name: str, exam_id: str):
+
     """
     Permanently deletes all data for a specific exam scan.
     Student roster is preserved — only exam_results, subject_grades,
