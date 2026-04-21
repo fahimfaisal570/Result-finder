@@ -166,6 +166,17 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
         insights['math_fail_count'] = archetypes['Detailed_Status'].str.contains("Readd", case=False).sum()
         insights['failed_count'] = archetypes['Detailed_Status'].str.contains("Non-Promoted \(Failed\)", case=False).sum()
 
+        # Collect student reg_no + name lists for each alert category
+        arc_with_info = archetypes.merge(df_main[['reg_no', 'name']], left_index=True, right_on='reg_no', how='left').set_index('reg_no')
+        def _student_list(mask_series):
+            regs = archetypes[mask_series].index.tolist()
+            rows = arc_with_info.loc[arc_with_info.index.isin(regs), 'name'].reset_index()
+            return [(r['reg_no'], r['name']) for _, r in rows.iterrows()]
+        insights['readd_students']    = _student_list(archetypes['Detailed_Status'].str.contains("Readd", case=False))
+        insights['failed_students']   = _student_list(archetypes['Detailed_Status'].str.contains("Non-Promoted \(Failed\)", case=False))
+        insights['critical_students'] = _student_list(archetypes['Detailed_Status'].str.contains("Critical", case=False))
+        insights['risk_students']     = _student_list(archetypes['Detailed_Status'].str.contains("At-Risk \(Promotion\)", case=False))
+
     # 3. Subject Bottlenecks (The "Killer" Subject)
     if not df_sub.empty:
         sub_stats = df_sub[df_sub['gp'] >= 0].groupby(['subject_code', 'subject_name'])['gp'].mean().reset_index()
@@ -352,14 +363,22 @@ if show_strategic_brief:
             c_ct = insights.get('critical_count', 0)
             r_ct = insights.get('promo_risk_count', 0)
             
+            def _render_student_list(student_pairs):
+                for reg, name in student_pairs:
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• **{name}** `{reg}`")
+
             if m_ct > 0:
                 st.error(f"**⛔ {m_ct} Student(s) Readd Alert:** Deficit too high to reach Year {promo_yr} **{promo_target} CGPA** threshold even with perfect SGPA next semester.")
+                _render_student_list(insights.get('readd_students', []))
             if f_ct > 0:
                 st.error(f"**🔴 {f_ct} Student(s) Failed Promotion:** Did not meet the Year {promo_yr} **{promo_target} CGPA** threshold.")
+                _render_student_list(insights.get('failed_students', []))
             if c_ct > 0:
                 st.error(f"**🚨 {c_ct} Student(s) Critically At-Risk:** Falling below the {promo_target} threshold mid-year. High probability of failing promotion.")
+                _render_student_list(insights.get('critical_students', []))
             if r_ct > 0:
                 st.warning(f"**⚠️ {r_ct} Student(s) At-Risk:** Hovering dangerously close (+0.15 margin) to the {promo_target} year-end cutoff.")
+                _render_student_list(insights.get('risk_students', []))
             
             if 'bottleneck' in insights:
                 st.warning(f"**Bottleneck Identified:** The subject **{insights['bottleneck']}** has the lowest cohort average (**{insights['bottleneck_gp']} GP**).")
@@ -607,7 +626,7 @@ with tabs[1]:
                         alt.value(0.0),
                         alt.value(1.0)
                     ),
-                    tooltip=['name', 'Archetype',
+                    tooltip=['name', alt.Tooltip('reg_no:N', title='Reg No'), 'Archetype',
                              alt.Tooltip('sgpa:Q', format='.2f', title='Current SGPA'),
                              alt.Tooltip('cgpa:Q', format='.2f', title='Historical Average'),
                              alt.Tooltip(f'{x_col}:Q', format='.2f', title=x_title)]
@@ -617,7 +636,7 @@ with tabs[1]:
                 if not df_danger.empty:
                     danger_overlay = alt.Chart(df_danger).mark_text(text='⛔', size=18).encode(
                         x=f'{x_col}:Q', y='sgpa:Q',
-                        tooltip=['name', 'Archetype',
+                        tooltip=['name', alt.Tooltip('reg_no:N', title='Reg No'), 'Archetype',
                                  alt.Tooltip('sgpa:Q', format='.2f', title='Current SGPA'),
                                  alt.Tooltip('cgpa:Q', format='.2f', title='Historical Average'),
                                  alt.Tooltip(f'{x_col}:Q', format='.2f', title=x_title)]
