@@ -470,8 +470,14 @@ if show_strategic_brief:
             
             def _render_student_list(student_data):
                 for reg, name, target in student_data:
-                    target_str = f"Target: **{target:.2f}**" if target <= 4.0 else "**Impossible (>4.0)**"
-                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• **{name}** `{reg}` &nbsp;|&nbsp; Next Sem {target_str}")
+                    # Hide target after even semesters unless it's impossible (>4.0)
+                    show_target = not is_even_sem or target > 4.0
+                    
+                    if show_target:
+                        target_str = f"Target: **{target:.2f}**" if target <= 4.0 else "**Impossible (>4.0)**"
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• **{name}** `{reg}` &nbsp;|&nbsp; Next Sem {target_str}")
+                    else:
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• **{name}** `{reg}`")
 
             if m_ct > 0:
                 st.error(f"**⛔ {m_ct} Student(s) Readd Alert:** Deficit too high to reach Year {promo_yr} **{promo_target} CGPA** threshold even with perfect SGPA next semester.")
