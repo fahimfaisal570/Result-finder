@@ -51,17 +51,33 @@ jobs:
       if: steps.check.outputs.new_exams == 'true'
       run: |
         if [ -f "v2_sync_tasks.json" ]; then
-          echo "Sync tasks found. Switching to v2 branch..."
+          echo "Sync tasks found. Preparing for v2 sync..."
           cp v2_sync_tasks.json /tmp/v2_sync_tasks.json
+          
+          # Configure Git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Switch to v2
           git fetch origin v2
           git checkout v2
+          
+          # Install v2 dependencies
+          echo "Installing dependencies for v2 sync..."
+          pip install -r requirements.txt
+          
+          # Run sync
+          echo "Running v2 sync script..."
           python v2_auto_sync.py
-          git add result_finder.db || true
-          git commit -m "chore: auto-sync latest exams to analytics db [skip ci]" || echo "No changes to commit"
-          git push origin v2
-          echo "Sync complete. Returning to main branch."
+          
+          # Commit and Push to v2
+          if [ -f "result_finder.db" ]; then
+            git add result_finder.db
+            git commit -m "chore: auto-sync latest exams to analytics db [skip ci]" || echo "No changes to commit"
+            git push origin v2
+          fi
+          
+          echo "Sync complete. Returning to main branch..."
           git checkout main
         else
           echo "No sync tasks generated."
