@@ -193,6 +193,29 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
         
     print("📨 Dispatching PDF via Secure Email...")
     send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name)
+    
+    # --- ADDED FOR V2 SYNC CROSS-BRANCH WORKFLOW ---
+    sync_file = "v2_sync_tasks.json"
+    task_data = {
+        "pro_id": pro_id,
+        "exam_id": exam_id,
+        "exam_name": exam_name,
+        "profile_name": profile_name
+    }
+    
+    try:
+        tasks = []
+        if os.path.exists(sync_file):
+            with open(sync_file, "r") as f:
+                tasks = json.load(f)
+        tasks.append(task_data)
+        with open(sync_file, "w") as f:
+            json.dump(tasks, f)
+        print("✅ Sync task queued for v2 analytics database.")
+    except Exception as e:
+        print(f"⚠️ Failed to queue sync task: {e}")
+    # -----------------------------------------------
+
     return True
 
 if __name__ == "__main__":

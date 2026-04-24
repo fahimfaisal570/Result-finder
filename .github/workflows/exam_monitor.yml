@@ -47,6 +47,26 @@ jobs:
         CSE_HEAD_EMAIL: ${{ secrets.CSE_HEAD_EMAIL }}
       run: xvfb-run python exam_monitor/monitor.py
 
+    - name: Cross-Branch Sync to v2
+      if: steps.check.outputs.new_exams == 'true'
+      run: |
+        if [ -f "v2_sync_tasks.json" ]; then
+          echo "Sync tasks found. Switching to v2 branch..."
+          cp v2_sync_tasks.json /tmp/v2_sync_tasks.json
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin v2
+          git checkout v2
+          python v2_auto_sync.py
+          git add result_finder.db || true
+          git commit -m "chore: auto-sync latest exams to analytics db [skip ci]" || echo "No changes to commit"
+          git push origin v2
+          echo "Sync complete. Returning to main branch."
+          git checkout main
+        else
+          echo "No sync tasks generated."
+        fi
+
     - name: Commit and Push changes
       if: steps.check.outputs.new_exams == 'true'
       uses: stefanzweifel/git-auto-commit-action@v5
