@@ -857,6 +857,10 @@ def get_semester_total_credits(dept: str, semester_num: int) -> float:
     total = 0.0
     for code, credits in dept_map.items():
         if get_semester_from_code(code, dept) == semester_num:
+            # Fix: CSE 2nd semester strictly has Physics, no Chemistry. 
+            # So exclude CHE to prevent over-counting the target semester credits.
+            if dept == 'CSE' and semester_num == 2 and code.startswith('CHE-'):
+                continue
             total += credits
     return total
 

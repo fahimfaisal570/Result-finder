@@ -98,23 +98,31 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
         
         # Promotion overrides define the lowest tier
         if promo_target is not None:
-            if row['cgpa'] < promo_target:
-                if is_even_sem:
-                    base = "Non-Promoted (Failed)"
-                else:
-                    if promo_yr is not None:
-                        sem_index = (promo_yr * 2) - 1
-                        max_possible_cgpa = ((row['cgpa'] * sem_index) + (4.00 * 1.1)) / (sem_index + 1.1)
-                        if max_possible_cgpa < promo_target:
-                            base = "Readd"
+            if promo_yr == 4:
+                if row['cgpa'] < promo_target:
+                    base = "Critical (Graduation Risk)"
+                    detail = base
+                elif row['cgpa'] <= (promo_target + 0.15):
+                    base = "At-Risk (Graduation)"
+                    detail = base
+            else:
+                if row['cgpa'] < promo_target:
+                    if is_even_sem:
+                        base = "Non-Promoted (Failed)"
+                    else:
+                        if promo_yr is not None:
+                            sem_index = (promo_yr * 2) - 1
+                            max_possible_cgpa = ((row['cgpa'] * sem_index) + (4.00 * 1.1)) / (sem_index + 1.1)
+                            if max_possible_cgpa < promo_target:
+                                base = "Readd"
+                            else:
+                                base = "Critical (Action Req.)"
                         else:
                             base = "Critical (Action Req.)"
-                    else:
-                        base = "Critical (Action Req.)"
-                detail = base
-            elif row['cgpa'] <= (promo_target + 0.15):
-                base = "At-Risk (Promotion)"
-                detail = base
+                    detail = base
+                elif row['cgpa'] <= (promo_target + 0.15):
+                    base = "At-Risk (Promotion)"
+                    detail = base
                 
         # If not overridden by the absolute promotion system, assign relative batch percentile state
         if detail == "Average":
@@ -165,7 +173,7 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
         insights['improving_count'] = archetypes['Archetype'].str.contains("Improving", case=False).sum()
         
         # Promotion specific trackers mapped via Detailed_Status
-        insights['promo_risk_count'] = archetypes['Detailed_Status'].str.contains("At-Risk \(Promotion\)", case=False).sum()
+        insights['promo_risk_count'] = archetypes['Detailed_Status'].str.contains("At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False).sum()
         insights['critical_count'] = archetypes['Detailed_Status'].str.contains("Critical", case=False).sum()
         insights['math_fail_count'] = archetypes['Detailed_Status'].str.contains("Readd", case=False).sum()
         insights['failed_count'] = archetypes['Detailed_Status'].str.contains("Non-Promoted \(Failed\)", case=False).sum()
@@ -180,7 +188,7 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
         insights['readd_students']    = _student_list(archetypes['Detailed_Status'].str.contains("Readd", case=False))
         insights['failed_students']   = _student_list(archetypes['Detailed_Status'].str.contains("Non-Promoted \(Failed\)", case=False))
         insights['critical_students'] = _student_list(archetypes['Detailed_Status'].str.contains("Critical", case=False))
-        insights['risk_students']     = _student_list(archetypes['Detailed_Status'].str.contains("At-Risk \(Promotion\)", case=False))
+        insights['risk_students']     = _student_list(archetypes['Detailed_Status'].str.contains("At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False))
 
     # 3. Subject Bottlenecks (The "Killer" Subject)
     if not df_sub.empty:
