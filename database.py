@@ -916,6 +916,31 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
             if eid_int > current_eid:
                 semester_groups[sem_label] = (eid_int, rec)
 
+    # --- Step 2.5: Filter voided future semesters for readmitted students ---
+    # A student's current progression is dictated by their MOST RECENT main exam.
+    # Any main exams from older batches that are for a higher semester are voided.
+    def _get_abs_sem(rec):
+        dept = profile_name.split()[0] if profile_name else 'CSE'
+        for subj in rec.get('Subjects', []):
+            code = str(subj.get('code', '')).strip()
+            s = get_semester_from_code(code, dept)
+            if s > 0: return s
+        return 0
+
+    global_max_eid = 0
+    current_progression_sem = 0
+    for sem_label, (eid_int, rec) in semester_groups.items():
+        if eid_int > global_max_eid:
+            global_max_eid = eid_int
+            current_progression_sem = _get_abs_sem(rec)
+
+    if current_progression_sem > 0:
+        valid_groups = {}
+        for sem_label, (eid_int, rec) in semester_groups.items():
+            if _get_abs_sem(rec) <= current_progression_sem:
+                valid_groups[sem_label] = (eid_int, rec)
+        semester_groups = valid_groups
+
     # --- Step 3: Build effective grades from winning main exams ---
     effective_grades = {}  # code -> {gp, credit, source}
     for sem_label, (eid_int, rec) in semester_groups.items():
