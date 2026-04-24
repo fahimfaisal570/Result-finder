@@ -468,6 +468,145 @@ if show_strategic_brief:
             c_ct = insights.get('critical_count', 0)
             r_ct = insights.get('promo_risk_count', 0)
             
+            # --- Deep Analysis Session State ---
+            if '_deep_cache' not in st.session_state:
+                st.session_state._deep_cache = {}  # keyed by f"{profile_name}_{reg}"
+
+            def _run_deep_analysis(reg_no, stu_name):
+                """Fetch full student record from portal and compute precise analysis."""
+                import cli_scraper as cs
+                import re as _re
+
+                _p_data = profiles.get(profile_name, {})
+                _pro_id = _p_data.get("pro_id", "")
+                if not _pro_id:
+                    return None
+
+                # Resolve per-student sess_id
+                _sess_id = "AUTO"
+                for reg_entry in _p_data.get("regs", []):
+                    if isinstance(reg_entry, list) and len(reg_entry) >= 2:
+                        try:
+                            if int(reg_entry[0]) == int(reg_no):
+                                candidate = str(reg_entry[1])
+                                if candidate and candidate != "AUTO":
+                                    _sess_id = candidate
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                if _sess_id == "AUTO":
+                    _sess_id = _p_data.get("sess_id", "AUTO")
+
+                # Fetch portal data — retry up to 3 times on empty response
+                _programs, _sessions = cs.fetch_programs_and_sessions()
+                _all_exams = {}
+                for _attempt in range(3):
+                    _all_exams = cs.fetch_exams(_pro_id) if _pro_id else {}
+                    if _all_exams:
+                        break
+                    import time as _time
+                    _time.sleep(2)
+                if not _all_exams:
+                    return None
+
+                # Smart Scope: filter exams to student's cohort year
+                _start_year = 0
+                if _sess_id and _sess_id != "AUTO":
+                    _sname = _sessions.get(_sess_id, "")
+                    _ym = _re.search(r"20(\d{2})", _sname)
+                    if _ym:
+                        _start_year = int("20" + _ym.group(1))
+
+                _YEAR_PAT = _re.compile(r'\b(20\d{2})\b')
+                _filtered_eids = []
+                for _eid, _ename in _all_exams.items():
+                    if _start_year:
+                        _ey_matches = _YEAR_PAT.findall(_ename)
+                        _ey = int(_ey_matches[-1]) if _ey_matches else 0
+                        if _ey and _ey < (_start_year - 1):
+                            continue
+                    _filtered_eids.append(_eid)
+
+                _tasks = [(int(reg_no), _sess_id, _eid) for _eid in _filtered_eids]
+
+                # Run scan — retry up to 3 times on empty/failed response
+                _history = []
+                for _scan_attempt in range(3):
+                    _history = cs.run_batch_scan_engine(
+                        tasks=_tasks,
+                        pro_id=_pro_id,
+                        exam_id="0",
+                        all_sessions=_sessions,
+                        num_threads=15
+                    )
+                    if _history:
+                        break
+                    import time as _time
+                    _time.sleep(3)
+
+                if not _history:
+                    return None
+
+                # Attach exam names
+                for rec in _history:
+                    eid = rec.get('_exam_id')
+                    if eid and eid in _all_exams:
+                        rec['_exam_name'] = _all_exams[eid]
+
+                # Run precise computation
+                return db.compute_deep_analysis(_history, profile_name, selected_label)
+
+            def _render_deep_result(result, reg, name=""):
+                """Render the deep analysis result inline."""
+                if result is None:
+                    cache_key = f"{profile_name}_{reg}"
+                    retry_key = f"retry_{profile_name}_{exam_id}_{reg}"
+                    cols_err = st.columns([0.05, 0.55, 0.4])
+                    with cols_err[1]:
+                        st.caption("⚠️ Could not fetch records — portal may be busy or student not found.")
+                    with cols_err[2]:
+                        if st.button("🔁 Retry", key=retry_key, help="Re-run deep analysis for this student"):
+                            del st.session_state._deep_cache[cache_key]
+                            st.rerun()
+                    return
+
+                # --- True CGPA vs Official ---
+                diff = result['cgpa_diff']
+                diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
+                diff_color = "#10b981" if diff > 0 else ("#ef4444" if diff < 0 else "#6b7280")
+
+                cols = st.columns([1, 1, 1])
+                with cols[0]:
+                    st.metric(
+                        "True CGPA",
+                        f"{result['true_cgpa']:.2f}",
+                        delta=f"{diff_str} vs official {result['official_cgpa']:.2f}",
+                        delta_color="normal" if diff >= 0 else "inverse"
+                    )
+                with cols[1]:
+                    if result['precise_target_sgpa'] > 0:
+                        target_val = result['precise_target_sgpa']
+                        if target_val > 4.0:
+                            st.metric("Precise Target SGPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
+                        else:
+                            st.metric("Precise Target SGPA", f"{target_val:.2f}",
+                                      delta=f"Next sem ({result['next_sem_credits']:.1f} cr)")
+                    else:
+                        st.metric("Target SGPA", "N/A", delta="Even sem / computed")
+                with cols[2]:
+                    st.metric("Pending Retakes", f"{result['pending_retake_count']}",
+                              delta=f"{result['total_credits']:.1f} cr completed")
+
+                # --- Pending retakes detail ---
+                if result['pending_retakes']:
+                    with st.expander(f"📋 {result['pending_retake_count']} Subject(s) Still Failing"):
+                        for pr in result['pending_retakes']:
+                            gp_display = f"{pr['gp']:.2f}" if pr['gp'] > 0 else "F"
+                            badge = "🔄" if pr['source'] == 'retake_improved' else "❌"
+                            st.markdown(f"{badge} **{pr['code']}** — GP: {gp_display} ({pr['credit']} cr)")
+
+                st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp;📊 Analyzed {result['effective_grade_count']} subjects across {result['semesters_found']} semester(s)")
+
             def _render_student_list(student_data):
                 for reg, name, target in student_data:
                     # Hide target after even semesters unless it's impossible (>4.0)
@@ -478,6 +617,25 @@ if show_strategic_brief:
                         st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• **{name}** `{reg}` &nbsp;|&nbsp; Next Sem {target_str}")
                     else:
                         st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• **{name}** `{reg}`")
+
+                    # Deep Analysis button
+                    cache_key = f"{profile_name}_{reg}"
+                    btn_key = f"deep_{profile_name}_{exam_id}_{reg}"
+
+                    if cache_key in st.session_state._deep_cache:
+                        cached = st.session_state._deep_cache[cache_key]
+                        if cached is None:
+                            # Failed last time — show error + retry button
+                            _render_deep_result(None, reg, name)
+                        else:
+                            # Successful — show results
+                            _render_deep_result(cached, reg, name)
+                    else:
+                        if st.button(f"🔬 Deep Analysis", key=btn_key, help=f"Fetch full record for {name} and compute precise CGPA, target, and pending retakes"):
+                            with st.spinner(f"Scanning full academic history for {name} ({reg})… This takes 1-2 minutes."):
+                                result = _run_deep_analysis(reg, name)
+                            st.session_state._deep_cache[cache_key] = result
+                            st.rerun()
 
             if m_ct > 0:
                 st.error(f"**⛔ {m_ct} Student(s) Readd Alert:** Deficit too high to reach Year {promo_yr} **{promo_target} CGPA** threshold even with perfect SGPA next semester.")

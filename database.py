@@ -811,6 +811,239 @@ def get_subject_data_for_exam(profile_name: str, exam_id: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Deep Analysis Engine (Precise Credit-Weighted Computation)
+# ---------------------------------------------------------------------------
+
+def get_semester_from_code(code: str, dept: str) -> int:
+    """
+    Derives the absolute semester number (1–8) from a subject code.
+    CSE/EEE use 4-digit codes: DEPT-XYZZ → semester = (X-1)*2 + Y
+    Civil uses 3-digit codes: DEPT-XYZ → semester = X
+    Returns 0 if unable to parse.
+    """
+    parts = code.strip().upper().replace(' ', '-').split('-')
+    if len(parts) != 2:
+        return 0
+    num_str = parts[1].rstrip('*')  # strip trailing asterisks
+    if not num_str or not num_str[0].isdigit():
+        return 0
+
+    if dept == "Civil":
+        # Civil: 3-digit codes like CE-101 → first digit = semester
+        try:
+            return int(num_str[0])
+        except (ValueError, IndexError):
+            return 0
+    else:
+        # CSE/EEE: 4-digit codes like CSE-1101 → (digit1-1)*2 + digit2
+        if len(num_str) < 2:
+            return 0
+        try:
+            year = int(num_str[0])
+            sem_within_year = int(num_str[1])
+            if 1 <= year <= 4 and sem_within_year in (1, 2):
+                return (year - 1) * 2 + sem_within_year
+        except (ValueError, IndexError):
+            pass
+        return 0
+
+
+def get_semester_total_credits(dept: str, semester_num: int) -> float:
+    """
+    Sums all credits from credit_mapping.json for subjects belonging to
+    a given semester number (1–8) in the specified department.
+    """
+    dept_map = _credit_map.get(dept, {})
+    total = 0.0
+    for code, credits in dept_map.items():
+        if get_semester_from_code(code, dept) == semester_num:
+            total += credits
+    return total
+
+
+def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_label: str) -> dict:
+    """
+    Processes a student's full academic history (raw portal records) to compute:
+    - True CGPA (credit-weighted, considering retake improvements)
+    - Pending retakes (subjects still failing after all attempts)
+    - Precise target SGPA for next semester
+
+    Rules:
+    1. Main semester exams: grouped by semester label, latest exam_id wins
+       (handles readd students — current batch exam supersedes old batch).
+    2. Retake/improvement exams: applied only if the grade is STRICTLY BETTER
+       than the current effective grade for that subject.
+    3. Target SGPA: computed using actual next-semester credit weight, not
+       the old 1.1 approximation.
+    """
+    dept = get_dept_from_profile(profile_name)
+
+    RETAKE_KEYWORDS = [
+        "retake", "re-take", "improvement", "special",
+        "make-up", "makeup", "supplementary"
+    ]
+    SEM_PATTERN = re.compile(
+        r'(\d+(?:st|nd|rd|th)\s+year\s+\d+(?:st|nd|rd|th)\s+semester)',
+        re.IGNORECASE
+    )
+
+    # --- Step 1: Classify records into main vs retake ---
+    main_records = []
+    retake_records = []
+    for rec in raw_records:
+        ename = rec.get('_exam_name', '')
+        if any(kw in ename.lower() for kw in RETAKE_KEYWORDS):
+            retake_records.append(rec)
+        else:
+            main_records.append(rec)
+
+    # --- Step 2: Group main exams by semester, keep latest exam_id ---
+    semester_groups = {}  # sem_label -> (exam_id_int, record)
+    for rec in main_records:
+        ename = rec.get('_exam_name', '')
+        m = SEM_PATTERN.search(ename)
+        sem_label = m.group(1).lower().strip() if m else ename.lower().strip()
+
+        try:
+            eid_int = int(rec.get('_exam_id', 0))
+        except (ValueError, TypeError):
+            eid_int = 0
+
+        if sem_label not in semester_groups:
+            semester_groups[sem_label] = (eid_int, rec)
+        else:
+            current_eid, _ = semester_groups[sem_label]
+            if eid_int > current_eid:
+                semester_groups[sem_label] = (eid_int, rec)
+
+    # --- Step 3: Build effective grades from winning main exams ---
+    effective_grades = {}  # code -> {gp, credit, source}
+    for sem_label, (eid_int, rec) in semester_groups.items():
+        ename = rec.get('_exam_name', '')
+        for subj in rec.get('Subjects', []):
+            code = str(subj.get('code', '')).strip().upper().replace(' ', '-')
+            if not code:
+                continue
+            try:
+                gp = min(float(subj.get('gp', 0)), 4.0)
+                if gp < 0:
+                    gp = 0.0
+            except (ValueError, TypeError):
+                gp = 0.0
+
+            credit = get_subject_credits(code, profile_name, ename)
+            if credit is None:
+                credit = 3.0  # fallback for unmapped subjects
+
+            effective_grades[code] = {
+                'gp': gp,
+                'credit': credit,
+                'source': 'main',
+                'exam_id': eid_int
+            }
+
+    # --- Step 4: Apply retake improvements (only if strictly better) ---
+    retake_records.sort(key=lambda r: int(r.get('_exam_id', 0) or 0))
+    for rec in retake_records:
+        for subj in rec.get('Subjects', []):
+            code = str(subj.get('code', '')).strip().upper().replace(' ', '-')
+            if not code:
+                continue
+            try:
+                gp = min(float(subj.get('gp', 0)), 4.0)
+                if gp < 0:
+                    gp = 0.0
+            except (ValueError, TypeError):
+                gp = 0.0
+
+            if code in effective_grades:
+                # Only apply if retake grade is strictly better
+                if gp > effective_grades[code]['gp']:
+                    effective_grades[code]['gp'] = gp
+                    effective_grades[code]['source'] = 'retake_improved'
+            # else: subject only in retake but not in any main exam → skip
+            # (this avoids counting subjects from a different batch's curriculum)
+
+    # --- Step 5: Calculate true CGPA ---
+    total_points = sum(g['gp'] * g['credit'] for g in effective_grades.values())
+    total_credits = sum(g['credit'] for g in effective_grades.values())
+    true_cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
+
+    # --- Step 6: Get official CGPA from the latest main exam for comparison ---
+    official_cgpa = 0.0
+    latest_main_eid = 0
+    for sem_label, (eid_int, rec) in semester_groups.items():
+        if eid_int > latest_main_eid:
+            latest_main_eid = eid_int
+            try:
+                official_cgpa = round(float(rec.get('CGPA', 0) or 0), 2)
+            except (ValueError, TypeError):
+                official_cgpa = 0.0
+
+    cgpa_diff = round(true_cgpa - official_cgpa, 2)
+
+    # --- Step 7: Identify pending retakes (GP < 2.0 = still failing) ---
+    pending_retakes = []
+    for code, g in effective_grades.items():
+        if g['gp'] < 2.0:
+            pending_retakes.append({
+                'code': code,
+                'gp': g['gp'],
+                'credit': g['credit'],
+                'source': g['source']
+            })
+    pending_retakes.sort(key=lambda x: x['code'])
+
+    # --- Step 8: Calculate precise target SGPA ---
+    # Parse current semester from exam label
+    yr_match = re.search(r'(\d)[a-z]{2}\s*Yr', current_exam_label, re.IGNORECASE)
+    sem_match = re.search(r'(\d)[a-z]{2}\s*Sem', current_exam_label, re.IGNORECASE)
+
+    precise_target_sgpa = 0.0
+    next_sem_credits = 0.0
+    promo_target = None
+    current_abs_sem = 0
+
+    if yr_match and sem_match:
+        yr = int(yr_match.group(1))
+        sem_in_yr = int(sem_match.group(1))
+        current_abs_sem = (yr - 1) * 2 + sem_in_yr
+        next_abs_sem = current_abs_sem + 1
+
+        # Promotion thresholds
+        if yr == 1: promo_target = 2.00
+        elif yr == 2: promo_target = 2.25
+        elif yr == 3: promo_target = 2.50
+        elif yr == 4: promo_target = 2.75
+
+        # Only compute target if we're on an odd semester (promotion check is at year-end)
+        is_even_sem = (sem_in_yr == 2)
+        if promo_target is not None and not is_even_sem and next_abs_sem <= 8:
+            next_sem_credits = get_semester_total_credits(dept, next_abs_sem)
+            if next_sem_credits > 0 and total_credits > 0:
+                precise_target_sgpa = (
+                    promo_target * (total_credits + next_sem_credits) -
+                    true_cgpa * total_credits
+                ) / next_sem_credits
+                precise_target_sgpa = max(0.0, round(precise_target_sgpa, 2))
+
+    return {
+        'true_cgpa': true_cgpa,
+        'official_cgpa': official_cgpa,
+        'cgpa_diff': cgpa_diff,
+        'total_credits': total_credits,
+        'semesters_found': len(semester_groups),
+        'current_semester': current_abs_sem,
+        'promo_target': promo_target,
+        'pending_retakes': pending_retakes,
+        'pending_retake_count': len(pending_retakes),
+        'precise_target_sgpa': precise_target_sgpa,
+        'next_sem_credits': next_sem_credits,
+        'effective_grade_count': len(effective_grades),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Readd / Incomplete History Resolution
 # ---------------------------------------------------------------------------
 
