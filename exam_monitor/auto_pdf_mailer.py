@@ -125,6 +125,110 @@ def send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name):
     except Exception as e:
         print(f"❌ Failed to send PDF email: {e}")
 
+def _get_senior_profiles_json(profiles, profile_name):
+    """Find senior batch profiles from saved_profiles.json (same dept, lower batch#)."""
+    parts = profile_name.lower().split()
+    if len(parts) < 2:
+        return {}
+    dept_prefix = parts[0]
+    try:
+        batch_num = int(parts[1])
+    except ValueError:
+        return {}
+
+    senior = {}
+    for p_name, p_data in profiles.items():
+        p_parts = p_name.lower().split()
+        if len(p_parts) >= 2 and p_parts[0] == dept_prefix:
+            try:
+                p_batch = int(p_parts[1])
+                if p_batch < batch_num:
+                    senior[p_name] = p_data
+            except ValueError:
+                continue
+    return senior
+
+
+def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_results):
+    """
+    Readd detection for the main branch (saved_profiles.json).
+    Scans senior batch students against the exam; if found, adds them
+    to the JSON profile and returns the extra results for PDF inclusion.
+    """
+    # Existing reg nos
+    existing_regs = set()
+    p_data = profiles.get(profile_name, {})
+    for r in p_data.get("regs", []):
+        if isinstance(r, list):
+            existing_regs.add(int(r[0]))
+        else:
+            existing_regs.add(int(r))
+    for res in existing_results:
+        existing_regs.add(int(res.get('Registration No', res.get('Reg', 0))))
+
+    senior_profiles = _get_senior_profiles_json(profiles, profile_name)
+    if not senior_profiles:
+        print(f"  [Readd] No senior batch profiles found for '{profile_name}'.")
+        return [], []
+
+    print(f"  [Readd] Scanning {len(senior_profiles)} senior profile(s): "
+          f"{', '.join(sorted(senior_profiles.keys()))}")
+
+    scan_tasks = []
+    reg_to_source = {}
+    for sp_name, sp_data in senior_profiles.items():
+        for r in sp_data.get("regs", []):
+            if isinstance(r, list):
+                reg, sid = int(r[0]), str(r[1])
+            else:
+                reg, sid = int(r), str(sp_data.get("sess_id", "AUTO"))
+            if reg not in existing_regs:
+                scan_tasks.append((reg, sid, str(exam_id)))
+                reg_to_source[reg] = sp_name
+                existing_regs.add(reg)
+
+    if not scan_tasks:
+        print("  [Readd] All senior students already accounted for.")
+        return [], []
+
+    print(f"  [Readd] Probing {len(scan_tasks)} senior students against exam {exam_id}...")
+    readd_results = cs.run_batch_scan_engine(
+        tasks=scan_tasks, pro_id=pro_id, exam_id=exam_id,
+        target_college="all", num_threads=10
+    )
+
+    if not readd_results:
+        print("  [Readd] No readd students detected.")
+        return [], []
+
+    # Persist readds into saved_profiles.json
+    readd_info = []
+    for res in readd_results:
+        reg = int(res.get('Registration No', res.get('Reg', 0)))
+        name = str(res.get('Name', res.get('Student Name', 'Unknown')))
+        sess_id = str(res.get('_sess_id', 'AUTO'))
+        source = reg_to_source.get(reg, 'unknown')
+
+        # Add to the profile's regs list (as [reg, sess_id, name])
+        profiles[profile_name].setdefault("regs", []).append([reg, sess_id, name])
+
+        readd_info.append({'reg_no': reg, 'name': name, 'source': source})
+        print(f"    [READD] {name} ({reg}) <- from '{source}'")
+
+    # Write updated profiles back to disk
+    profiles_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "saved_profiles.json"
+    )
+    try:
+        with open(profiles_path, "w") as f:
+            json.dump(profiles, f, indent=2)
+        print(f"  [Readd] Updated saved_profiles.json with {len(readd_info)} readd(s).")
+    except Exception as e:
+        print(f"  [Readd] WARNING: Failed to persist readds to JSON: {e}")
+
+    return readd_results, readd_info
+
 
 
 def process_and_mail(pro_id, dept_name, exam_id, exam_name):
@@ -166,7 +270,27 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
         print("❌ Scraper yielded no valid results. It might still be uploading.")
         return False
         
-    print(f"✅ Downloaded {len(results)} student records. Generating Printable Thesis HTML format...")
+    print(f"✅ Downloaded {len(results)} student records.")
+
+    # --- Readd Detection Phase (Main Branch) ---
+    profiles_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "saved_profiles.json"
+    )
+    try:
+        with open(profiles_path, "r") as f:
+            all_profiles = json.load(f)
+    except Exception:
+        all_profiles = {}
+
+    readd_results, readd_info = detect_readds_main_branch(
+        all_profiles, profile_name, pro_id, exam_id, results
+    )
+    if readd_results:
+        results.extend(readd_results)
+        print(f"  [Readd] {len(readd_results)} readd student(s) merged into report.")
+
+    print("Generating Printable Thesis HTML format...")
     # Inject profile_name into title so it appears nicely in the central PDF rendering engine
     full_title = f"Department: {dept_name} | Exam: {exam_name} | Target Batch: {profile_name}"
     html_report = cs.generate_html_report(results, full_title, pro_id=pro_id, sess_id=sess_id)
