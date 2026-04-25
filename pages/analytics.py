@@ -443,7 +443,7 @@ if show_strategic_brief:
             if os.path.exists(notify_file):
                 with open(notify_file, "r") as nf:
                     notif_data = json.load(nf)
-                key = f"{selected_profile}_{exam_id}"
+                key = f"{profile_name}_{exam_id}"
                 if key in notif_data and notif_data[key]:
                     readds = notif_data[key]
                     readd_names = ", ".join([f"{r['name']} ({r['reg_no']})" for r in readds])
