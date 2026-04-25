@@ -84,7 +84,7 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
             'sess_id': sess_id,
             'source_profile': source,
         })
-        print(f"    ✅ READD: {name} ({reg}) — from '{source}'")
+        print(f"    [READD] {name} ({reg}) <- from '{source}'")
 
     # 2. Save all readd exam results to analytics database
     db.save_exam_analytics_only(profile_name, exam_id, exam_name, readd_results)
@@ -162,9 +162,9 @@ def main():
             profile_name, pro_id, exam_id, exam_name, results
         )
         if readd_info:
-            print(f"\n  📋 Readd Summary for {profile_name}:")
+            print(f"\n  [Readd Summary] for {profile_name}:")
             for ri in readd_info:
-                print(f"     • {ri['name']} ({ri['reg_no']}) ← {ri['source_profile']}")
+                print(f"     + {ri['name']} ({ri['reg_no']}) <- {ri['source_profile']}")
 
     # Optional cleanup (the workflow may also clean this up)
     try:
