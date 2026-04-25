@@ -676,19 +676,7 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
     # 2. Re-adds Table
     html.append(render_results_table(readd_list, "&#128221; Re-adds (Senior Batches)", is_readd=True))
     
-    # 3. Readd Notification Banner (prominent alert when readds are detected)
-    if readd_list:
-        readd_names = ", ".join([
-            f"{r['Name']} ({r['Registration No']})" for r in readd_list
-        ])
-        html.append(
-            f"<div style='background: linear-gradient(135deg, #1e3a5f, #2d5986); "
-            f"border-left: 4px solid #60a5fa; border-radius: 8px; padding: 12px 16px; "
-            f"margin: 10px 0 20px 0; font-size: 0.88rem; color: #dbeafe;'>"
-            f"<strong>&#128276; Readd Notice:</strong> "
-            f"The following student(s) from senior batches have become readmitted "
-            f"in this semester: <strong>{readd_names}</strong></div>"
-        )
+    # (Readd Notification Banner removed as per user request to keep PDF standard)
     
     html.append("</div>")
     

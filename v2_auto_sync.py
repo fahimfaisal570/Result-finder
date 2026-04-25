@@ -165,6 +165,26 @@ def main():
             print(f"\n  [Readd Summary] for {profile_name}:")
             for ri in readd_info:
                 print(f"     + {ri['name']} ({ri['reg_no']}) <- {ri['source_profile']}")
+            
+            # Save to notifications JSON for the analytics dashboard
+            notify_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "readd_notifications.json")
+            try:
+                if os.path.exists(notify_file):
+                    with open(notify_file, "r") as nf:
+                        notif_data = json.load(nf)
+                else:
+                    notif_data = {}
+                
+                key = f"{profile_name}_{exam_id}"
+                if key not in notif_data:
+                    notif_data[key] = []
+                notif_data[key].extend(readd_info)
+                
+                with open(notify_file, "w") as nf:
+                    json.dump(notif_data, nf, indent=4)
+                print(f"  [Readd] Saved notification data for dashboard.")
+            except Exception as e:
+                print(f"  [Readd] Failed to save notification: {e}")
 
     # Optional cleanup (the workflow may also clean this up)
     try:
