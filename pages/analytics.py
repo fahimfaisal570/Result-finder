@@ -435,7 +435,7 @@ if show_strategic_brief:
     insights = get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=is_first_sem)
     
     with st.container(border=True):
-        st.subheader("📜 Strategic Analysis Brief")
+        st.subheader("Strategic Analysis Brief")
         
         # --- Readd Notification ---
         notify_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "readd_notifications.json")
@@ -447,7 +447,7 @@ if show_strategic_brief:
                 if key in notif_data and notif_data[key]:
                     readds = notif_data[key]
                     readd_names = ", ".join([f"{r['name']} ({r['reg_no']})" for r in readds])
-                    st.error(f"🚨 **New Readd Detected:** {readd_names} joined this batch in the current exam.")
+                    st.error(f"New Readd Detected: {readd_names} joined this batch in the current exam.")
         except Exception:
             pass
         # --------------------------
