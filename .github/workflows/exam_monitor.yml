@@ -77,6 +77,9 @@ jobs:
           # Commit and Push to v2
           if [ -f "result_finder.db" ]; then
             git add result_finder.db
+            if [ -f "readd_notifications.json" ]; then
+              git add readd_notifications.json
+            fi
             git commit -m "chore: auto-sync latest exams to analytics db [skip ci]" || echo "No changes to commit"
             git push origin v2
           fi
