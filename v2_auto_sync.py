@@ -5,6 +5,94 @@ import database as db
 
 SYNC_FILE = "/tmp/v2_sync_tasks.json"
 
+
+def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_results):
+    """
+    After scanning the target batch, checks ALL senior batch profiles of the
+    same department.  Any student found in a senior batch whose registration
+    number is NOT already in the target profile AND who returns a valid result
+    for this exam is treated as a readmitted (readd) student.
+
+    Actions:
+      1. Adds the readd student to the target profile's student roster.
+      2. Saves the readd student's exam results to the analytics database.
+      3. Returns a summary list for logging / notification.
+    """
+    # Build set of regs already covered (profile roster + current results)
+    existing_regs = db.get_profile_student_regs(profile_name)
+    for res in existing_results:
+        reg = int(res.get('Registration No', res.get('Reg', 0)))
+        existing_regs.add(reg)
+
+    # Find all senior batch profiles for same department
+    senior_profiles = db.get_senior_batch_profiles(profile_name)
+    if not senior_profiles:
+        print(f"  [Readd] No senior batch profiles found for '{profile_name}'.")
+        return []
+
+    print(f"  [Readd] Scanning {len(senior_profiles)} senior profile(s): "
+          f"{', '.join(sorted(senior_profiles.keys()))}")
+
+    # Collect senior students not already in the target profile
+    scan_tasks = []
+    reg_to_source = {}
+    for sp_name, sp_data in senior_profiles.items():
+        for r in sp_data.get('regs', []):
+            if isinstance(r, list):
+                reg = int(r[0])
+                sid = str(r[1])
+            else:
+                reg = int(r)
+                sid = str(sp_data.get('sess_id', 'AUTO'))
+            if reg not in existing_regs:
+                scan_tasks.append((reg, sid, str(exam_id)))
+                reg_to_source[reg] = sp_name
+                existing_regs.add(reg)  # prevent cross-profile duplicates
+
+    if not scan_tasks:
+        print("  [Readd] All senior students already accounted for.")
+        return []
+
+    print(f"  [Readd] Probing {len(scan_tasks)} senior students against exam {exam_id}...")
+
+    readd_results = cs.run_batch_scan_engine(
+        tasks=scan_tasks,
+        pro_id=pro_id,
+        exam_id=exam_id,
+        target_college="all",
+        num_threads=10
+    )
+
+    if not readd_results:
+        print("  [Readd] No readd students detected.")
+        return []
+
+    # --- Persist readd students ---
+    readd_info = []
+    for res in readd_results:
+        reg = int(res.get('Registration No', res.get('Reg', 0)))
+        name = str(res.get('Name', res.get('Student Name', 'Unknown')))
+        sess_id = str(res.get('_sess_id', 'AUTO'))
+        source = reg_to_source.get(reg, 'unknown')
+
+        # 1. Add student to target profile roster
+        db.upsert_student(profile_name, reg, name, sess_id)
+
+        readd_info.append({
+            'reg_no': reg,
+            'name': name,
+            'sess_id': sess_id,
+            'source_profile': source,
+        })
+        print(f"    ✅ READD: {name} ({reg}) — from '{source}'")
+
+    # 2. Save all readd exam results to analytics database
+    db.save_exam_analytics_only(profile_name, exam_id, exam_name, readd_results)
+    print(f"  [Readd] Saved {len(readd_results)} readd result(s) to analytics.")
+
+    return readd_info
+
+
 def main():
     if not os.path.exists(SYNC_FILE):
         print(f"No sync file found at {SYNC_FILE}")
@@ -68,6 +156,15 @@ def main():
         print(f"Downloaded {len(results)} records. Saving to analytics database...")
         db.save_exam_analytics_only(profile_name, exam_id, exam_name, results)
         print("Save complete.")
+
+        # --- Readd Detection Phase ---
+        readd_info = detect_and_add_readds(
+            profile_name, pro_id, exam_id, exam_name, results
+        )
+        if readd_info:
+            print(f"\n  📋 Readd Summary for {profile_name}:")
+            for ri in readd_info:
+                print(f"     • {ri['name']} ({ri['reg_no']}) ← {ri['source_profile']}")
 
     # Optional cleanup (the workflow may also clean this up)
     try:

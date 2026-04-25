@@ -1231,6 +1231,51 @@ def delete_exam(profile_name: str, exam_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Readd Detection Helpers
+# ---------------------------------------------------------------------------
+
+def get_senior_batch_profiles(profile_name: str) -> dict:
+    """
+    Given a profile like 'cse 10', returns all profiles with the same
+    department prefix but a LOWER batch number (i.e. senior/older batches).
+    Example: 'cse 10' → returns {'cse 09': {...}, 'cse 08': {...}, ...}
+    """
+    parts = profile_name.lower().split()
+    if len(parts) < 2:
+        return {}
+    dept_prefix = parts[0]
+    try:
+        batch_num = int(parts[1])
+    except ValueError:
+        return {}
+
+    all_profiles = get_profiles()
+    senior = {}
+    for p_name, p_data in all_profiles.items():
+        p_parts = p_name.lower().split()
+        if len(p_parts) >= 2 and p_parts[0] == dept_prefix:
+            try:
+                p_batch = int(p_parts[1])
+                if p_batch < batch_num:
+                    senior[p_name] = p_data
+            except ValueError:
+                continue
+    return senior
+
+
+def get_profile_student_regs(profile_name: str) -> set:
+    """Returns the set of registration numbers currently in a profile."""
+    regs = set()
+    with get_connection() as conn:
+        cur = conn.execute(
+            "SELECT reg_no FROM students WHERE profile_name=?", (profile_name,)
+        )
+        for row in cur.fetchall():
+            regs.add(int(row[0]))
+    return regs
+
+
+# ---------------------------------------------------------------------------
 # Profile management
 # ---------------------------------------------------------------------------
 

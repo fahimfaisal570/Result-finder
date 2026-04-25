@@ -244,6 +244,98 @@ else: # Saved Profiles Mode
                         url = f"/results?profile={_quote(p_selected)}&exam_id={eid}&exam_name={_quote(ename)}"
                         st.markdown(f"• **[{ename}]({url})**")
 
+            # --- Add Student Feature ---
+            with st.expander("➕ Add Student to Profile"):
+                st.caption("Manually add students from other sessions/batches to this profile by scanning the portal.")
+                
+                add_reg_input = st.text_input(
+                    "Registration Number(s)",
+                    placeholder="e.g., 937 or 935,936,937",
+                    key="add_student_regs"
+                )
+                
+                # Session selection
+                s_list_add = list(st.session_state.sessions.values())
+                s_keys_add = list(st.session_state.sessions.keys())
+                add_sess_name = st.selectbox("Session of Student(s)", options=s_list_add, key="add_student_sess")
+                add_sess_id = s_keys_add[s_list_add.index(add_sess_name)] if add_sess_name in s_list_add else ""
+                
+                # Exam selection (all exams for this department)
+                all_exam_names = list(exams_raw.values()) if exams_raw else []
+                add_exam_name = st.selectbox("Scan Against Exam", options=all_exam_names, key="add_student_exam")
+                add_exam_id = [k for k, v in exams_raw.items() if v == add_exam_name][0] if exams_raw and add_exam_name else ""
+                
+                if st.button("🔍 Scan Students", key="add_student_scan_btn", use_container_width=True):
+                    if not add_reg_input or not add_exam_id:
+                        st.error("Please provide registration number(s) and select an exam.")
+                    else:
+                        parsed_regs = cs.parse_range(add_reg_input)
+                        if not parsed_regs:
+                            st.error("Invalid registration number(s).")
+                        else:
+                            scan_tasks = [(int(r), str(add_sess_id), str(add_exam_id)) for r in parsed_regs]
+                            with st.spinner(f"Scanning {len(scan_tasks)} student(s) against portal..."):
+                                found_results = cs.run_batch_scan_engine(
+                                    tasks=scan_tasks,
+                                    pro_id=profile_data.get('pro_id'),
+                                    exam_id=add_exam_id,
+                                    all_sessions=st.session_state.sessions,
+                                    num_threads=5
+                                )
+                            if found_results:
+                                st.session_state['add_student_found'] = found_results
+                                st.session_state['add_student_sess_id'] = add_sess_id
+                                st.rerun()
+                            else:
+                                st.warning("No students found for those registrations in the selected exam.")
+                
+                # Display found students with checkboxes
+                if 'add_student_found' in st.session_state and st.session_state['add_student_found']:
+                    found = st.session_state['add_student_found']
+                    st.success(f"✅ Found {len(found)} student(s):")
+                    
+                    selected = []
+                    for i, res in enumerate(found):
+                        reg = res.get('Registration No', res.get('Reg', '?'))
+                        name = res.get('Name', 'Unknown')
+                        checked = st.checkbox(
+                            f"{name} ({reg})",
+                            value=True,
+                            key=f"add_student_check_{i}"
+                        )
+                        if checked:
+                            selected.append(res)
+                    
+                    col_confirm, col_cancel = st.columns(2)
+                    with col_confirm:
+                        if st.button("✅ Confirm & Add Selected", use_container_width=True, type="primary"):
+                            if not selected:
+                                st.error("No students selected.")
+                            else:
+                                stored_sess_id = st.session_state.get('add_student_sess_id', 'AUTO')
+                                added_count = 0
+                                for res in selected:
+                                    reg = int(res.get('Registration No', res.get('Reg', 0)))
+                                    name = str(res.get('Name', 'Unknown'))
+                                    db.upsert_student(p_selected, reg, name, str(stored_sess_id))
+                                    added_count += 1
+                                
+                                # Cleanup
+                                del st.session_state['add_student_found']
+                                if 'add_student_sess_id' in st.session_state:
+                                    del st.session_state['add_student_sess_id']
+                                st.cache_data.clear()
+                                st.success(f"✅ Added {added_count} student(s) to '{p_selected}'!")
+                                time.sleep(1)
+                                st.rerun()
+                    
+                    with col_cancel:
+                        if st.button("❌ Cancel", use_container_width=True):
+                            del st.session_state['add_student_found']
+                            if 'add_student_sess_id' in st.session_state:
+                                del st.session_state['add_student_sess_id']
+                            st.rerun()
+
     st.markdown("---")
     st.markdown("<div style='text-align: center; color: #858585; font-size: 0.8rem;'>Developed with ❤️ for Academic Excellence | Showcase Version</div>", unsafe_allow_html=True)
 with st.sidebar:
