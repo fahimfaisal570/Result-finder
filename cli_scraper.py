@@ -305,7 +305,12 @@ def make_request(url, data=None, headers=None, retries=4):
                         SESSION_COOKIES[parts[0].strip()] = parts[1].strip()
             
             if response.status in (200, 301, 302):
-                out = response.read().decode('utf-8', 'ignore')
+                raw_data = response.read()
+                try:
+                    out = raw_data.decode('utf-8')
+                except UnicodeDecodeError:
+                    out = raw_data.decode('latin-1', 'ignore')
+                
                 if response.getheader('Connection', '').lower() == 'close': conn.close()
                 return out
             else:
@@ -539,12 +544,23 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
         if name_fb: info['Name'] = re.sub(r'<[^>]*>', '', name_fb.group(1)).strip()
         else: return "PARSING_ERROR (Name Not Found)", False
         
-    # Flexible GPA/CGPA Extraction
-    pattern = r'(?:C\.?G\.?P\.?A\.?|G\.?P\.?A\.?|S\.?G\.?P\.?A\.?|Y\.?G\.?P\.?A\.?)[^\d]*([\d\.]+)'
-    gp_m = re.findall(pattern, html, re.I)
-    if gp_m:
-        if len(gp_m) == 1: info['GPA'] = gp_m[0]
-        else: info['GPA'] = gp_m[0]; info['CGPA'] = gp_m[1]
+    # Flexible GPA/CGPA Extraction (Tag-Agnostic)
+    # Searches for keywords and finds the next decimal number after tags/spaces
+    labels = ['S\.?G\.?P\.?A\.?', 'G\.?P\.?A\.?', 'C\.?G\.?P\.?A\.?', 'Y\.?G\.?P\.?A\.?']
+    gpa_found = []
+    for label in labels:
+        # Match label followed by optional tags/chars then a decimal
+        m = re.search(rf'{label}.*?<[^>]+>\s*([\d\.]+)', html, re.I | re.S)
+        if m: gpa_found.append(m.group(1))
+        else:
+            # Fallback: Match label followed by colon/space then a decimal
+            m2 = re.search(rf'{label}[^\d]*([\d\.]+)', html, re.I)
+            if m2: gpa_found.append(m2.group(1))
+            
+    if gpa_found:
+        info['GPA'] = gpa_found[0]
+        if len(gpa_found) > 1:
+            info['CGPA'] = gpa_found[1]
     
     # Overall Result
     res_explicit = re.search(r'(?:Overall\s+)?Result[^\w]*<td[^>]*>(.*?)</td>', html, re.DOTALL | re.IGNORECASE)
@@ -686,7 +702,7 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
     # 1. Main Batch Table (Registration Wise SGPA/CGPA)
     html.append(render_results_table(main_list, "Registration-Wise Result (Regular Batch)"))
     # 2. Re-adds Table
-    html.append(render_results_table(readd_list, "&#128221; Re-adds (Senior Batches)", is_readd=True))
+    html.append(render_results_table(readd_list, "Re-adds (Senior Batches)", is_readd=True))
     
     # (Readd Notification Banner removed as per user request to keep PDF standard)
     
