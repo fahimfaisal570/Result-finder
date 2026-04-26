@@ -99,4 +99,4 @@ jobs:
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: "chore: update known exams [skip ci]"
-        file_pattern: 'exam_monitor/known_exams.json'
+        file_pattern: 'exam_monitor/known_exams.json saved_profiles.json'
