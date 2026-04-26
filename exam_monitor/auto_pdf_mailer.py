@@ -197,8 +197,24 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
         target_college="all", num_threads=10
     )
 
-    # Filter out students who were found but have no subjects (didn't participate in this exam)
-    readd_results = [r for r in readd_results if r.get('Subjects') and len(r['Subjects']) > 0]
+    # Filter out "ghosts" (Improvement/Retake students).
+    # For Civil (pro_id 12), a real re-add MUST have an SGPA. 
+    # For CSE (pro_id 14), the portal is broken, so we are more lenient.
+    filtered_readds = []
+    for r in readd_results:
+        has_subjects = r.get('Subjects') and len(r['Subjects']) > 0
+        has_sgpa = str(r.get('SGPA', '-')) != '-'
+        
+        # Condition: If it's not CSE, we require SGPA to avoid 'Improvement' ghosts
+        if str(pro_id) != '14':
+            if has_subjects and has_sgpa:
+                filtered_readds.append(r)
+        else:
+            # For CSE, we trust any student with subjects (fallback calc will handle the rest)
+            if has_subjects:
+                filtered_readds.append(r)
+    
+    readd_results = filtered_readds
 
     if not readd_results:
         print("  [Readd] No readd students with valid results detected.")
