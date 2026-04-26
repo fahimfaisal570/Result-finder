@@ -305,7 +305,12 @@ def make_request(url, data=None, headers=None, retries=4):
                         SESSION_COOKIES[parts[0].strip()] = parts[1].strip()
             
             if response.status in (200, 301, 302):
-                out = response.read().decode('utf-8', 'ignore')
+                raw_data = response.read()
+                try:
+                    out = raw_data.decode('utf-8')
+                except UnicodeDecodeError:
+                    out = raw_data.decode('latin-1', 'ignore')
+                
                 if response.getheader('Connection', '').lower() == 'close': conn.close()
                 return out
             else:
@@ -539,12 +544,22 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
         if name_fb: info['Name'] = re.sub(r'<[^>]*>', '', name_fb.group(1)).strip()
         else: return "PARSING_ERROR (Name Not Found)", False
         
-    # Flexible GPA/CGPA Extraction
-    pattern = r'(?:C\.?G\.?P\.?A\.?|G\.?P\.?A\.?|S\.?G\.?P\.?A\.?|Y\.?G\.?P\.?A\.?)[^\d]*([\d\.]+)'
-    gp_m = re.findall(pattern, html, re.I)
+    # Aggressive GPA/CGPA Extraction
+    # Handles various spacing, casing, and tag variations (e.g. GPA: 3.50, SGPA 3.50, etc)
+    gpa_pattern = r'(?:SGPA|GPA|CGPA|YGPA)[^\d]*([\d\.]+)'
+    gp_m = re.findall(gpa_pattern, html, re.I)
     if gp_m:
-        if len(gp_m) == 1: info['GPA'] = gp_m[0]
-        else: info['GPA'] = gp_m[0]; info['CGPA'] = gp_m[1]
+        # First decimal is usually GPA/SGPA, second is CGPA
+        info['GPA'] = gp_m[0]
+        if len(gp_m) > 1: info['CGPA'] = gp_m[1]
+    
+    # Fallback search if the label is missing but the result box contains a decimal
+    if info['GPA'] == '-':
+        # Look for a decimal inside the result div (e.g. Promoted <br> 3.50)
+        res_box = re.search(r'font-size:\s*25px;?\'?>(.*?)</div>', html, re.I | re.S)
+        if res_box:
+            m = re.search(r'([\d\.]+)', res_box.group(1))
+            if m: info['GPA'] = m.group(1)
     
     # Overall Result
     res_explicit = re.search(r'(?:Overall\s+)?Result[^\w]*<td[^>]*>(.*?)</td>', html, re.DOTALL | re.IGNORECASE)
