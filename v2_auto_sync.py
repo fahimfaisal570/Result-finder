@@ -18,6 +18,14 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
       2. Saves the readd student's exam results to the analytics database.
       3. Returns a summary list for logging / notification.
     """
+    # Detect if the portal is providing SGPAs for this specific exam globally
+    # If the regulars have SGPAs, we should require them for re-adds (to filter improvement ghosts)
+    portal_has_sgpa = any(str(r.get('SGPA', '-')) != '-' for r in existing_results[:10])
+    if portal_has_sgpa:
+        print("ℹ️ Portal is providing SGPAs for this exam. SGPA filter will be active for re-adds.")
+    else:
+        print("⚠️ Portal is globally missing SGPAs for this exam. Relaxing re-add filter.")
+
     # Build set of regs already covered (profile roster + current results)
     existing_regs = db.get_profile_student_regs(profile_name)
     for res in existing_results:
@@ -64,19 +72,19 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
     )
 
     # Filter out "ghosts" (Improvement/Retake students).
-    # For Civil (pro_id 12), a real re-add MUST have an SGPA. 
-    # For CSE (pro_id 14), the portal is broken, so we are more lenient.
+    # If the portal IS providing SGPAs for regulars, a real re-add MUST also have one.
+    # If the portal is missing them globally (e.g. EEE 10/CSE 10 3rd Sem), we relax this.
     filtered_readds = []
     for r in readd_results:
         has_subjects = r.get('Subjects') and len(r['Subjects']) > 0
         has_sgpa = str(r.get('SGPA', '-')) != '-'
         
-        # Condition: If it's not CSE, we require SGPA to avoid 'Improvement' ghosts
-        if str(pro_id) != '14':
+        if portal_has_sgpa:
+            # portal is healthy -> strictly require SGPA to filter ghosts
             if has_subjects and has_sgpa:
                 filtered_readds.append(r)
         else:
-            # For CSE, we trust any student with subjects (fallback calc will handle the rest)
+            # portal is globally broken -> accept any student with subjects
             if has_subjects:
                 filtered_readds.append(r)
     
