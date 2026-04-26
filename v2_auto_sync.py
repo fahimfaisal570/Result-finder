@@ -63,8 +63,27 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
         num_threads=10
     )
 
+    # Filter out "ghosts" (Improvement/Retake students).
+    # For Civil (pro_id 12), a real re-add MUST have an SGPA. 
+    # For CSE (pro_id 14), the portal is broken, so we are more lenient.
+    filtered_readds = []
+    for r in readd_results:
+        has_subjects = r.get('Subjects') and len(r['Subjects']) > 0
+        has_sgpa = str(r.get('SGPA', '-')) != '-'
+        
+        # Condition: If it's not CSE, we require SGPA to avoid 'Improvement' ghosts
+        if str(pro_id) != '14':
+            if has_subjects and has_sgpa:
+                filtered_readds.append(r)
+        else:
+            # For CSE, we trust any student with subjects (fallback calc will handle the rest)
+            if has_subjects:
+                filtered_readds.append(r)
+    
+    readd_results = filtered_readds
+
     if not readd_results:
-        print("  [Readd] No readd students detected.")
+        print("  [Readd] No readd students with valid results detected.")
         return []
 
     # --- Persist readd students ---
