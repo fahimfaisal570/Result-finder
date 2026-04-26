@@ -81,11 +81,13 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
         
         if portal_has_sgpa:
             # portal is healthy -> strictly require SGPA to filter ghosts
-            if has_subjects and has_sgpa:
+            # Also require at least 4 subjects to ensure they joined the batch full-time
+            if has_subjects and has_sgpa and len(r.get('Subjects', [])) >= 4:
                 filtered_readds.append(r)
         else:
             # portal is globally broken -> accept any student with subjects
-            if has_subjects:
+            # But still require 4 subjects to avoid improvement students in shared IDs
+            if has_subjects and len(r.get('Subjects', [])) >= 4:
                 filtered_readds.append(r)
     
     readd_results = filtered_readds
