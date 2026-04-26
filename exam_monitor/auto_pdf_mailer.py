@@ -197,8 +197,11 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
         target_college="all", num_threads=10
     )
 
+    # Filter out students who were found but have no subjects (didn't participate in this exam)
+    readd_results = [r for r in readd_results if r.get('Subjects') and len(r['Subjects']) > 0]
+
     if not readd_results:
-        print("  [Readd] No readd students detected.")
+        print("  [Readd] No readd students with valid results detected.")
         return [], []
 
     # Persist readds into saved_profiles.json
