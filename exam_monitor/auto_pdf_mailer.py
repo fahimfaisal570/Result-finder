@@ -273,7 +273,10 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
         print("❌ Scraper yielded no valid results. It might still be uploading.")
         return False
         
-    print(f"✅ Downloaded {len(results)} student records.")
+    # Filter results to only include students who participated (have subjects)
+    results = [r for r in results if r.get('Subjects') and len(r['Subjects']) > 0]
+    
+    print(f"✅ Filtered to {len(results)} participating students.")
 
     # --- Readd Detection Phase (Main Branch) ---
     profiles_path = os.path.join(
