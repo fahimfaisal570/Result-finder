@@ -18,9 +18,15 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
       2. Saves the readd student's exam results to the analytics database.
       3. Returns a summary list for logging / notification.
     """
-    # Detect if the portal is providing SGPAs for this specific exam globally
-    # If the regulars have SGPAs, we should require them for re-adds (to filter improvement ghosts)
-    portal_has_sgpa = any(str(r.get('SGPA', '-')) != '-' for r in existing_results[:10])
+    # Robust Portal Health Check:
+    # We consider the portal "healthy" if regular students (those with >= 4 subjects) have SGPAs.
+    # We check the entire batch to ensure ghosts at the top/bottom don't skew the detection.
+    portal_has_sgpa = any(
+        str(r.get('SGPA', '-')) != '-' 
+        for r in existing_results 
+        if len(r.get('Subjects', [])) >= 4
+    )
+    
     if portal_has_sgpa:
         print("ℹ️ Portal is providing SGPAs for this exam. SGPA filter will be active for re-adds.")
     else:
