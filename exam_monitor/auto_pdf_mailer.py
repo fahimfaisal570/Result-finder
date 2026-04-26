@@ -149,7 +149,7 @@ def _get_senior_profiles_json(profiles, profile_name):
     return senior
 
 
-def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_results):
+def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_results, portal_has_sgpa=True):
     """
     Readd detection for the main branch (saved_profiles.json).
     Scans senior batch students against the exam; if found, adds them
@@ -198,19 +198,19 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
     )
 
     # Filter out "ghosts" (Improvement/Retake students).
-    # For Civil (pro_id 12), a real re-add MUST have an SGPA. 
-    # For CSE (pro_id 14), the portal is broken, so we are more lenient.
+    # If the portal IS providing SGPAs for regulars, a real re-add MUST also have one.
+    # If the portal is missing them globally (e.g. EEE 10/CSE 10 3rd Sem), we relax this.
     filtered_readds = []
     for r in readd_results:
         has_subjects = r.get('Subjects') and len(r['Subjects']) > 0
         has_sgpa = str(r.get('SGPA', '-')) != '-'
         
-        # Condition: If it's not CSE, we require SGPA to avoid 'Improvement' ghosts
-        if str(pro_id) != '14':
+        if portal_has_sgpa:
+            # portal is healthy -> strictly require SGPA to filter ghosts
             if has_subjects and has_sgpa:
                 filtered_readds.append(r)
         else:
-            # For CSE, we trust any student with subjects (fallback calc will handle the rest)
+            # portal is globally broken -> accept any student with subjects
             if has_subjects:
                 filtered_readds.append(r)
     
@@ -294,19 +294,24 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     
     print(f"✅ Filtered to {len(results)} participating students.")
 
+    # Detect if the portal is providing SGPAs for this specific exam globally
+    # If the regulars have SGPAs, we should require them for re-adds (to filter improvement ghosts)
+    portal_has_sgpa = any(str(r.get('SGPA', '-')) != '-' for r in results[:10])
+    if portal_has_sgpa:
+        print("ℹ️ Portal is providing SGPAs for this exam. SGPA filter will be active for re-adds.")
+    else:
+        print("⚠️ Portal is globally missing SGPAs for this exam. Relaxing re-add filter.")
+
     # --- Readd Detection Phase (Main Branch) ---
     profiles_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "saved_profiles.json"
     )
-    try:
-        with open(profiles_path, "r") as f:
-            all_profiles = json.load(f)
-    except Exception:
-        all_profiles = {}
-
+    with open(profiles_path, "r") as f:
+        all_profiles = json.load(f)
+        
     readd_results, readd_info = detect_readds_main_branch(
-        all_profiles, profile_name, pro_id, exam_id, results
+        all_profiles, profile_name, pro_id, exam_id, results, portal_has_sgpa
     )
     if readd_results:
         results.extend(readd_results)
