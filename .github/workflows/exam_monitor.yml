@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: exam-monitor
-  cancel-in-progress: true
+  cancel-in-progress: false  # Don't cancel mid-run; queue instead to avoid corrupting git state
 
 jobs:
   monitor:
@@ -32,8 +32,7 @@ jobs:
     - name: Install Heavy Dependencies
       if: steps.check.outputs.new_exams == 'true'
       run: |
-        sudo apt-get update
-        sudo apt-get install -y wkhtmltopdf xvfb libfontconfig
+        sudo apt-get update && sudo apt-get install -y wkhtmltopdf xvfb libfontconfig
         pip install pdfkit
 
     - name: Run Full Monitor (PDF Generation & Mailing)
@@ -50,49 +49,30 @@ jobs:
     - name: Cross-Branch Sync to v2
       if: steps.check.outputs.new_exams == 'true'
       run: |
-        if [ -f "v2_sync_tasks.json" ]; then
-          echo "Sync tasks found. Preparing for v2 sync..."
-          cp v2_sync_tasks.json /tmp/v2_sync_tasks.json
-          
-          # Configure Git
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Stash local changes to known_exams.json and system_cache.json
-          echo "Stashing local changes before branch switch..."
-          git stash
-          
-          # Switch to v2
-          git fetch origin v2
-          git checkout v2
-          
-          # Install v2 dependencies
-          echo "Installing dependencies for v2 sync..."
-          pip install -r requirements.txt
-          
-          # Run sync
-          echo "Running v2 sync script..."
-          python v2_auto_sync.py
-          
-          # Commit and Push to v2
-          if [ -f "result_finder.db" ]; then
-            git add result_finder.db
-            if [ -f "readd_notifications.json" ]; then
-              git add readd_notifications.json
-            fi
-            git commit -m "chore: auto-sync latest exams to analytics db [skip ci]" || echo "No changes to commit"
-            git push origin v2
-          fi
-          
-          echo "Sync complete. Returning to main branch..."
-          git checkout main
-          
-          # Restore local changes for the final commit on main
-          echo "Restoring stashed changes..."
-          git stash pop || echo "No stashed changes to restore"
-        else
-          echo "No sync tasks generated."
+        [ ! -f "v2_sync_tasks.json" ] && echo "No sync tasks." && exit 0
+
+        echo "Sync tasks found. Preparing v2 sync..."
+        cp v2_sync_tasks.json /tmp/v2_sync_tasks.json
+
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+        git stash
+        git fetch origin v2
+        git checkout v2
+
+        pip install -r requirements.txt
+        python v2_auto_sync.py
+
+        if [ -f "result_finder.db" ]; then
+          git add result_finder.db
+          [ -f "readd_notifications.json" ] && git add readd_notifications.json
+          git commit -m "chore: auto-sync latest exams to analytics db [skip ci]" || echo "No changes to commit"
+          git push origin v2
         fi
+
+        git checkout main
+        git stash pop || echo "No stash to restore"
 
     - name: Commit and Push changes
       if: steps.check.outputs.new_exams == 'true'

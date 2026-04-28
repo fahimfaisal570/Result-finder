@@ -73,10 +73,10 @@ def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
             # A profile 'owns' an exam if its students have valid results AND
             # they are taking a full semester (>= 4 subjects).
             if success and isinstance(res_data, dict) and len(res_data.get('Subjects', [])) >= 4:
-                print(f"✅ Empirical Match! Profile '{p_name}' owns this exam.")
+                print(f"Empirical Match! Profile '{p_name}' owns this exam.")
                 return p_name, p_data
                 
-    print(f"❌ Empirical probe failed. No profiles contain results for this exam.")
+    print(f"Empirical probe failed. No profiles contain results for this exam.")
     return None, None
 
 def send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name):
@@ -151,23 +151,48 @@ def _get_senior_profiles_json(profiles, profile_name):
     return senior
 
 
-def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_results, portal_has_sgpa=True):
+def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_results):
     """
-    Readd detection for the main branch (saved_profiles.json).
-    Scans senior batch students against the exam; if found, adds them
-    to the JSON profile and returns the extra results for PDF inclusion.
+    Readd detection using subject-overlap fingerprinting.
+    Scans senior batch students against the exam. A student is a genuine readd
+    only if their subjects significantly overlap with the regular batch's courses.
+    This filters out seniors who only took retake/improvement exams.
     """
-    # Existing reg nos
+    # --- Step 1: Build reference subject fingerprint from regular batch ---
+    subject_freq = {}
+    valid_student_count = 0
+    for r in existing_results:
+        subjects = r.get('Subjects', [])
+        if len(subjects) >= 4:
+            valid_student_count += 1
+            for s in subjects:
+                code = s.get('code', '').strip()
+                if code:
+                    subject_freq[code] = subject_freq.get(code, 0) + 1
+
+    if valid_student_count == 0:
+        print("  [Readd] No regular students with full results to build reference. Skipping.")
+        return [], []
+
+    # Reference = subject codes taken by >=30% of valid regular students
+    min_freq = max(1, valid_student_count * 0.3)
+    reference_codes = {code for code, count in subject_freq.items() if count >= min_freq}
+
+    if not reference_codes:
+        print("  [Readd] Could not build reference subject set. Skipping.")
+        return [], []
+
+    print(f"  [Readd] Reference fingerprint: {len(reference_codes)} subjects from {valid_student_count} regular students")
+
+    # --- Step 2: Collect existing reg numbers ---
     existing_regs = set()
     p_data = profiles.get(profile_name, {})
     for r in p_data.get("regs", []):
-        if isinstance(r, list):
-            existing_regs.add(int(r[0]))
-        else:
-            existing_regs.add(int(r))
+        existing_regs.add(int(r[0]) if isinstance(r, list) else int(r))
     for res in existing_results:
         existing_regs.add(int(res.get('Registration No', res.get('Reg', 0))))
 
+    # --- Step 3: Find & scan senior profiles ---
     senior_profiles = _get_senior_profiles_json(profiles, profile_name)
     if not senior_profiles:
         print(f"  [Readd] No senior batch profiles found for '{profile_name}'.")
@@ -199,46 +224,43 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
         target_college="all", num_threads=10
     )
 
-    # Filter out "ghosts" (Improvement/Retake students).
-    # If the portal IS providing SGPAs for regulars, a real re-add MUST also have one.
-    # If the portal is missing them globally (e.g. EEE 10/CSE 10 3rd Sem), we relax this.
+    # --- Step 4: Subject-overlap ghost filter ---
+    # A genuine readd takes the SAME courses as the regular batch (high overlap).
+    # A retake/improvement student takes DIFFERENT or FEWER courses (low overlap).
     filtered_readds = []
     for r in readd_results:
-        has_subjects = r.get('Subjects') and len(r['Subjects']) > 0
-        has_sgpa = str(r.get('SGPA', '-')) != '-'
-        
-        if portal_has_sgpa:
-            # portal is healthy -> strictly require SGPA to filter ghosts
-            # Also require at least 4 subjects to ensure they joined the batch full-time
-            if has_subjects and has_sgpa and len(r.get('Subjects', [])) >= 4:
-                filtered_readds.append(r)
-        else:
-            # portal is globally broken -> accept any student with subjects
-            # But still require 4 subjects to avoid improvement students in shared IDs
-            if has_subjects and len(r.get('Subjects', [])) >= 4:
-                filtered_readds.append(r)
-    
-    readd_results = filtered_readds
+        subjects = r.get('Subjects', [])
+        if len(subjects) < 4:
+            continue
 
-    if not readd_results:
-        print("  [Readd] No readd students with valid results detected.")
+        candidate_codes = {s.get('code', '').strip() for s in subjects if s.get('code', '').strip()}
+        overlap = candidate_codes & reference_codes
+        overlap_ratio = len(overlap) / len(reference_codes) if reference_codes else 0
+
+        reg = r.get('Registration No', r.get('Reg', '?'))
+        name = r.get('Name', 'Unknown')
+
+        if overlap_ratio >= 0.5:
+            filtered_readds.append(r)
+            print(f"    [READD] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%})")
+        else:
+            print(f"    [GHOST] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%}) -> skipped")
+
+    if not filtered_readds:
+        print("  [Readd] No genuine readd students detected after subject-overlap filter.")
         return [], []
 
-    # Persist readds into saved_profiles.json
+    # --- Step 5: Persist readds into saved_profiles.json ---
     readd_info = []
-    for res in readd_results:
+    for res in filtered_readds:
         reg = int(res.get('Registration No', res.get('Reg', 0)))
         name = str(res.get('Name', res.get('Student Name', 'Unknown')))
         sess_id = str(res.get('_sess_id', 'AUTO'))
         source = reg_to_source.get(reg, 'unknown')
 
-        # Add to the profile's regs list (as [reg, sess_id, name])
         profiles[profile_name].setdefault("regs", []).append([reg, sess_id, name])
-
         readd_info.append({'reg_no': reg, 'name': name, 'source': source})
-        print(f"    [READD] {name} ({reg}) <- from '{source}'")
 
-    # Write updated profiles back to disk
     profiles_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "saved_profiles.json"
@@ -246,11 +268,11 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
     try:
         with open(profiles_path, "w") as f:
             json.dump(profiles, f, indent=2)
-        print(f"  [Readd] Updated saved_profiles.json with {len(readd_info)} readd(s).")
+        print(f"  [Readd] Persisted {len(readd_info)} readd(s) to saved_profiles.json.")
     except Exception as e:
-        print(f"  [Readd] WARNING: Failed to persist readds to JSON: {e}")
+        print(f"  [Readd] WARNING: Failed to persist readds: {e}")
 
-    return readd_results, readd_info
+    return filtered_readds, readd_info
 
 
 
@@ -259,10 +281,10 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     
     profile_name, p_data = identify_batch_for_exam(pro_id, exam_name, exam_id=exam_id)
     if not p_data:
-        print(f"⚠️ No matching automated batch profile found for {exam_name}.")
+        print(f"No matching automated batch profile found for {exam_name}.")
         return False
         
-    print(f"✅ Target Profile Locked: {profile_name}")
+    print(f"Target Profile Locked: {profile_name}")
     
     regs_raw = p_data.get("regs", [])
     if not regs_raw:
@@ -277,7 +299,7 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
         else:
             tasks.append((int(item), str(sess_id), str(exam_id)))
             
-    print(f"🚀 Firing up CLI Scraper Engine for {len(tasks)} students...")
+    print(f"Firing up CLI Scraper Engine for {len(tasks)} students...")
     # Initialize the CLI scraper sessions so it has cookies
     cs.fetch_programs_and_sessions()
     
@@ -290,29 +312,15 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     )
     
     if not results:
-        print("❌ Scraper yielded no valid results. It might still be uploading.")
+        print("Scraper yielded no valid results. It might still be uploading.")
         return False
         
     # Filter results to only include students who participated (have subjects)
     results = [r for r in results if r.get('Subjects') and len(r['Subjects']) > 0]
     
-    print(f"✅ Filtered to {len(results)} participating students.")
+    print(f"Filtered to {len(results)} participating students.")
 
-    # Robust Portal Health Check:
-    # We consider the portal "healthy" if regular students (those with >= 4 subjects) have SGPAs.
-    # We check the entire batch to ensure ghosts at the top/bottom don't skew the detection.
-    portal_has_sgpa = any(
-        str(r.get('SGPA', '-')) != '-' 
-        for r in results 
-        if len(r.get('Subjects', [])) >= 4
-    )
-    
-    if portal_has_sgpa:
-        print("ℹ️ Portal is providing SGPAs for this exam. SGPA filter will be active for re-adds.")
-    else:
-        print("⚠️ Portal is globally missing SGPAs for this exam. Relaxing re-add filter.")
-
-    # --- Readd Detection Phase (Main Branch) ---
+    # --- Readd Detection Phase (Subject-Overlap Fingerprinting) ---
     profiles_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "saved_profiles.json"
@@ -321,7 +329,7 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
         all_profiles = json.load(f)
         
     readd_results, readd_info = detect_readds_main_branch(
-        all_profiles, profile_name, pro_id, exam_id, results, portal_has_sgpa
+        all_profiles, profile_name, pro_id, exam_id, results
     )
     if readd_results:
         results.extend(readd_results)
@@ -349,10 +357,10 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
         }
         pdf_bytes = pdfkit.from_string(html_report, False, options=options)
     except Exception as e:
-        print(f"❌ PDF Generation failed: {e}")
+        print(f"PDF Generation failed: {e}")
         return False
         
-    print("📨 Dispatching PDF via Secure Email...")
+    print("Dispatching PDF via Secure Email...")
     send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name)
     
     # --- ADDED FOR V2 SYNC CROSS-BRANCH WORKFLOW ---
@@ -372,9 +380,9 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
         tasks.append(task_data)
         with open(sync_file, "w") as f:
             json.dump(tasks, f)
-        print("✅ Sync task queued for v2 analytics database.")
+        print("Sync task queued for v2 analytics database.")
     except Exception as e:
-        print(f"⚠️ Failed to queue sync task: {e}")
+        print(f"Failed to queue sync task: {e}")
     # -----------------------------------------------
 
     return True

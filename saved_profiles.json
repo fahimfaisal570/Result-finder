@@ -3710,45 +3710,230 @@
     },
     "civil 09": {
         "regs": [
-            847,
-            848,
-            849,
-            851,
-            852,
-            854,
-            857,
-            858,
-            859,
-            861,
-            863,
-            865,
-            867,
-            868,
-            870,
-            872,
-            874,
-            876,
-            879,
-            880,
-            882,
-            885,
-            887,
-            888,
-            890,
-            891,
-            892,
-            895,
-            896,
-            898,
-            899,
-            900,
-            901,
-            902,
-            903,
-            904
+            [
+                847,
+                "22",
+                "Afroj Jahan"
+            ],
+            [
+                848,
+                "22",
+                "Md. Sabbir Fakir"
+            ],
+            [
+                849,
+                "22",
+                "Tasnim Sultana"
+            ],
+            [
+                851,
+                "22",
+                "Roudra Sarker"
+            ],
+            [
+                852,
+                "22",
+                "Ferdous Ibne Ali"
+            ],
+            [
+                854,
+                "22",
+                "ASIF IKBAL"
+            ],
+            [
+                857,
+                "22",
+                "Nazmus Sakib"
+            ],
+            [
+                858,
+                "22",
+                "SEZAN MAHMOOD TONMOY"
+            ],
+            [
+                859,
+                "22",
+                "Nahid Hassan Reffat"
+            ],
+            [
+                861,
+                "22",
+                "Mohammad Rokan Amin"
+            ],
+            [
+                863,
+                "22",
+                "ANJUM IBNAT NAHIN"
+            ],
+            [
+                865,
+                "22",
+                "Ayesha Siddiqua"
+            ],
+            [
+                867,
+                "22",
+                "Supta Chandra Sutra"
+            ],
+            [
+                868,
+                "22",
+                "AMINUL ISLAM"
+            ],
+            [
+                870,
+                "22",
+                "Md. Tauhidul Islam S"
+            ],
+            [
+                872,
+                "22",
+                "AJMAIN FAIYAZ AHMED"
+            ],
+            [
+                874,
+                "22",
+                "Md.Shakib Hossain"
+            ],
+            [
+                876,
+                "22",
+                "Md. Nur Hasan"
+            ],
+            [
+                879,
+                "22",
+                "Md. Abu Sufian Zisha"
+            ],
+            [
+                880,
+                "22",
+                "Md Al Amin khan"
+            ],
+            [
+                882,
+                "22",
+                "Md.Joy"
+            ],
+            [
+                885,
+                "22",
+                "Mounita Saha"
+            ],
+            [
+                887,
+                "22",
+                "RAKIB CHOWDHURY"
+            ],
+            [
+                888,
+                "22",
+                "Nafis Fuyad"
+            ],
+            [
+                890,
+                "22",
+                "Md. Makshudul Karim"
+            ],
+            [
+                891,
+                "22",
+                "SAKIB UL ALAM"
+            ],
+            [
+                892,
+                "22",
+                "Jannatul Ferdous"
+            ],
+            [
+                895,
+                "22",
+                "Md. Sojib Mia"
+            ],
+            [
+                896,
+                "22",
+                "MD.ASHIKUZZAMAN MOBI"
+            ],
+            [
+                898,
+                "22",
+                "MD. FOYZUR RAHMAN RA"
+            ],
+            [
+                899,
+                "22",
+                "Md.Sakibul Hasan"
+            ],
+            [
+                900,
+                "22",
+                "MD. MEHEDI HASAN SIF"
+            ],
+            [
+                901,
+                "22",
+                "Md. Sayid Ahmed"
+            ],
+            [
+                902,
+                "22",
+                "MD.ABDUL MOONSAQIFUR"
+            ],
+            [
+                903,
+                "22",
+                "Tawfique Ibne Bashir"
+            ],
+            [
+                904,
+                "22",
+                "MD: Shahid Afridi"
+            ],
+            [
+                1037,
+                "21",
+                "MD.Toufiqur Rahman"
+            ],
+            [
+                1038,
+                "21",
+                "MD FAHIM SHAHRIAR"
+            ],
+            [
+                1044,
+                "21",
+                "Md. Rakib Hossain"
+            ],
+            [
+                1052,
+                "21",
+                "Minhaj Adnan Abir"
+            ],
+            [
+                1064,
+                "21",
+                "Emon Hosen"
+            ],
+            [
+                1078,
+                "21",
+                "MD. Rakib Hasan"
+            ],
+            [
+                1079,
+                "21",
+                "Md. Aman Ullah Khan"
+            ],
+            [
+                1087,
+                "21",
+                "Adeson Chakma"
+            ]
         ],
+        "sess_id": "22",
         "pro_id": "12",
-        "sess_id": "22"
+        "latest_exam_id": null
     },
     "eee 10": {
         "regs": [
