@@ -11,26 +11,38 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
     After scanning the target batch, checks ALL senior batch profiles of the
     same department.  Any student found in a senior batch whose registration
     number is NOT already in the target profile AND who returns a valid result
-    for this exam is treated as a readmitted (readd) student.
+    for this exam is treated as a readmitted (readd) student, IF their subjects overlap.
 
     Actions:
       1. Adds the readd student to the target profile's student roster.
       2. Saves the readd student's exam results to the analytics database.
       3. Returns a summary list for logging / notification.
     """
-    # Robust Portal Health Check:
-    # We consider the portal "healthy" if regular students (those with >= 4 subjects) have SGPAs.
-    # We check the entire batch to ensure ghosts at the top/bottom don't skew the detection.
-    portal_has_sgpa = any(
-        str(r.get('SGPA', '-')) != '-' 
-        for r in existing_results 
-        if len(r.get('Subjects', [])) >= 4
-    )
-    
-    if portal_has_sgpa:
-        print("ℹ️ Portal is providing SGPAs for this exam. SGPA filter will be active for re-adds.")
-    else:
-        print("⚠️ Portal is globally missing SGPAs for this exam. Relaxing re-add filter.")
+    # --- Step 1: Build reference subject fingerprint from regular batch ---
+    subject_freq = {}
+    valid_student_count = 0
+    for r in existing_results:
+        subjects = r.get('Subjects', [])
+        if len(subjects) >= 4:
+            valid_student_count += 1
+            for s in subjects:
+                code = s.get('code', '').strip()
+                if code:
+                    subject_freq[code] = subject_freq.get(code, 0) + 1
+
+    if valid_student_count == 0:
+        print("  [Readd] No regular students with full results to build reference. Skipping.")
+        return []
+
+    # Reference = subject codes taken by >=30% of valid regular students
+    min_freq = max(1, valid_student_count * 0.3)
+    reference_codes = {code for code, count in subject_freq.items() if count >= min_freq}
+
+    if not reference_codes:
+        print("  [Readd] Could not build reference subject set. Skipping.")
+        return []
+
+    print(f"  [Readd] Reference fingerprint: {len(reference_codes)} subjects from {valid_student_count} regular students")
 
     # Build set of regs already covered (profile roster + current results)
     existing_regs = db.get_profile_student_regs(profile_name)
@@ -77,24 +89,25 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
         num_threads=10
     )
 
-    # Filter out "ghosts" (Improvement/Retake students).
-    # If the portal IS providing SGPAs for regulars, a real re-add MUST also have one.
-    # If the portal is missing them globally (e.g. EEE 10/CSE 10 3rd Sem), we relax this.
+    # --- Step 4: Subject-overlap ghost filter ---
     filtered_readds = []
     for r in readd_results:
-        has_subjects = r.get('Subjects') and len(r['Subjects']) > 0
-        has_sgpa = str(r.get('SGPA', '-')) != '-'
-        
-        if portal_has_sgpa:
-            # portal is healthy -> strictly require SGPA to filter ghosts
-            # Also require at least 4 subjects to ensure they joined the batch full-time
-            if has_subjects and has_sgpa and len(r.get('Subjects', [])) >= 4:
-                filtered_readds.append(r)
+        subjects = r.get('Subjects', [])
+        if len(subjects) < 4:
+            continue
+
+        candidate_codes = {s.get('code', '').strip() for s in subjects if s.get('code', '').strip()}
+        overlap = candidate_codes & reference_codes
+        overlap_ratio = len(overlap) / len(reference_codes) if reference_codes else 0
+
+        reg = r.get('Registration No', r.get('Reg', '?'))
+        name = r.get('Name', 'Unknown')
+
+        if overlap_ratio >= 0.5:
+            filtered_readds.append(r)
+            print(f"    [READD] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%})")
         else:
-            # portal is globally broken -> accept any student with subjects
-            # But still require 4 subjects to avoid improvement students in shared IDs
-            if has_subjects and len(r.get('Subjects', [])) >= 4:
-                filtered_readds.append(r)
+            print(f"    [GHOST] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%}) -> skipped")
     
     readd_results = filtered_readds
 
