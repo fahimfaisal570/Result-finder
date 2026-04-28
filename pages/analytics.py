@@ -294,6 +294,22 @@ if df_raw.empty:
     st.info("No exam results found for this semester. Try selecting a different exam or rescanning.")
     st.stop()
 
+# --- Readd Notification Disclaimer ---
+notify_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "readd_notifications.json")
+try:
+    if os.path.exists(notify_file):
+        with open(notify_file, "r") as nf:
+            notif_data = json.load(nf)
+        key = f"{profile_name}_{exam_id}"
+        if key in notif_data and notif_data[key]:
+            readds = notif_data[key]
+            readd_names = ", ".join([f"{r['name']} ({r['reg_no']})" for r in readds])
+            st.caption(f"ℹ️ **Note:** {readd_names} joined this batch in this exam (Readmitted).")
+except Exception:
+    pass
+# --------------------------------------
+
+
 # ---------------------------------------------------------------------------
 # SIDEBAR — Slice & Dice filters
 # ---------------------------------------------------------------------------
@@ -711,21 +727,6 @@ if show_strategic_brief:
     
     with st.container(border=True):
         st.subheader("Strategic Analysis Brief")
-        
-        # --- Readd Notification ---
-        notify_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "readd_notifications.json")
-        try:
-            if os.path.exists(notify_file):
-                with open(notify_file, "r") as nf:
-                    notif_data = json.load(nf)
-                key = f"{profile_name}_{exam_id}"
-                if key in notif_data and notif_data[key]:
-                    readds = notif_data[key]
-                    readd_names = ", ".join([f"{r['name']} ({r['reg_no']})" for r in readds])
-                    st.error(f"New Readd Detected: {readd_names} joined this batch in the current exam.")
-        except Exception:
-            pass
-        # --------------------------
         
         m_col1, m_col2, m_col3, m_col4 = st.columns(4)
         
