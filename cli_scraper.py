@@ -15,8 +15,7 @@ import os
 import sys
 import time
 import datetime
-def get_bd_time():
-    return datetime.datetime.utcnow() + datetime.timedelta(hours=6)
+
 import re
 import ssl
 import subprocess
