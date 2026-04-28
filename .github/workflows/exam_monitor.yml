@@ -71,6 +71,7 @@ jobs:
           git push origin v2
         fi
 
+        git restore system_cache.json || echo "No cache to restore"
         git checkout main
         git stash pop || echo "No stash to restore"
 
