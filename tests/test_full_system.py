@@ -15,6 +15,7 @@ import database as db
 db.DB_PATH = TEST_DB
 db.init_db()
 db.migrate_schema_v2()
+db.migrate_schema_v3()
 
 import cli_scraper as cs
 

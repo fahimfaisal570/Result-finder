@@ -11,93 +11,13 @@ import logging
 import re
 import streamlit as st
 
-# Optional: Turso (libSQL) support for cloud persistence
-try:
-    import libsql_client
-    HAS_LIBSQL = True
-except ImportError:
-    HAS_LIBSQL = False
-
 logger = logging.getLogger(__name__)
 
 # --- Database Configuration ---
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_finder.db")
 CREDIT_MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credit_mapping.json")
 
-# Compatibility Wrapper for libsql-client to match sqlite3 API
-class LibsqlConnectionWrapper:
-    def __init__(self, client):
-        self.client = client
-    
-    def execute(self, sql, params=None):
-        res = self.client.execute(sql, params or [])
-        return LibsqlResultWrapper(res)
-    
-    def executescript(self, sql):
-        # libsql-client doesn't have executescript, so we split by ';'
-        # This is for internal migration use; app doesn't use it much.
-        for stmt in sql.split(';'):
-            if stmt.strip():
-                self.client.execute(stmt)
-                
-    def batch(self, statement_list):
-        # statement_list is a list of (sql, params) or sql strings
-        return self.client.batch(statement_list)
 
-    def commit(self):
-        pass # libsql-client executes are atomic and auto-commit
-        
-    def close(self):
-        self.client.close()
-        
-    def __enter__(self):
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-        
-    def cursor(self):
-        return self # The client itself handles execution in this wrapper
-    
-    # Map common cursor methods to the client or result set
-    def fetchall(self):
-        # Note: This is a bit tricky since client.execute returns the result.
-        # Most of our app uses 'conn.execute(sql).fetchall()'
-        # We handle this by making execute() return a wrapper for the result.
-        pass
-
-class LibsqlResultWrapper:
-    def __init__(self, result_set):
-        self.result_set = result_set
-        self.rows = result_set.rows
-        self.columns = result_set.columns
-        self._index = 0
-        
-    @property
-    def description(self):
-        # sqlite3 description is a tuple of (name, None, None, None, None, None, None)
-        return tuple((col, None, None, None, None, None, None) for col in self.columns)
-
-    @property
-    def rowcount(self):
-        return getattr(self.result_set, 'rows_affected', -1)
-
-    @property
-    def lastrowid(self):
-        return getattr(self.result_set, 'last_insert_rowid', None)
-
-    def __iter__(self):
-        return iter(self.rows)
-        
-    def fetchall(self):
-        return self.rows
-        
-    def fetchone(self):
-        if self._index < len(self.rows):
-            res = self.rows[self._index]
-            self._index += 1
-            return res
-        return None
 
 # Load Credit Mapping if exists
 _credit_map = {}
@@ -155,11 +75,6 @@ def get_connection():
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
-
-
-def is_using_turso() -> bool:
-    """Turso Cloud Mode deactivated per user request."""
-    return False
 
 
 def init_db():
@@ -450,13 +365,6 @@ def update_scan_log(profile_name: str, exam_id: str, student_count: int, stateme
             conn.execute(sql, params)
 
 
-def get_scan_log() -> list:
-    """Return all scan_log rows as list of dicts."""
-    with get_connection() as conn:
-        cur = conn.execute("SELECT profile_name, exam_id, scanned_at, student_count FROM scan_log")
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
-
 
 def should_rescan(profile_name: str, exam_id: str, interval_minutes: int) -> bool:
     """Return True if this exam hasn't been scanned within interval_minutes."""
@@ -596,8 +504,8 @@ def get_effective_cgpa_per_student(profile_name: str) -> list:
                 continue
 
             # Weighted GPA: sum(gp * ch) / sum(ch)
-            total_points = sum(row[1] * row[2] for row in best_grades)
-            total_credits = sum(row[2] for row in best_grades)
+            total_points = sum((row[1] or 0.0) * (row[2] if row[2] is not None else 3.0) for row in best_grades)
+            total_credits = sum((row[2] if row[2] is not None else 3.0) for row in best_grades)
             effective_cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
 
             # Calculate Improvement/Retake counts based on defined thresholds
@@ -648,21 +556,6 @@ def get_effective_cgpa_per_student(profile_name: str) -> list:
     return results
 
 
-def get_all_subject_data(profile_name: str) -> list:
-    """
-    Returns a flat list of all subjects and their best grades for every student.
-    Useful for DataFrame-based analysis (heatmaps, boxplots, clustering).
-    """
-    with get_connection() as conn:
-        cur = conn.execute("""
-            SELECT sg.reg_no, s.name, sg.subject_code, sg.subject_name, MAX(sg.grade_point) as gp, sg.credit_hours
-            FROM subject_grades sg
-            JOIN students s ON sg.profile_name = s.profile_name AND sg.reg_no = s.reg_no
-            WHERE sg.profile_name=?
-            GROUP BY sg.reg_no, sg.subject_code
-        """, (profile_name,))
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
 # ---------------------------------------------------------------------------

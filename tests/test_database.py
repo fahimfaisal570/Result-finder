@@ -19,6 +19,7 @@ database.DB_PATH = TEST_DB
 # Re-run bootstrap so tables exist in the test DB
 database.init_db()
 database.migrate_schema_v2()
+database.migrate_schema_v3()
 
 PROFILE = "test_profile"
 PRO_ID  = "99"
@@ -177,8 +178,8 @@ class TestSchemaAndAcid(unittest.TestCase):
         student = results[0]
         # Best CS101 = 4.0, MA101 = 3.0 → (4*3 + 3*3)/(3+3) = 3.5
         self.assertAlmostEqual(student["effective_cgpa"], 3.5, places=1)
-        # Should have counted 1 improvement (CS101 went from 2 → 4)
-        self.assertEqual(student["improvement_count"], 1)
+        # Both CS101(4.0) and MA101(3.0) are > 2.75, so 0 subjects are eligible for improvement
+        self.assertEqual(student["improvement_count"], 0)
 
     # ------------------------------------------------------------------
     # 8. Scan log: should_rescan logic

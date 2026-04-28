@@ -2,9 +2,7 @@ import os
 import json
 import cli_scraper as cs
 import database as db
-
-SYNC_FILE = "/tmp/v2_sync_tasks.json"
-
+SYNC_FILE = "/tmp/v2_sync_tasks.json"  # CI-only path (GitHub Actions Linux runner)
 
 def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_results):
     """
