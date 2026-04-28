@@ -427,6 +427,283 @@ promo_target, is_even_sem, promo_yr = get_promotion_rules(selected_label)
 # ---------------------------------------------------------------------------
 # STRATEGIC INSIGHT BRIEF
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Deep Analysis Helpers (shared by Strategic Insights + GPA Projection tab)
+# ---------------------------------------------------------------------------
+if '_deep_cache' not in st.session_state:
+    st.session_state._deep_cache = {}  # keyed by f"{profile_name}_{reg}"
+
+def _run_deep_analysis(reg_no, stu_name):
+    """Fetch full student record from portal and compute precise analysis."""
+    import cli_scraper as cs
+    import re as _re
+
+    _p_data = profiles.get(profile_name, {})
+    _pro_id = _p_data.get("pro_id", "")
+    if not _pro_id:
+        return None
+
+    # Resolve per-student sess_id
+    _sess_id = "AUTO"
+    for reg_entry in _p_data.get("regs", []):
+        if isinstance(reg_entry, list) and len(reg_entry) >= 2:
+            try:
+                if int(reg_entry[0]) == int(reg_no):
+                    candidate = str(reg_entry[1])
+                    if candidate and candidate != "AUTO":
+                        _sess_id = candidate
+                    break
+            except (ValueError, TypeError):
+                pass
+    if _sess_id == "AUTO":
+        _sess_id = _p_data.get("sess_id", "AUTO")
+
+    # Fetch portal data - retry up to 3 times on empty response
+    _programs, _sessions = cs.fetch_programs_and_sessions()
+    _all_exams = {}
+    for _attempt in range(3):
+        _all_exams = cs.fetch_exams(_pro_id) if _pro_id else {}
+        if _all_exams:
+            break
+        import time as _time
+        _time.sleep(2)
+    if not _all_exams:
+        return None
+
+    # Smart Scope: filter exams to student's cohort year
+    _start_year = 0
+    if _sess_id and _sess_id != "AUTO":
+        _sname = _sessions.get(_sess_id, "")
+        _ym = _re.search(r"20(\d{2})", _sname)
+        if _ym:
+            _start_year = int("20" + _ym.group(1))
+
+    _YEAR_PAT = _re.compile(r'\b(20\d{2})\b')
+    _filtered_eids = []
+    for _eid, _ename in _all_exams.items():
+        if _start_year:
+            _ey_matches = _YEAR_PAT.findall(_ename)
+            _ey = int(_ey_matches[-1]) if _ey_matches else 0
+            if _ey and _ey < (_start_year - 1):
+                continue
+        _filtered_eids.append(_eid)
+
+    _tasks = [(int(reg_no), _sess_id, _eid) for _eid in _filtered_eids]
+
+    # Run scan - retry up to 3 times on empty/failed response
+    _history = []
+    for _scan_attempt in range(3):
+        _history = cs.run_batch_scan_engine(
+            tasks=_tasks,
+            pro_id=_pro_id,
+            exam_id="0",
+            all_sessions=_sessions,
+            num_threads=15
+        )
+        if _history:
+            break
+        import time as _time
+        _time.sleep(3)
+
+    if not _history:
+        return None
+
+    # Attach exam names
+    for rec in _history:
+        eid = rec.get('_exam_id')
+        if eid and eid in _all_exams:
+            rec['_exam_name'] = _all_exams[eid]
+
+    # Run precise computation
+    return db.compute_deep_analysis(_history, profile_name, selected_label)
+
+
+def _render_deep_result(result, reg, name=""):
+    """Render the deep analysis result inline."""
+    if result is None:
+        cache_key = f"{profile_name}_{reg}"
+        retry_key = f"retry_{profile_name}_{exam_id}_{reg}"
+        cols_err = st.columns([0.05, 0.55, 0.4])
+        with cols_err[1]:
+            st.caption("⚠️ Could not fetch records — portal may be busy or student not found.")
+        with cols_err[2]:
+            if st.button("🔁 Retry", key=retry_key, help=f"Re-run deep analysis for this student"):
+                del st.session_state._deep_cache[cache_key]
+                st.rerun()
+        return
+
+    # --- True CGPA vs Official ---
+    diff = result['cgpa_diff']
+    diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
+
+    cols = st.columns([1, 1, 1])
+    with cols[0]:
+        st.metric(
+            "True CGPA",
+            f"{result['true_cgpa']:.2f}",
+            delta=f"{diff_str} vs official {result['official_cgpa']:.2f}",
+            delta_color="normal" if diff >= 0 else "inverse"
+        )
+    with cols[1]:
+        if result['precise_target_sgpa'] > 0:
+            target_val = result['precise_target_sgpa']
+            if target_val > 4.0:
+                st.metric("Precise Target SGPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
+            else:
+                st.metric("Precise Target SGPA", f"{target_val:.2f}",
+                          delta=f"Next sem ({result['next_sem_credits']:.1f} cr)")
+        else:
+            st.metric("Target SGPA", "N/A", delta="Even sem / computed")
+    with cols[2]:
+        st.metric("Pending Retakes", f"{result['pending_retake_count']}",
+                  delta=f"{result['total_credits']:.1f} cr completed")
+
+    # --- Pending retakes detail ---
+    if result['pending_retakes']:
+        with st.expander(f"📋 {result['pending_retake_count']} Subject(s) Still Failing"):
+            for pr in result['pending_retakes']:
+                gp_display = f"{pr['gp']:.2f}" if pr['gp'] > 0 else "F"
+                badge = "🔄" if pr['source'] == 'retake_improved' else "❌"
+                st.markdown(f"{badge} **{pr['code']}** — GP: {gp_display} ({pr['credit']} cr)")
+
+    st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp;📊 Analyzed {result['effective_grade_count']} subjects across {result['semesters_found']} semester(s)")
+
+
+# ---------------------------------------------------------------------------
+# Deep Analysis Helpers (shared by Strategic Insights + GPA Projection tab)
+# ---------------------------------------------------------------------------
+if '_deep_cache' not in st.session_state:
+    st.session_state._deep_cache = {}  # keyed by "{profile_name}_{reg}"
+
+def _run_deep_analysis(reg_no, stu_name):
+    """Fetch full student record from portal and compute precise analysis."""
+    import cli_scraper as cs
+    import re as _re
+
+    _p_data = profiles.get(profile_name, {})
+    _pro_id = _p_data.get("pro_id", "")
+    if not _pro_id:
+        return None
+
+    _sess_id = "AUTO"
+    for reg_entry in _p_data.get("regs", []):
+        if isinstance(reg_entry, list) and len(reg_entry) >= 2:
+            try:
+                if int(reg_entry[0]) == int(reg_no):
+                    candidate = str(reg_entry[1])
+                    if candidate and candidate != "AUTO":
+                        _sess_id = candidate
+                    break
+            except (ValueError, TypeError):
+                pass
+    if _sess_id == "AUTO":
+        _sess_id = _p_data.get("sess_id", "AUTO")
+
+    _programs, _sessions = cs.fetch_programs_and_sessions()
+    _all_exams = {}
+    for _attempt in range(3):
+        _all_exams = cs.fetch_exams(_pro_id) if _pro_id else {}
+        if _all_exams:
+            break
+        import time as _time
+        _time.sleep(2)
+    if not _all_exams:
+        return None
+
+    _start_year = 0
+    if _sess_id and _sess_id != "AUTO":
+        _sname = _sessions.get(_sess_id, "")
+        _ym = _re.search(r"20(\d{2})", _sname)
+        if _ym:
+            _start_year = int("20" + _ym.group(1))
+
+    _YEAR_PAT = _re.compile(r"\b(20\d{2})\b")
+    _filtered_eids = []
+    for _eid, _ename in _all_exams.items():
+        if _start_year:
+            _ey_matches = _YEAR_PAT.findall(_ename)
+            _ey = int(_ey_matches[-1]) if _ey_matches else 0
+            if _ey and _ey < (_start_year - 1):
+                continue
+        _filtered_eids.append(_eid)
+
+    _tasks = [(int(reg_no), _sess_id, _eid) for _eid in _filtered_eids]
+
+    _history = []
+    for _scan_attempt in range(3):
+        _history = cs.run_batch_scan_engine(
+            tasks=_tasks,
+            pro_id=_pro_id,
+            exam_id="0",
+            all_sessions=_sessions,
+            num_threads=15
+        )
+        if _history:
+            break
+        import time as _time
+        _time.sleep(3)
+
+    if not _history:
+        return None
+
+    for rec in _history:
+        eid = rec.get("_exam_id")
+        if eid and eid in _all_exams:
+            rec["_exam_name"] = _all_exams[eid]
+
+    return db.compute_deep_analysis(_history, profile_name, selected_label)
+
+
+def _render_deep_result(result, reg, name="", context_suffix=""):
+    """Render the deep analysis result inline. context_suffix makes button keys unique per tab."""
+    if result is None:
+        cache_key = f"{profile_name}_{reg}"
+        retry_key = f"retry_{context_suffix}_{profile_name}_{exam_id}_{reg}"
+        cols_err = st.columns([0.05, 0.55, 0.4])
+        with cols_err[1]:
+            st.caption("Could not fetch records - portal may be busy or student not found.")
+        with cols_err[2]:
+            if st.button("Retry", key=retry_key, help=f"Re-run deep analysis for {name}"):
+                del st.session_state._deep_cache[cache_key]
+                st.rerun()
+        return
+
+    diff = result["cgpa_diff"]
+    diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
+
+    cols = st.columns([1, 1, 1])
+    with cols[0]:
+        st.metric(
+            "True CGPA",
+            f"{result['true_cgpa']:.2f}",
+            delta=f"{diff_str} vs official {result['official_cgpa']:.2f}",
+            delta_color="normal" if diff >= 0 else "inverse"
+        )
+    with cols[1]:
+        if result["precise_target_sgpa"] > 0:
+            target_val = result["precise_target_sgpa"]
+            if target_val > 4.0:
+                st.metric("Precise Target SGPA", "Impossible",
+                          delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
+            else:
+                st.metric("Precise Target SGPA", f"{target_val:.2f}",
+                          delta=f"Next sem ({result['next_sem_credits']:.1f} cr)")
+        else:
+            st.metric("Target SGPA", "N/A", delta="Even sem / computed")
+    with cols[2]:
+        st.metric("Pending Retakes", f"{result['pending_retake_count']}",
+                  delta=f"{result['total_credits']:.1f} cr completed")
+
+    if result["pending_retakes"]:
+        with st.expander(f"\U0001f4cb {result['pending_retake_count']} Subject(s) Still Failing"):
+            for pr in result["pending_retakes"]:
+                gp_display = f"{pr['gp']:.2f}" if pr["gp"] > 0 else "F"
+                badge = "\U0001f504" if pr["source"] == "retake_improved" else "\u274c"
+                st.markdown(f"{badge} **{pr['code']}** \u2014 GP: {gp_display} ({pr['credit']} cr)")
+
+    st.caption(f"\u00a0\u00a0\u00a0\u00a0\U0001f4ca Analyzed {result['effective_grade_count']} subjects across {result['semesters_found']} semester(s)")
+
+
 if show_strategic_brief:
     # Pre-calculate personas for the brief
     archetypes = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
@@ -489,145 +766,6 @@ if show_strategic_brief:
             c_ct = insights.get('critical_count', 0)
             r_ct = insights.get('promo_risk_count', 0)
             
-            # --- Deep Analysis Session State ---
-            if '_deep_cache' not in st.session_state:
-                st.session_state._deep_cache = {}  # keyed by f"{profile_name}_{reg}"
-
-            def _run_deep_analysis(reg_no, stu_name):
-                """Fetch full student record from portal and compute precise analysis."""
-                import cli_scraper as cs
-                import re as _re
-
-                _p_data = profiles.get(profile_name, {})
-                _pro_id = _p_data.get("pro_id", "")
-                if not _pro_id:
-                    return None
-
-                # Resolve per-student sess_id
-                _sess_id = "AUTO"
-                for reg_entry in _p_data.get("regs", []):
-                    if isinstance(reg_entry, list) and len(reg_entry) >= 2:
-                        try:
-                            if int(reg_entry[0]) == int(reg_no):
-                                candidate = str(reg_entry[1])
-                                if candidate and candidate != "AUTO":
-                                    _sess_id = candidate
-                                break
-                        except (ValueError, TypeError):
-                            pass
-                if _sess_id == "AUTO":
-                    _sess_id = _p_data.get("sess_id", "AUTO")
-
-                # Fetch portal data — retry up to 3 times on empty response
-                _programs, _sessions = cs.fetch_programs_and_sessions()
-                _all_exams = {}
-                for _attempt in range(3):
-                    _all_exams = cs.fetch_exams(_pro_id) if _pro_id else {}
-                    if _all_exams:
-                        break
-                    import time as _time
-                    _time.sleep(2)
-                if not _all_exams:
-                    return None
-
-                # Smart Scope: filter exams to student's cohort year
-                _start_year = 0
-                if _sess_id and _sess_id != "AUTO":
-                    _sname = _sessions.get(_sess_id, "")
-                    _ym = _re.search(r"20(\d{2})", _sname)
-                    if _ym:
-                        _start_year = int("20" + _ym.group(1))
-
-                _YEAR_PAT = _re.compile(r'\b(20\d{2})\b')
-                _filtered_eids = []
-                for _eid, _ename in _all_exams.items():
-                    if _start_year:
-                        _ey_matches = _YEAR_PAT.findall(_ename)
-                        _ey = int(_ey_matches[-1]) if _ey_matches else 0
-                        if _ey and _ey < (_start_year - 1):
-                            continue
-                    _filtered_eids.append(_eid)
-
-                _tasks = [(int(reg_no), _sess_id, _eid) for _eid in _filtered_eids]
-
-                # Run scan — retry up to 3 times on empty/failed response
-                _history = []
-                for _scan_attempt in range(3):
-                    _history = cs.run_batch_scan_engine(
-                        tasks=_tasks,
-                        pro_id=_pro_id,
-                        exam_id="0",
-                        all_sessions=_sessions,
-                        num_threads=15
-                    )
-                    if _history:
-                        break
-                    import time as _time
-                    _time.sleep(3)
-
-                if not _history:
-                    return None
-
-                # Attach exam names
-                for rec in _history:
-                    eid = rec.get('_exam_id')
-                    if eid and eid in _all_exams:
-                        rec['_exam_name'] = _all_exams[eid]
-
-                # Run precise computation
-                return db.compute_deep_analysis(_history, profile_name, selected_label)
-
-            def _render_deep_result(result, reg, name=""):
-                """Render the deep analysis result inline."""
-                if result is None:
-                    cache_key = f"{profile_name}_{reg}"
-                    retry_key = f"retry_{profile_name}_{exam_id}_{reg}"
-                    cols_err = st.columns([0.05, 0.55, 0.4])
-                    with cols_err[1]:
-                        st.caption("⚠️ Could not fetch records — portal may be busy or student not found.")
-                    with cols_err[2]:
-                        if st.button("🔁 Retry", key=retry_key, help="Re-run deep analysis for this student"):
-                            del st.session_state._deep_cache[cache_key]
-                            st.rerun()
-                    return
-
-                # --- True CGPA vs Official ---
-                diff = result['cgpa_diff']
-                diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
-                diff_color = "#10b981" if diff > 0 else ("#ef4444" if diff < 0 else "#6b7280")
-
-                cols = st.columns([1, 1, 1])
-                with cols[0]:
-                    st.metric(
-                        "True CGPA",
-                        f"{result['true_cgpa']:.2f}",
-                        delta=f"{diff_str} vs official {result['official_cgpa']:.2f}",
-                        delta_color="normal" if diff >= 0 else "inverse"
-                    )
-                with cols[1]:
-                    if result['precise_target_sgpa'] > 0:
-                        target_val = result['precise_target_sgpa']
-                        if target_val > 4.0:
-                            st.metric("Precise Target SGPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
-                        else:
-                            st.metric("Precise Target SGPA", f"{target_val:.2f}",
-                                      delta=f"Next sem ({result['next_sem_credits']:.1f} cr)")
-                    else:
-                        st.metric("Target SGPA", "N/A", delta="Even sem / computed")
-                with cols[2]:
-                    st.metric("Pending Retakes", f"{result['pending_retake_count']}",
-                              delta=f"{result['total_credits']:.1f} cr completed")
-
-                # --- Pending retakes detail ---
-                if result['pending_retakes']:
-                    with st.expander(f"📋 {result['pending_retake_count']} Subject(s) Still Failing"):
-                        for pr in result['pending_retakes']:
-                            gp_display = f"{pr['gp']:.2f}" if pr['gp'] > 0 else "F"
-                            badge = "🔄" if pr['source'] == 'retake_improved' else "❌"
-                            st.markdown(f"{badge} **{pr['code']}** — GP: {gp_display} ({pr['credit']} cr)")
-
-                st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp;📊 Analyzed {result['effective_grade_count']} subjects across {result['semesters_found']} semester(s)")
-
             def _render_student_list(student_data):
                 for reg, name, target in student_data:
                     # Hide target after even semesters unless it's impossible (>4.0)
@@ -699,7 +837,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 # TABS
 # ---------------------------------------------------------------------------
-tabs = st.tabs(["⭐ Baseline Insight", "🧪 Advanced Patterns", "🌀 Cube Pivot", "🏆 Clearing List"])
+tabs = st.tabs(["⭐ Baseline Insight", "🧪 Advanced Patterns", "🌀 Cube Pivot", "🏆 Clearing List", "🎯 GPA Projection"])
 
 # =========================================================================
 # TAB 1: BASELINE
@@ -1021,5 +1159,268 @@ with tabs[3]:
     disp_cols = ['reg_no', 'name', 'sgpa', 'cgpa', 'result_status', 'improvement_count', 'retake_count']
     disp_df = df_main.sort_values('cgpa', ascending=False).reset_index(drop=True)
     st.dataframe(disp_df[disp_cols], use_container_width=True)
+
+
+
+# =========================================================================
+# TAB 5: GPA PROJECTION
+# =========================================================================
+with tabs[4]:
+    st.subheader("\U0001f3af GPA Projection & Graduation Planner")
+    st.markdown(
+        "Run a deep analysis for any student to see their **True CGPA**, "
+        "**pending retakes**, and compute the **minimum average SGPA** needed "
+        "to reach any target graduation CGPA."
+    )
+    st.info(
+        "\U0001f50d **How it works:** Click **Deep Analysis** next to a student. "
+        "The app fetches their full academic history from the portal, computes "
+        "their credit-weighted True CGPA, then uses the semester credit map to "
+        "project how much they need to score in remaining semesters.",
+        icon="\U0001f4a1"
+    )
+
+    # Search + filter bar
+    proj_search = st.text_input(
+        "\U0001f50d Search student by name or reg no:",
+        placeholder="e.g. Eftakharul or 1011",
+        key="proj_search"
+    )
+
+    proj_df = df_main.copy()
+    if proj_search.strip():
+        q = proj_search.strip().lower()
+        proj_df = proj_df[
+            proj_df["name"].str.lower().str.contains(q, na=False) |
+            proj_df["reg_no"].astype(str).str.contains(q, na=False)
+        ]
+
+    proj_df = proj_df.sort_values("cgpa", ascending=False).reset_index(drop=True)
+
+    if proj_df.empty:
+        st.warning("No students match your search.")
+    else:
+        st.markdown(f"**{len(proj_df)} student(s)** in this exam \u2014 click Deep Analysis to unlock projections.")
+        st.divider()
+
+        for _, row in proj_df.iterrows():
+            reg  = row["reg_no"]
+            name = row.get("name", f"Reg {reg}")
+            sgpa = row.get("sgpa", 0.0)
+            cgpa = row.get("cgpa", 0.0)
+
+            cache_key = f"{profile_name}_{reg}"
+            btn_key   = f"proj_deep_{profile_name}_{exam_id}_{reg}"
+
+            with st.container(border=True):
+                hdr_col1, hdr_col2, hdr_col3, hdr_col4 = st.columns([3, 1, 1, 2])
+                hdr_col1.markdown(f"**{name}** &nbsp; `{reg}`")
+                hdr_col2.markdown(f"SGPA &nbsp;**{sgpa:.2f}**")
+                hdr_col3.markdown(f"CGPA &nbsp;**{cgpa:.2f}**")
+
+                already_done = cache_key in st.session_state._deep_cache
+
+                if already_done:
+                    deep_res = st.session_state._deep_cache[cache_key]
+                    hdr_col4.markdown("\u2705 **Analysed**")
+
+                    if deep_res is None:
+                        retry_key = f"retry_{profile_name}_{exam_id}_{reg}"
+                        cols_err = st.columns([0.05, 0.55, 0.4])
+                        with cols_err[1]:
+                            st.caption("\u26a0\ufe0f Could not fetch records \u2014 portal may be busy or student not found.")
+                        with cols_err[2]:
+                            if st.button("\U0001f501 Retry", key=retry_key, help=f"Re-run deep analysis for this student"):
+                                del st.session_state._deep_cache[cache_key]
+                                st.rerun()
+                    else:
+                        adv_proj = db.compute_advanced_projection(
+                            deep_result=deep_res,
+                            effective_grades=deep_res.get('effective_grades', {}),
+                            retake_records=deep_res.get('retake_records', []),
+                        )
+                        
+                        # --- Metrics Row ---
+                        diff = deep_res['cgpa_diff']
+                        diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
+                        cols = st.columns([1, 1, 1])
+                        with cols[0]:
+                            st.metric("True CGPA", f"{deep_res['true_cgpa']:.2f}",
+                                      delta=f"{diff_str} vs official {deep_res['official_cgpa']:.2f}", delta_color="normal" if diff >= 0 else "inverse")
+                        with cols[1]:
+                            if deep_res['precise_target_sgpa'] > 0:
+                                target_val = deep_res['precise_target_sgpa']
+                                if target_val > 4.0:
+                                    st.metric("Precise Target SGPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
+                                else:
+                                    st.metric("Precise Target SGPA", f"{target_val:.2f}", delta=f"Next sem ({deep_res['next_sem_credits']:.1f} cr)")
+                            else:
+                                st.metric("Target SGPA", "N/A", delta="Even sem / computed")
+                        with cols[2]:
+                            st.metric("Pending Retakes", f"{deep_res['pending_retake_count']}", delta=f"{deep_res['total_credits']:.1f} cr completed")
+
+                        # --- Collect Overrides from session_state ---
+                        overrides = {}
+                        # For pending retakes (default 2.00)
+                        for pr in adv_proj['pending_retakes']:
+                            key = f"tgt_{profile_name}_{reg}_{pr['code']}"
+                            if key in st.session_state:
+                                overrides[pr['code']] = st.session_state[key]
+                            else:
+                                overrides[pr['code']] = 2.00  # Default to passing
+                        
+                        # For improvement candidates (default current_gp)
+                        for ic in adv_proj['improvement_candidates']:
+                            key = f"tgt_{profile_name}_{reg}_{ic['code']}"
+                            if key in st.session_state:
+                                overrides[ic['code']] = st.session_state[key]
+                            else:
+                                overrides[ic['code']] = ic['current_gp']
+
+                        # --- Compute Adjusted CGPA ---
+                        adj_cgpa, adj_credits = db.compute_adjusted_cgpa(deep_res.get('effective_grades', {}), overrides)
+                        cgpa_gain = adj_cgpa - deep_res['true_cgpa']
+
+                        # --- Expanders for Retakes and Improvements ---
+                        if adv_proj['pending_retakes']:
+                            with st.expander(f"\U0001f4cb {len(adv_proj['pending_retakes'])} Subject(s) Still Failing"):
+                                for pr in adv_proj['pending_retakes']:
+                                    cc1, cc2 = st.columns([3, 1])
+                                    with cc1:
+                                        gp_display = f"{pr['current_gp']:.2f}" if pr['current_gp'] > 0 else "F"
+                                        st.markdown(f"\u274c **{pr['code']}** \u2014 GP: {gp_display} ({pr['credit']} cr)")
+                                    with cc2:
+                                        key = f"tgt_{profile_name}_{reg}_{pr['code']}"
+                                        st.number_input("Target GP", min_value=2.00, max_value=4.00, value=overrides[pr['code']], step=0.25, key=key, label_visibility="collapsed")
+                        
+                        if adv_proj['improvement_candidates']:
+                            with st.expander(f"\U0001f4cb {len(adv_proj['improvement_candidates'])} Improvement Candidates"):
+                                for ic in adv_proj['improvement_candidates']:
+                                    cc1, cc2 = st.columns([3, 1])
+                                    with cc1:
+                                        st.markdown(f"\U0001f535 **{ic['code']}** \u2014 GP: {ic['current_gp']:.2f} ({ic['credit']} cr)")
+                                    with cc2:
+                                        key = f"tgt_{profile_name}_{reg}_{ic['code']}"
+                                        st.number_input("Target GP", min_value=ic['current_gp'], max_value=4.00, value=overrides[ic['code']], step=0.25, key=key, label_visibility="collapsed")
+
+                        if adv_proj['already_attempted']:
+                            with st.expander(f"\u26a0\ufe0f Already Attempted ({len(adv_proj['already_attempted'])})"):
+                                for aa in adv_proj['already_attempted']:
+                                    st.markdown(f"\U0001f6ab **{aa['code']}** \u2014 GP: {aa['current_gp']:.2f} | {aa['reason']}")
+
+                        if adv_proj['ineligible_retake_cleared']:
+                            with st.expander(f"\U0001f512 Retake-Cleared (not improvable, {len(adv_proj['ineligible_retake_cleared'])})"):
+                                for irc in adv_proj['ineligible_retake_cleared']:
+                                    st.markdown(f"\U0001f512 **{irc['code']}** \u2014 GP: {irc['current_gp']:.2f} | {irc['reason']}")
+
+                        st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp;\U0001f4ca Analyzed {deep_res['effective_grade_count']} subjects across {deep_res['semesters_found']} semester(s)")
+
+                        # --- Graduation Target Calculator ---
+                        st.markdown("---")
+                        st.markdown("##### \U0001f3af Graduation Target Calculator")
+                        _dept = db.get_dept_from_profile(profile_name)
+                        _current_sem = deep_res.get("current_semester", 0)
+                        _remaining_sems = max(0, 8 - _current_sem)
+
+                        if _remaining_sems == 0:
+                            st.success(
+                                f"This student has completed all 8 semesters. "
+                                f"Final Adjusted CGPA: **{adj_cgpa:.2f}**"
+                            )
+                        else:
+                            target_key = f"target_cgpa_{profile_name}_{reg}"
+                            target_cgpa = st.slider(
+                                "Target Graduation CGPA",
+                                min_value=2.00,
+                                max_value=4.00,
+                                value=3.25,
+                                step=0.05,
+                                key=target_key,
+                                help="Drag to set your desired graduation CGPA"
+                            )
+
+                            # OVERRIDE FOR CALCULATION
+                            adj_deep_res = deep_res.copy()
+                            adj_deep_res['true_cgpa'] = adj_cgpa
+                            adj_deep_res['total_credits'] = adj_credits
+
+                            proj = db.compute_graduation_projection(
+                                deep_result=adj_deep_res,
+                                target_grad_cgpa=target_cgpa,
+                                dept=_dept,
+                            )
+
+                            p_c1, p_c2, p_c3 = st.columns(3)
+                            with p_c1:
+                                if proj["already_met"]:
+                                    st.metric("Required Avg SGPA", "Already Met \U0001f389",
+                                              delta=f"Current Adj: {proj['current_true_cgpa']:.2f}")
+                                elif not proj["is_achievable"]:
+                                    st.metric("Required Avg SGPA", "Impossible \u26d4",
+                                              delta=f"Needs {proj['required_avg_sgpa']:.2f} > 4.00",
+                                              delta_color="inverse")
+                                else:
+                                    st.metric("Required Avg SGPA",
+                                              f"{proj['required_avg_sgpa']:.2f}",
+                                              delta=f"per semester on avg")
+                            with p_c2:
+                                st.metric("Adjusted CGPA", f"{adj_cgpa:.2f}",
+                                          delta=f"+{cgpa_gain:.2f} from targets" if cgpa_gain > 0 else None)
+                            with p_c3:
+                                st.metric("Remaining Semesters", proj["remaining_semesters"],
+                                          delta=f"{proj['remaining_credits']:.1f} credits left")
+
+                            # Per-semester breakdown
+                            if proj["remaining_credits_breakdown"]:
+                                with st.expander("\U0001f4c5 Remaining Semester Credit Breakdown"):
+                                    bd_cols = st.columns(len(proj["remaining_credits_breakdown"]))
+                                    for ci, sem_info in enumerate(proj["remaining_credits_breakdown"]):
+                                        bd_cols[ci].metric(
+                                            f"Sem {sem_info['semester']}",
+                                            f"{sem_info['credits']:.1f} cr"
+                                        )
+
+                            # Status message
+                            if proj["already_met"]:
+                                st.success(
+                                    f"\U0001f389 **{name}** already has an Adjusted CGPA of "
+                                    f"**{proj['current_true_cgpa']:.2f}**, which exceeds the "
+                                    f"target of **{target_cgpa:.2f}**. Maintain performance!"
+                                )
+                            elif not proj["is_achievable"]:
+                                st.error(
+                                    f"\u26d4 **Mathematically impossible.** Even with a perfect "
+                                    f"4.00 in all {proj['remaining_semesters']} remaining semester(s), "
+                                    f"the target CGPA of **{target_cgpa:.2f}** cannot be reached. "
+                                    f"Consider adjusting the target."
+                                )
+                            elif proj["required_avg_sgpa"] >= 3.75:
+                                st.warning(
+                                    f"\u26a0\ufe0f **Very challenging.** Needs an average SGPA of "
+                                    f"**{proj['required_avg_sgpa']:.2f}** across "
+                                    f"**{proj['remaining_semesters']}** remaining semester(s). "
+                                    f"Consistent top performance required."
+                                )
+                            elif proj["required_avg_sgpa"] >= 3.25:
+                                st.info(
+                                    f"\U0001f4aa **Ambitious but achievable.** Needs **{proj['required_avg_sgpa']:.2f}** "
+                                    f"avg SGPA over {proj['remaining_semesters']} semester(s)."
+                                )
+                            else:
+                                st.success(
+                                    f"\u2705 **Well within reach.** Needs **{proj['required_avg_sgpa']:.2f}** "
+                                    f"avg SGPA over {proj['remaining_semesters']} semester(s). "
+                                    f"Stay consistent!"
+                                )
+
+                else:
+                    if hdr_col4.button("\U0001f52c Deep Analysis", key=btn_key,
+                                       help=f"Fetch full record for {name} and compute True CGPA + projections"):
+                        with st.spinner(f"Scanning full academic history for {name} ({reg})\u2026 1\u20132 min."):
+                            result = _run_deep_analysis(reg, name)
+                        st.session_state._deep_cache[cache_key] = result
+                        st.rerun()
+
+            st.write("")  # spacing between students
 
 ui.add_contact_section()

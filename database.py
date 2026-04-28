@@ -749,19 +749,27 @@ def get_semester_from_code(code: str, dept: str) -> int:
 
 def get_semester_total_credits(dept: str, semester_num: int) -> float:
     """
-    Sums all credits from credit_mapping.json for subjects belonging to
-    a given semester number (1–8) in the specified department.
+    Returns the standard required total credits for a given semester (1-8).
+    This avoids the over-counting bug where summing all subjects in credit_mapping.json 
+    would accidentally sum all elective options (causing 4th year to report 90+ credits).
     """
-    dept_map = _credit_map.get(dept, {})
-    total = 0.0
-    for code, credits in dept_map.items():
-        if get_semester_from_code(code, dept) == semester_num:
-            # Fix: CSE 2nd semester strictly has Physics, no Chemistry. 
-            # So exclude CHE to prevent over-counting the target semester credits.
-            if dept == 'CSE' and semester_num == 2 and code.startswith('CHE-'):
-                continue
-            total += credits
-    return total
+    STANDARD_CREDITS = {
+        "CSE": {
+            1: 20.5, 2: 21.5, 3: 22.25, 4: 19.25,
+            5: 19.5, 6: 19.5, 7: 20.5, 8: 17.5
+        },
+        "Civil": {
+            1: 20.25, 2: 20.75, 3: 21.0, 4: 20.5,
+            5: 20.5, 6: 20.5, 7: 19.0, 8: 17.5
+        },
+        "EEE": {
+            1: 21.0, 2: 22.5, 3: 21.0, 4: 19.5,
+            5: 21.0, 6: 19.5, 7: 21.0, 8: 16.5
+        }
+    }
+    
+    dept_map = STANDARD_CREDITS.get(dept, STANDARD_CREDITS["CSE"])
+    return dept_map.get(semester_num, 0.0)
 
 
 def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_label: str) -> dict:
@@ -968,7 +976,190 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
         'precise_target_sgpa': precise_target_sgpa,
         'next_sem_credits': next_sem_credits,
         'effective_grade_count': len(effective_grades),
+        'effective_grades': effective_grades,
+        'retake_records': retake_records,
     }
+
+
+def compute_graduation_projection(
+    deep_result: dict,
+    target_grad_cgpa: float,
+    dept: str,
+    total_semesters: int = 8,
+) -> dict:
+    """
+    Given the output of compute_deep_analysis() and a user target graduation CGPA,
+    calculates the minimum average SGPA required across ALL remaining semesters.
+
+    Math:
+        current_points    = true_cgpa * total_credits_completed
+        remaining_credits = sum(get_semester_total_credits(dept, sem)
+                            for sem in range(current_semester+1, total_semesters+1))
+        required_avg_sgpa = (target_grad_cgpa * (total_credits + remaining_credits)
+                            - current_points) / remaining_credits
+    """
+    true_cgpa        = deep_result.get("true_cgpa", 0.0)
+    total_credits    = deep_result.get("total_credits", 0.0)
+    current_semester = deep_result.get("current_semester", 0)
+
+    current_points = true_cgpa * total_credits
+
+    # Build per-semester remaining credit breakdown
+    remaining_breakdown = []
+    remaining_credits   = 0.0
+    for sem in range(current_semester + 1, total_semesters + 1):
+        sem_cr = get_semester_total_credits(dept, sem)
+        if sem_cr > 0:
+            remaining_breakdown.append({"semester": sem, "credits": sem_cr})
+            remaining_credits += sem_cr
+
+    # Edge case: no remaining semesters (graduated / final sem)
+    if remaining_credits <= 0:
+        already_met = true_cgpa >= target_grad_cgpa
+        return {
+            "target_cgpa": target_grad_cgpa,
+            "current_true_cgpa": true_cgpa,
+            "credits_completed": total_credits,
+            "remaining_semesters": 0,
+            "remaining_credits": 0.0,
+            "remaining_credits_breakdown": [],
+            "required_avg_sgpa": 0.0,
+            "is_achievable": already_met,
+            "already_met": already_met,
+            "deficit_points": 0.0,
+        }
+
+    total_all_credits = total_credits + remaining_credits
+    required_points   = target_grad_cgpa * total_all_credits - current_points
+    required_avg_sgpa = round(required_points / remaining_credits, 2)
+
+    already_met = required_avg_sgpa <= 0.0
+
+    return {
+        "target_cgpa": target_grad_cgpa,
+        "current_true_cgpa": true_cgpa,
+        "credits_completed": total_credits,
+        "remaining_semesters": len(remaining_breakdown),
+        "remaining_credits": round(remaining_credits, 1),
+        "remaining_credits_breakdown": remaining_breakdown,
+        "required_avg_sgpa": required_avg_sgpa,
+        "is_achievable": required_avg_sgpa <= 4.0,
+        "already_met": already_met,
+        "deficit_points": 0.0,
+    }
+
+
+def compute_advanced_projection(
+    deep_result: dict,
+    effective_grades: dict,
+    retake_records: list,
+    retake_clear_gp: float = 2.0,
+    improvement_target_gp: float | None = None,
+) -> dict:
+    """
+    Computes advanced projection details including retake clears and improvement eligibility.
+    """
+    attempted_subjects = {}
+    for rec in retake_records:
+        for subj in rec.get('Subjects', []):
+            code = str(subj.get('code', '')).strip().upper().replace(' ', '-')
+            if not code: continue
+            gp = min(float(subj.get('gp', 0) or 0), 4.0)
+            eid = int(rec.get('_exam_id', 0) or 0)
+            if code not in attempted_subjects:
+                attempted_subjects[code] = []
+            attempted_subjects[code].append({'gp': gp, 'exam_id': eid})
+
+    pending_retakes = []
+    improvement_candidates = []
+    already_attempted = []
+    ineligible_retake_cleared = []
+
+    total_points = deep_result['true_cgpa'] * deep_result['total_credits']
+    total_credits = deep_result['total_credits']
+    
+    projected_points_retakes = total_points
+    projected_points_all = total_points
+
+    for code, g in effective_grades.items():
+        curr_gp = g['gp']
+        credit = g['credit']
+        source = g['source']
+
+        if curr_gp < 2.0:
+            simulated_gp = retake_clear_gp
+            cgpa_impact = ((simulated_gp - curr_gp) * credit) / total_credits if total_credits > 0 else 0
+            pending_retakes.append({
+                'code': code, 'current_gp': curr_gp, 'credit': credit,
+                'simulated_gp': simulated_gp, 'cgpa_impact': cgpa_impact
+            })
+            projected_points_retakes += (simulated_gp - curr_gp) * credit
+            projected_points_all += (simulated_gp - curr_gp) * credit
+        elif source == 'retake_improved':
+            ineligible_retake_cleared.append({
+                'code': code, 'current_gp': curr_gp, 'credit': credit,
+                'reason': "Cleared via retake \u2014 cannot improve"
+            })
+        elif 2.0 <= curr_gp <= 2.75:
+            if code in attempted_subjects:
+                attempt_gp = max((a['gp'] for a in attempted_subjects[code]), default=0)
+                already_attempted.append({
+                    'code': code, 'current_gp': curr_gp, 'credit': credit,
+                    'attempt_gp': attempt_gp, 'reason': "Already improved once"
+                })
+            else:
+                improvement_candidates.append({
+                    'code': code, 'current_gp': curr_gp, 'credit': credit,
+                    'max_potential_gp': 4.0, 'source': source
+                })
+                if improvement_target_gp is not None:
+                    simulated_gp = max(curr_gp, improvement_target_gp)
+                    projected_points_all += (simulated_gp - curr_gp) * credit
+
+    proj_cgpa_retakes = projected_points_retakes / total_credits if total_credits > 0 else 0.0
+    proj_cgpa_all = projected_points_all / total_credits if total_credits > 0 else 0.0
+
+    improvement_candidates.sort(key=lambda x: x['code'])
+    already_attempted.sort(key=lambda x: x['code'])
+    ineligible_retake_cleared.sort(key=lambda x: x['code'])
+
+    return {
+        "current_true_cgpa": deep_result['true_cgpa'],
+        "projected_cgpa_after_retakes": round(proj_cgpa_retakes, 2),
+        "projected_cgpa_after_all": round(proj_cgpa_all, 2),
+        "cgpa_gain_from_retakes": round(proj_cgpa_retakes - deep_result['true_cgpa'], 2),
+        "cgpa_gain_from_improvements": round(proj_cgpa_all - proj_cgpa_retakes, 2),
+        "retake_clear_gp": retake_clear_gp,
+        "improvement_target_gp": improvement_target_gp,
+        "pending_retakes": pending_retakes,
+        "improvement_candidates": improvement_candidates,
+        "already_attempted": already_attempted,
+        "ineligible_retake_cleared": ineligible_retake_cleared,
+    }
+
+
+def compute_adjusted_cgpa(
+    effective_grades: dict,
+    overrides: dict,
+) -> tuple[float, float]:
+    """
+    Recompute CGPA after applying per-subject GP overrides.
+    Returns (adjusted_cgpa, total_credits).
+    Override only applies if target_gp > current_gp (R3: result stays unless better).
+    """
+    total_points = 0.0
+    total_credits = 0.0
+    for code, g in effective_grades.items():
+        credit = g['credit']
+        gp = g['gp']
+        if code in overrides:
+            target = overrides[code]
+            if target > gp:  # only replace if strictly better
+                gp = target
+        total_points += gp * credit
+        total_credits += credit
+    adjusted_cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
+    return adjusted_cgpa, total_credits
 
 
 # ---------------------------------------------------------------------------
