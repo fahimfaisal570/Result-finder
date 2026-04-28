@@ -111,6 +111,12 @@ def init_db():
                 FOREIGN KEY(profile_name) REFERENCES profiles(name) ON DELETE CASCADE,
                 UNIQUE(profile_name, reg_no, exam_id)
             );
+
+            CREATE TABLE IF NOT EXISTS meta_cache (
+                key       TEXT PRIMARY KEY,
+                value     TEXT NOT NULL,
+                cached_at REAL NOT NULL
+            );
         """)
         conn.commit()
 
@@ -1255,11 +1261,48 @@ def migrate_legacy_json():
     except Exception as e:
         logger.error("Legacy migration failed: %s", e)
 
+# ---------------------------------------------------------------------------
+# Cache Helpers
+# ---------------------------------------------------------------------------
+
+def get_meta_cache(key: str, ttl_seconds: int = 86400) -> dict | None:
+    """Returns cached JSON value if within TTL, else None."""
+    with get_connection() as conn:
+        try:
+            row = conn.execute(
+                "SELECT value, cached_at FROM meta_cache WHERE key=?", (key,)
+            ).fetchone()
+            if row and (time.time() - row[1]) < ttl_seconds:
+                return json.loads(row[0])
+        except sqlite3.OperationalError:
+            pass # Table might not be created yet during first boot
+    return None
+
+def set_meta_cache(key: str, value: dict):
+    """Stores a JSON-serializable value in the persistent cache."""
+    with get_connection() as conn:
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO meta_cache (key, value, cached_at) VALUES (?, ?, ?)",
+                (key, json.dumps(value), time.time())
+            )
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass # Table might not be created yet
 
 # ---------------------------------------------------------------------------
 # Bootstrap
 # ---------------------------------------------------------------------------
-init_db()
-migrate_schema_v2()
-migrate_schema_v3()
-migrate_legacy_json()
+_bootstrapped = False
+
+def _bootstrap():
+    global _bootstrapped
+    if _bootstrapped:
+        return
+    init_db()
+    migrate_schema_v2()
+    migrate_schema_v3()
+    migrate_legacy_json()
+    _bootstrapped = True
+
+_bootstrap()

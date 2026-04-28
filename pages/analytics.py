@@ -5,8 +5,6 @@ import os
 import altair as alt
 import sys
 import time
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
 import ui_components as ui
 
 st.set_page_config(page_title="Result Analytics", page_icon="favicon.ico", layout="wide")

@@ -164,33 +164,6 @@ class BatchManager:
 
 batch_manager = BatchManager()
 
-class MetaCacheManager:
-    def __init__(self):
-        self.filename = os.path.join(SCRIPT_DIR, "system_cache.json")
-        self.ttl = 86400  # 24 hours
-        
-    def get_cache(self):
-        if os.path.exists(self.filename):
-            try:
-                with open(self.filename, 'r') as f:
-                    data = json.load(f)
-                    if time.time() - data.get("timestamp", 0) < self.ttl:
-                        return data.get("programs"), data.get("sessions")
-            except: pass
-        return None, None
-        
-    def set_cache(self, programs, sessions):
-        try:
-            with open(self.filename, 'w') as f:
-                json.dump({
-                    "timestamp": time.time(),
-                    "programs": programs,
-                    "sessions": sessions
-                }, f)
-        except: pass
-
-meta_cache = MetaCacheManager()
-
 
 
 def make_request(url, data=None, headers=None, retries=4):
@@ -283,11 +256,11 @@ def fetch_programs_and_sessions():
     if not SESSION_COOKIES:
         make_request(BASE_URL)
 
-    cached_progs, cached_sess = meta_cache.get_cache()
-    if cached_progs and cached_sess:
-        PROGRAMS_CACHE.update(cached_progs)
-        SESSIONS_CACHE.update(cached_sess)
-        return collections.OrderedDict(cached_progs), collections.OrderedDict(cached_sess)
+    cached = db.get_meta_cache("portal_meta", ttl_seconds=86400)
+    if cached and cached.get("programs") and cached.get("sessions"):
+        PROGRAMS_CACHE.update(cached["programs"])
+        SESSIONS_CACHE.update(cached["sessions"])
+        return collections.OrderedDict(cached["programs"]), collections.OrderedDict(cached["sessions"])
 
     html = make_request("https://ducmc.du.ac.bd/result.php")
     if not html: 
@@ -360,7 +333,7 @@ def fetch_programs_and_sessions():
     if not programs: 
         print("[!] Warning: Zero programs identified. Chained menu crawl failed.")
     else:
-        meta_cache.set_cache(dict(programs), dict(sessions))
+        db.set_meta_cache("portal_meta", {"programs": dict(programs), "sessions": dict(sessions)})
     
     PROGRAMS_CACHE.update(programs)
     SESSIONS_CACHE.update(sessions)

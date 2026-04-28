@@ -35,8 +35,8 @@ temp_*.json
 .venv
 venv/
 ENV/
-.streamlit/
 
 # OS-specific
+system_cache.json
 .DS_Store
 Thumbs.db
