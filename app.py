@@ -457,9 +457,9 @@ if mode == "Interactive Scan":
             </a>
             """, unsafe_allow_html=True)
         else:
-            st.button("🚀 Run Scraper", disabled=True, use_container_width=True)
+            st.button("🚀 Run Scraper", disabled=True, width='stretch')
     else:
-        st.button("🚀 Run Scraper (Provide Range)", disabled=True, use_container_width=True)
+        st.button("🚀 Run Scraper (Provide Range)", disabled=True, width='stretch')
 
     st.markdown('</div>', unsafe_allow_html=True)
 

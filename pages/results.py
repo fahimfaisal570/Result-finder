@@ -145,7 +145,7 @@ if results and not profile_name == "Saved Profile": # Don't re-save if already a
     
     with st.form("save_profile_form"):
         batch_name = st.text_input("Profile Name", placeholder="e.g., EEE-2022-Batch10")
-        submitted = st.form_submit_button("📁 Save Profile Permanently", use_container_width=True)
+        submitted = st.form_submit_button("📁 Save Profile Permanently", width='stretch')
         
         if submitted:
             if not batch_name:
@@ -188,5 +188,5 @@ st.download_button(
     data=html_out.encode("utf-8"),
     file_name=f"Results_{profile_name.replace(' ','_')}_{exam_id}.html",
     mime="text/html",
-    use_container_width=True
+    width='stretch'
 )

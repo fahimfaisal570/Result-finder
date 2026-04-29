@@ -103,15 +103,28 @@ class KeepAlivePool:
 http_pool = KeepAlivePool("ducmc.du.ac.bd", pool_size=100)
 last_successful_session = None
 global_backoff_until = 0
-stealth_lock = threading.Lock()
-cookie_lock = threading.Lock()
+
+_stealth_lock = None
+_cookie_lock = None
+
+def get_stealth_lock():
+    global _stealth_lock
+    if _stealth_lock is None:
+        _stealth_lock = threading.Lock()
+    return _stealth_lock
+
+def get_cookie_lock():
+    global _cookie_lock
+    if _cookie_lock is None:
+        _cookie_lock = threading.Lock()
+    return _cookie_lock
 
 def make_request(url, data=None, headers=None, retries=4):
     """Makes HTTP requests with full session awareness (Cookies + Pinned UA)."""
     req_headers = HEADERS.copy()
     req_headers['User-Agent'] = SESSION_UA
     
-    with cookie_lock:
+    with get_cookie_lock():
         if SESSION_COOKIES:
             cookie_str = "; ".join(["{0}={1}".format(k, v) for k, v in SESSION_COOKIES.items()])
             req_headers['Cookie'] = cookie_str
@@ -141,7 +154,7 @@ def make_request(url, data=None, headers=None, retries=4):
             # Extract cookies if present
             set_cookie = response.getheader('Set-Cookie')
             if set_cookie:
-                with cookie_lock:
+                with get_cookie_lock():
                     parts = set_cookie.split(';')[0].split('=')
                     if len(parts) >= 2:
                         SESSION_COOKIES[parts[0].strip()] = parts[1].strip()
