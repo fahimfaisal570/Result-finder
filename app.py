@@ -182,7 +182,7 @@ if mode == "Interactive Scan":
         if payload:
             payload_str = base64.b64encode(json.dumps(payload).encode()).decode()
             res_url = f"/results?pro_id={pro_id}&exam_id={exam_id}&exam_name={_quote(exam_name)}&payload={payload_str}"
-            st.link_button(f"🚀 Run Scraper & View Results ({len(payload)} Batches)", url=res_url, use_container_width=True)
+            st.link_button(f"🚀 Run Scraper & View Results ({len(payload)} Batches)", url=res_url, width='stretch')
 
 else: # Saved Profiles Mode
     st.sidebar.markdown("---")
@@ -235,7 +235,7 @@ else: # Saved Profiles Mode
                 batch_b64 = base64.b64encode(json.dumps(batch_payload).encode()).decode()
                 batch_url = f"/results?profile={_quote(p_selected)}&batch_exams={batch_b64}"
                 
-                st.link_button("🚀 Batch Scan All Main Exams", url=batch_url, use_container_width=True, type="primary")
+                st.link_button("🚀 Batch Scan All Main Exams", url=batch_url, width='stretch', type="primary")
                 st.caption("Automatic one-click scan of all detected main semester exams for this profile.")
 
             if others_dict:
@@ -265,7 +265,7 @@ else: # Saved Profiles Mode
                 add_exam_name = st.selectbox("Scan Against Exam", options=all_exam_names, key="add_student_exam")
                 add_exam_id = [k for k, v in exams_raw.items() if v == add_exam_name][0] if exams_raw and add_exam_name else ""
                 
-                if st.button("🔍 Scan Students", key="add_student_scan_btn", use_container_width=True):
+                if st.button("🔍 Scan Students", key="add_student_scan_btn", width='stretch'):
                     if not add_reg_input or not add_exam_id:
                         st.error("Please provide registration number(s) and select an exam.")
                     else:
@@ -308,7 +308,7 @@ else: # Saved Profiles Mode
                     
                     col_confirm, col_cancel = st.columns(2)
                     with col_confirm:
-                        if st.button("✅ Confirm & Add Selected", use_container_width=True, type="primary"):
+                        if st.button("✅ Confirm & Add Selected", width='stretch', type="primary"):
                             if not selected:
                                 st.error("No students selected.")
                             else:
@@ -330,7 +330,7 @@ else: # Saved Profiles Mode
                                 st.rerun()
                     
                     with col_cancel:
-                        if st.button("❌ Cancel", use_container_width=True):
+                        if st.button("❌ Cancel", width='stretch'):
                             del st.session_state['add_student_found']
                             if 'add_student_sess_id' in st.session_state:
                                 del st.session_state['add_student_sess_id']

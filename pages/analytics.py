@@ -869,7 +869,7 @@ with tabs[0]:
                 alt.Tooltip('count()', title='Students')
             ]
         ).properties(height=300)
-        st.altair_chart(dist_chart, use_container_width=True)
+        st.altair_chart(dist_chart, width='stretch')
         st.caption(f"Visualized spread from {axis_start:.2f} (Semester Minimum Focus)")
 
     with row1_c2:
@@ -894,7 +894,7 @@ with tabs[0]:
             ), legend=alt.Legend(orient="bottom")),
             tooltip=['Status', 'Count']
         ).properties(height=300)
-        st.altair_chart(pie, use_container_width=True)
+        st.altair_chart(pie, width='stretch')
         st.caption("Students who failed ≥1 subject in their main attempt are counted as Failed.")
 
     st.divider()
@@ -917,7 +917,7 @@ with tabs[0]:
                     axis=alt.Axis(labelPadding=15, labelLimit=400)),
             tooltip=['subject_code', 'subject_name', alt.Tooltip('gp:Q', format='.2f')]
         ).properties(height=max(250, len(sub_avg) * 40))
-        st.altair_chart(bar, use_container_width=True)
+        st.altair_chart(bar, width='stretch')
         st.caption("Lower average GPA = systemic difficulty. Only passing grades (≥2.0) are averaged.")
     else:
         st.info("No subject data available.")
@@ -944,7 +944,7 @@ with tabs[0]:
         y=alt.Y(f'{gpa_col}:Q', title=gpa_title, scale=alt.Scale(domain=[y_start, 4.0], clamp=True)),
         tooltip=['name', alt.Tooltip(f'{gpa_col}:Q', format='.2f', title=gpa_title), 'Rank']
     ).properties(height=350)
-    st.altair_chart(line, use_container_width=True)
+    st.altair_chart(line, width='stretch')
     if use_sgpa_grad:
         st.caption("ℹ️ First-semester fallback: Ranking based on **SGPA** (Cumulative GPA not yet available).")
 
@@ -972,7 +972,7 @@ with tabs[1]:
                         scale=alt.Scale(domain=[2.0, 4.0], clamp=True)),
                 color=alt.value("#ec4899")
             ).properties(height=450)
-            st.altair_chart(box, use_container_width=True)
+            st.altair_chart(box, width='stretch')
         else:
             st.info("No passing grades to display in this view.")
     else:
@@ -1089,7 +1089,7 @@ with tabs[1]:
                     v_line = alt.Chart(pd.DataFrame({'x': [0]})).mark_rule(color='gray', strokeDash=[5,5]).encode(x='x')
                     final_chart = v_line + scatter
                 
-                st.altair_chart(final_chart, use_container_width=True)
+                st.altair_chart(final_chart, width='stretch')
                 caption = "🚀 **Right of center**: Improving performance | 🏛️ **Top Quadrant**: Excellence" if not is_first_sem else "🏛️ **Top Quadrant**: Excellence | 🎯 **Specialists**: Identified by subject variance."
                 st.caption(caption)
                 
@@ -1097,7 +1097,7 @@ with tabs[1]:
                 with st.expander("🗃️ View Quadrant Data Matrix (Tap-Free)"):
                     st_view_df = clust_df[['reg_no', 'name', 'sgpa', 'cgpa', 'Archetype']].sort_values('sgpa', ascending=False)
                     st_view_df = st_view_df.rename(columns={'reg_no': 'Reg', 'name': 'Name', 'sgpa': 'SGPA', 'cgpa': 'CGPA', 'Archetype': 'Status'})
-                    st.dataframe(st_view_df, use_container_width=True, hide_index=True)
+                    st.dataframe(st_view_df, width='stretch', hide_index=True)
             else:
                 st.info("Not enough students for clustering (need ≥4 with complete subject data).")
         else:
@@ -1117,7 +1117,7 @@ with tabs[1]:
                 color=alt.Color('Correlation:Q', scale=alt.Scale(scheme='redblue', domain=[-1, 1]), legend=alt.Legend(orient="bottom", title="Correlation", gradientLength=200, titleLimit=0)),
                 tooltip=['Subject A', 'Subject B', alt.Tooltip('Correlation:Q', format='.2f')]
             ).properties(height=400, width='container')
-            st.altair_chart(heatmap, use_container_width=True)
+            st.altair_chart(heatmap, width='stretch')
         else:
             st.info("Select ≥2 subjects for the correlation heatmap.")
 
@@ -1133,12 +1133,12 @@ with tabs[2]:
     )
     if not df_pivot.empty:
         if "Student" in pivot_type:
-            st.dataframe(df_pivot.fillna("—"), use_container_width=True)
+            st.dataframe(df_pivot.fillna("—"), width='stretch')
         else:
             flipped = df_sub.pivot_table(
                 index='subject_code', columns='reg_no', values='gp', aggfunc='first'
             )
-            st.dataframe(flipped.fillna("—"), use_container_width=True)
+            st.dataframe(flipped.fillna("—"), width='stretch')
     else:
         st.info("No data to pivot.")
 
@@ -1159,7 +1159,7 @@ with tabs[3]:
 
     disp_cols = ['reg_no', 'name', 'sgpa', 'cgpa', 'result_status', 'improvement_count', 'retake_count']
     disp_df = df_main.sort_values('cgpa', ascending=False).reset_index(drop=True)
-    st.dataframe(disp_df[disp_cols], use_container_width=True)
+    st.dataframe(disp_df[disp_cols], width='stretch')
 
 
 

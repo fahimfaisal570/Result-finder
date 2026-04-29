@@ -114,8 +114,21 @@ http_pool = KeepAlivePool("ducmc.du.ac.bd", pool_size=100)
 # Stealth & Efficiency Globals
 last_successful_session = None
 global_backoff_until = 0
-stealth_lock = threading.Lock()
-cookie_lock = threading.Lock()
+
+_stealth_lock = None
+_cookie_lock = None
+
+def get_stealth_lock():
+    global _stealth_lock
+    if _stealth_lock is None:
+        _stealth_lock = threading.Lock()
+    return _stealth_lock
+
+def get_cookie_lock():
+    global _cookie_lock
+    if _cookie_lock is None:
+        _cookie_lock = threading.Lock()
+    return _cookie_lock
 
 
 class BatchManager:
@@ -171,7 +184,7 @@ def make_request(url, data=None, headers=None, retries=4):
     req_headers = HEADERS.copy()
     req_headers['User-Agent'] = SESSION_UA
     
-    with cookie_lock:
+    with get_cookie_lock():
         if SESSION_COOKIES:
             cookie_str = "; ".join(["{0}={1}".format(k, v) for k, v in SESSION_COOKIES.items()])
             req_headers['Cookie'] = cookie_str
@@ -201,7 +214,7 @@ def make_request(url, data=None, headers=None, retries=4):
             # Extract cookies if present
             set_cookie = response.getheader('Set-Cookie')
             if set_cookie:
-                with cookie_lock:
+                with get_cookie_lock():
                     parts = set_cookie.split(';')[0].split('=')
                     if len(parts) >= 2:
                         SESSION_COOKIES[parts[0].strip()] = parts[1].strip()
@@ -1332,14 +1345,14 @@ def manage_profiles(programs, sessions):
                                 time.sleep(random.uniform(0.1, 0.5))
                                 
                                 # Adaptive Jitter/Backoff check
-                                with stealth_lock:
+                                with get_stealth_lock():
                                     if time.time() < global_backoff_until:
                                         time.sleep(random.uniform(3.0, 7.0))
                                 
                                 sessions_to_try = [sess]
                                 if sess == "AUTO":
                                     sessions_to_try = []
-                                    with stealth_lock:
+                                    with get_stealth_lock():
                                         if last_successful_session:
                                             sessions_to_try.append(last_successful_session)
                                     
@@ -1359,7 +1372,7 @@ def manage_profiles(programs, sessions):
                                         
                                         if res == "NETWORK_ERROR":
                                             retries += 1
-                                            with stealth_lock:
+                                            with get_stealth_lock():
                                                 global_backoff_until = time.time() + 15.0
                                             time.sleep(random.uniform(10.0, 15.0))
                                             continue
@@ -1368,7 +1381,7 @@ def manage_profiles(programs, sessions):
                                             found_res = [int(reg), res.get('_sess_id', s), res.get('Name', old_name)]
                                             # Update Session Pin
                                             if sess == "AUTO":
-                                                with stealth_lock:
+                                                with get_stealth_lock():
                                                     last_successful_session = s
                                         break
                                     if found_res: break
