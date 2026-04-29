@@ -171,10 +171,10 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
         insights['improving_count'] = archetypes['Archetype'].str.contains("Improving", case=False).sum()
         
         # Promotion specific trackers mapped via Detailed_Status
-        insights['promo_risk_count'] = archetypes['Detailed_Status'].str.contains("At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False).sum()
+        insights['promo_risk_count'] = archetypes['Detailed_Status'].str.contains(r"At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False).sum()
         insights['critical_count'] = archetypes['Detailed_Status'].str.contains("Critical", case=False).sum()
         insights['math_fail_count'] = archetypes['Detailed_Status'].str.contains("Readd", case=False).sum()
-        insights['failed_count'] = archetypes['Detailed_Status'].str.contains("Non-Promoted \(Failed\)", case=False).sum()
+        insights['failed_count'] = archetypes['Detailed_Status'].str.contains(r"Non-Promoted \(Failed\)", case=False).sum()
 
         # Collect student reg_no + name lists for each alert category
         arc_with_info = archetypes.merge(df_main[['reg_no', 'name']], left_index=True, right_on='reg_no', how='left').set_index('reg_no')
@@ -184,9 +184,9 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
             return [(r['reg_no'], r['name'], r['Target_SGPA']) for _, r in rows.iterrows()]
         
         insights['readd_students']    = _student_list(archetypes['Detailed_Status'].str.contains("Readd", case=False))
-        insights['failed_students']   = _student_list(archetypes['Detailed_Status'].str.contains("Non-Promoted \(Failed\)", case=False))
+        insights['failed_students']   = _student_list(archetypes['Detailed_Status'].str.contains(r"Non-Promoted \(Failed\)", case=False))
         insights['critical_students'] = _student_list(archetypes['Detailed_Status'].str.contains("Critical", case=False))
-        insights['risk_students']     = _student_list(archetypes['Detailed_Status'].str.contains("At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False))
+        insights['risk_students']     = _student_list(archetypes['Detailed_Status'].str.contains(r"At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False))
 
     # 3. Subject Bottlenecks (The "Killer" Subject)
     if not df_sub.empty:
@@ -1133,12 +1133,12 @@ with tabs[2]:
     )
     if not df_pivot.empty:
         if "Student" in pivot_type:
-            st.dataframe(df_pivot.fillna("—"), width='stretch')
+            st.dataframe(df_pivot, width='stretch')
         else:
             flipped = df_sub.pivot_table(
                 index='subject_code', columns='reg_no', values='gp', aggfunc='first'
             )
-            st.dataframe(flipped.fillna("—"), width='stretch')
+            st.dataframe(flipped, width='stretch')
     else:
         st.info("No data to pivot.")
 
