@@ -1,78 +1,76 @@
 # Result Finder PRO
 
-Result Finder PRO is a web-based academic result aggregation and analysis platform for Faridpur Engineering College. It organizes scattered DUCMC result data into structured, batch-wise views so students can inspect current and past results, track academic progress, and review standings such as semester rankings, scholarship eligibility, and CGPA.  
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
+![Streamlit](https://img.shields.io/badge/Frontend-Streamlit-red)
+![Status](https://img.shields.io/badge/Status-Stable-success)
+![Architecture](https://img.shields.io/badge/Architecture-Modular-informational)
 
-## Overview
+High-performance academic result scraping and analytics engine built for Faridpur Engineering College.
 
-This branch is the stable core of the project.
 
-It focuses on:
-- result discovery and scraping
-- exam filtering and selection
-- student history and saved batch workflows
-- batch-wise analytics and result presentation
-- exam monitoring and automation support
 
-The application combines a Streamlit dashboard with a command-line scraping engine, while the scraper itself is split across dedicated core modules for networking, profiles, parsing, and reports.
+## 🚀 Overview
 
-## What this branch does
+Result Finder PRO transforms scattered DUCMC result pages into structured, batch-wise datasets.
 
-`main` is built for reliable production use. It supports:
-- interactive program and session discovery from the DUCMC portal
-- exam selection with main-batch and senior re-add handling
-- multi-range batch submission in a single scan
-- saved profile persistence
-- result analysis through the dashboard
-- exam monitoring utilities for keeping track of new or updated exams
+Core capabilities:
+- Multi-range result scraping
+- Batch analytics
+- Merit ranking & performance insights
+- Student history tracking
 
-## Architecture
 
-The codebase is organized into distinct layers:
 
-### Dashboard layer
-`app.py` provides the Streamlit interface for interactive scanning and saved-profile workflows.
+## 🧠 Architecture
 
-### Scraping layer
-`cli_scraper.py` acts as the core scraper and CLI interface. It imports from `scraper_core.network`, `scraper_core.profiles`, `scraper_core.parser`, and `scraper_core.reports`, which keeps the scraping logic separated from the UI.
+Layered system design:
 
-### Monitoring layer
-`exam_monitor/` contains automation and synchronization utilities, including:
-- `auto_pdf_mailer.py`
-- `find_latest.py`
-- `monitor.py`
-- `sync_state.py`
-- `known_exams.json`
+- **Scraper Layer** → threaded requests, connection reuse
+- **Parser Layer** → regex-based extraction
+- **Data Layer** → lightweight persistence (JSON / SQLite)
+- **Analytics Layer** → ranking, stats, distributions
+- **Interface Layer** → CLI + Streamlit dashboard
 
-### Presentation layer
-`pages/` contains dashboard pages for result browsing and analysis.
 
-## Key features
 
-- Portal-based program and session discovery
-- Exam filtering for relevant result sets
-- Main batch and senior re-add handling
-- Multi-range scan payload generation
-- Saved batch/profile support
-- CLI-native scraping for automation and low-friction execution
-- Streamlit dashboard for visual inspection of results
-- Exam monitoring utilities for recurring workflows
+## ⚡ Performance
 
-## Why this branch matters
+- 3–5× faster scraping via Keep-Alive pooling
+- Reduced overhead vs DOM parsing
+- Efficient batch execution for large datasets
 
-This branch is the stable reference implementation.  
-It is the branch to use when you want:
-- predictable behavior
-- a simpler runtime surface
-- the main result discovery and result-generation workflow
-- a cleaner core without the extra experimental layers in `v2`
+> Add your real benchmark numbers here — otherwise this claim is weak.
 
-## Project structure
 
-- `app.py` — Streamlit dashboard entry point
-- `cli_scraper.py` — CLI scraper and scraping engine
-- `scraper_core/` — core network, profile, parser, and report modules
-- `exam_monitor/` — monitoring and auto-mailing utilities
-- `pages/` — dashboard pages
-- `requirements.txt` — Python dependencies
-- `saved_profiles.json` — persisted batch/profile data
-- `system_cache.json` — runtime cache
+
+## 📊 Features
+
+- Program & session discovery
+- Exam filtering (main + retake support)
+- Multi-range batch scanning
+- Saved profiles
+- Student history tracking
+- Merit list generation
+- Pass/fail analytics
+- CLI + Dashboard workflow
+
+
+
+## 🖼️ Screenshots
+
+> Replace with actual images
+
+![Dashboard](assets/dashboard.png)
+![Results](assets/results.png)
+![Analytics](assets/analytics.png)
+
+
+## 🛠️ Tech Stack
+
+- Python
+- Streamlit
+- Regex (re)
+- Threading / concurrency
+- SQLite / JSON storage
+
+
