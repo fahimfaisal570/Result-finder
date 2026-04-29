@@ -1,6 +1,6 @@
 # Result Finder PRO
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
+![Python](https://img.shields.io/badge/Python-12.3%2B-blue)
 ![Streamlit](https://img.shields.io/badge/Frontend-Streamlit-red)
 ![Status](https://img.shields.io/badge/Status-Stable-success)
 ![Architecture](https://img.shields.io/badge/Architecture-Modular-informational)
@@ -53,16 +53,6 @@ Layered system design:
 - Merit list generation
 - Pass/fail analytics
 - CLI + Dashboard workflow
-
-
-
-## 🖼️ Screenshots
-
-> Replace with actual images
-
-![Dashboard](assets/dashboard.png)
-![Results](assets/results.png)
-![Analytics](assets/analytics.png)
 
 
 ## 🛠️ Tech Stack
