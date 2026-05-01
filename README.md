@@ -8,7 +8,7 @@ Batch-oriented academic result extraction & analytics engine
 "Concurrency" (https://img.shields.io/badge/Concurrency-Threading-green)
 "Status" (https://img.shields.io/badge/Status-Stable-success)
 
-
+---
 
 🚀 Overview
 
@@ -21,7 +21,7 @@ What it does
 - Computes rankings, pass/fail stats, and batch insights
 - Tracks students across exams
 
-
+---
 
 🧭 Architecture (v1)
 
@@ -37,7 +37,7 @@ Analytics (ranking, stats)
         ↓
 CLI / Streamlit UI
 
-
+---
 
 ⚡ Performance
 
@@ -47,7 +47,7 @@ CLI / Streamlit UI
 
 «Throughput depends on network + portal behavior.»
 
-
+---
 
 ✨ Features
 
@@ -59,7 +59,7 @@ CLI / Streamlit UI
 - Merit lists & pass/fail analytics
 - CLI + dashboard workflow
 
-
+---
 
 🧱 Key Modules
 
@@ -68,13 +68,13 @@ CLI / Streamlit UI
 - Profiles: JSON persistence
 - Reports: analytics computations
 
-
+---
 
 🛠️ Tech Stack
 
 Python • Streamlit • "re" • Threading/Queue • JSON • "urllib"
 
-
+---
 
 ⚠️ Limitations
 
@@ -82,7 +82,7 @@ Python • Streamlit • "re" • Threading/Queue • JSON • "urllib"
 - Loose data model (dict-heavy)
 - Coupling between core logic and UI
 
-
+---
 
 🔭 Next (direction)
 
@@ -91,14 +91,14 @@ Python • Streamlit • "re" • Threading/Queue • JSON • "urllib"
 - Clear service boundaries
 - Automation workflows
 
-
+---
 
 ▶️ Quick Start
 
 pip install -r requirements.txt
 streamlit run app.py
 
-
+---
 
 📌 Positioning
 
