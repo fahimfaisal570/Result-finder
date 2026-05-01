@@ -1,93 +1,156 @@
 # Result Finder PRO v2
 
-![Python](https://img.shields.io/badge/Python-12.3%2B-blue)
-![Streamlit](https://img.shields.io/badge/UI-Streamlit-red)
+Academic Data Pipeline & Analytics Platform
+
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![UI](https://img.shields.io/badge/UI-Streamlit-red)
 ![Database](https://img.shields.io/badge/Database-SQLite-blue)
+![Automation](https://img.shields.io/badge/Automation-Enabled-purple)
 ![Status](https://img.shields.io/badge/Status-Advanced-orange)
-![Architecture](https://img.shields.io/badge/Architecture-Layered-informational)
 
-Next-generation academic result analytics system with database persistence, PDF extraction, and advanced dashboards.
-
-
+---
 
 ## 🚀 Overview
 
-v2 evolves Result Finder from a scraper into a **full analytics platform**.
+v2 evolves the system from a scraper into a stateful data platform with persistence, analytics, and automation.
 
-New capabilities:
-- Persistent database layer
+## Adds
+
+- SQLite data model
 - Transcript-level analytics
-- PDF-based credit extraction
-- Modular UI components
-- Automation & sync workflows
+- Automated monitoring + reporting
+- Modular UI
 
+---
 
+## 🧭 System Flow
 
-## 🧠 System Architecture
+Input → Scraper → Parser → Database → Analytics → Dashboard → Reports
 
-### 1. Scraping Engine
-- Threaded requests
-- KeepAlive pooling
-- Retry handling
+---
 
-### 2. Data Layer
-- SQLite database (`result_finder.db`)
-- Structured storage:
-  - profiles
-  - students
-  - results
-  - subjects
+## 🧠 Architecture (v2)
 
-### 3. PDF Extraction
-- Extracts subject-credit mappings
-- Enables accurate transcript analytics
+### Ingestion
 
-### 4. Analytics Engine
-- Merit ranking
-- Batch comparison
-- Transcript-level breakdown
+- Threaded scraping, keep-alive, retry/backoff
 
-### 5. UI Layer
-- Modular Streamlit components
-- Multi-page navigation:
-  - Results
-  - Analytics
-  - Transcript
+### Parsing
 
-### 6. Automation Layer
-- Auto sync scripts
-- PDF pipeline automation
+- Regex extraction → structured records
 
+### Data (SQLite)
 
+- profiles • students • results • subjects
+
+### Intelligence
+
+- Profile system (stateful batches)
+- Session inference
+- Re-add detection (cross-batch discovery)
+- Student tracking across exams
+
+### Analytics
+
+- Merit ranking • distributions • batch comparisons • transcripts
+
+### Interface
+
+- Streamlit multi-page UI (modular components)
+
+### Automation
+
+- Detect new exams → match profiles → batch scan → PDF → email
+
+---
+
+## 🗄️ Data Model (simplified)
+
+profiles(id, name, program, session, ranges, created_at)
+students(id, roll, name, batch, program_id)
+results(id, student_id, exam_id, total_mark, position, grade, status)
+subjects(id, result_id, code, name, credit, mark, grade)
+
+---
 
 ## ⚡ Performance
 
-- Persistent connections reduce latency
-- Efficient DB queries for large datasets
-- Improved scalability vs main branch
+- Lower latency via persistent connections
+- DB-backed queries scale better than JSON
+- Parallel batch execution
 
+---
 
+## ✨ Features
 
-## 📊 Features
-
-- Interactive scan workflow
-- Saved profiles system
-- Database-backed persistence
-- Analytics dashboard
-- Transcript view
+- Persistent storage (SQLite)
+- Saved profiles + batch workflows
+- Transcript analytics (credit-aware)
 - PDF credit extraction
-- Automation & sync tools
-- Modular UI system
-- Test directory for validation
+- Automated monitoring & email reports
+- Modular UI + pages
+- Test suite (DB + system)
 
+---
+
+## 📄 PDF & Credit Mapping
+
+- Extract subject–credit mappings from PDFs
+- Enables accurate GPA/transcript analytics
+
+---
+
+## 🔁 Automation Pipeline
+
+Exam Detection → Profile Matching → Batch Scan → PDF → Email
+
+---
+
+## 🧪 Testing
+
+- Database tests
+- End-to-end system checks
+- Integration stubs
+
+---
 
 ## 🛠️ Tech Stack
 
-- Python
-- Streamlit
-- SQLite
-- Regex engine
-- Threading
-- PDF processing libraries
+Python • Streamlit • SQLite • "re" • Threading/Queue • PDF libs • SMTP
 
+---
 
+## ⚠️ Limitations
+
+- Regex parsing still brittle
+- Partial separation of concerns
+- Heuristic-based matching in automation
+
+---
+
+## 🔭 Roadmap
+
+- Parser abstraction (DOM/API)
+- Service layer (clean boundaries)
+- API-based ingestion
+- Cloud deployment (scalable backend)
+
+---
+
+## ▶️ Quick Start
+
+pip install -r requirements.txt
+streamlit run app.py
+
+---
+
+## 📌 Positioning
+
+Not a scraper — an event-driven data pipeline with analytics + automation.
+
+---
+
+## 🔄 Evolution
+
+v1 → extraction + analytics
+v2 → platform (data + intelligence + automation)
