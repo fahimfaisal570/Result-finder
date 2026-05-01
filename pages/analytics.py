@@ -1262,13 +1262,20 @@ with tabs[4]:
 
                         # --- Collect Overrides from session_state ---
                         overrides = {}
-                        # For pending retakes (default 2.00)
+                        # For pending retakes — honor checkbox
                         for pr in adv_proj['pending_retakes']:
-                            key = f"tgt_{profile_name}_{reg}_{pr['code']}"
-                            if key in st.session_state:
-                                overrides[pr['code']] = st.session_state[key]
+                            chk_key = f"chk_{profile_name}_{reg}_{pr['code']}"
+                            will_pass = st.session_state.get(chk_key, True)  # default: checked
+                            
+                            if will_pass:
+                                tgt_key = f"tgt_{profile_name}_{reg}_{pr['code']}"
+                                if tgt_key in st.session_state:
+                                    overrides[pr['code']] = st.session_state[tgt_key]
+                                else:
+                                    overrides[pr['code']] = 2.00
                             else:
-                                overrides[pr['code']] = 2.00  # Default to passing
+                                # Unchecked → keep the current failing grade (no improvement)
+                                overrides[pr['code']] = pr['current_gp']
                         
                         # For improvement candidates (default current_gp)
                         for ic in adv_proj['improvement_candidates']:
@@ -1286,13 +1293,20 @@ with tabs[4]:
                         if adv_proj['pending_retakes']:
                             with st.expander(f"\U0001f4cb {len(adv_proj['pending_retakes'])} Subject(s) Still Failing"):
                                 for pr in adv_proj['pending_retakes']:
-                                    cc1, cc2 = st.columns([3, 1])
+                                    cc0, cc1, cc2 = st.columns([0.4, 3, 1])
+                                    with cc0:
+                                        will_pass_key = f"chk_{profile_name}_{reg}_{pr['code']}"
+                                        will_pass = st.checkbox("Pass", value=True, key=will_pass_key, label_visibility="collapsed")
                                     with cc1:
                                         gp_display = f"{pr['current_gp']:.2f}" if pr['current_gp'] > 0 else "F"
-                                        st.markdown(f"\u274c **{pr['code']}** \u2014 GP: {gp_display} ({pr['credit']} cr)")
+                                        status_icon = "\u2705" if will_pass else "\u274c"
+                                        st.markdown(f"{status_icon} **{pr['code']}** \u2014 GP: {gp_display} ({pr['credit']} cr)")
                                     with cc2:
-                                        key = f"tgt_{profile_name}_{reg}_{pr['code']}"
-                                        st.number_input("Target GP", min_value=2.00, max_value=4.00, value=overrides[pr['code']], step=0.25, key=key, label_visibility="collapsed")
+                                        if will_pass:
+                                            key = f"tgt_{profile_name}_{reg}_{pr['code']}"
+                                            st.number_input("Target GP", min_value=2.00, max_value=4.00, value=overrides.get(pr['code'], 2.00), step=0.25, key=key, label_visibility="collapsed")
+                                        else:
+                                            st.caption("\u2014")
                         
                         if adv_proj['improvement_candidates']:
                             with st.expander(f"\U0001f4cb {len(adv_proj['improvement_candidates'])} Improvement Candidates"):
@@ -1413,6 +1427,154 @@ with tabs[4]:
                                     f"avg SGPA over {proj['remaining_semesters']} semester(s). "
                                     f"Stay consistent!"
                                 )
+
+                            # --- Graduation CGPA Simulator ---
+                            st.markdown("---")
+                            st.markdown("##### \U0001f52e Graduation CGPA Simulator")
+                            st.caption(
+                                "Input your expected performance for each remaining semester. "
+                                "Use **Summary** mode for a quick SGPA estimate, or expand "
+                                "**Detailed** mode to set per-course grades. You can mix both."
+                            )
+
+                            _sim_semester_inputs = []
+
+                            for _sem_info in proj["remaining_credits_breakdown"]:
+                                _sem_n = _sem_info["semester"]
+                                _sem_cr = _sem_info["credits"]
+
+                                _mode_key = f"sim_mode_{profile_name}_{reg}_{_sem_n}"
+                                _use_detailed = st.session_state.get(_mode_key, False)
+
+                                with st.container(border=True):
+                                    _hdr_c1, _hdr_c2, _hdr_c3 = st.columns([2, 1, 1])
+                                    with _hdr_c1:
+                                        st.markdown(f"**Semester {_sem_n}** ({_sem_cr:.1f} cr)")
+                                    with _hdr_c2:
+                                        st.toggle(
+                                            "Detailed", value=_use_detailed, key=_mode_key,
+                                            help="Toggle to enter per-course grades"
+                                        )
+                                    # Re-read after widget render
+                                    _use_detailed = st.session_state.get(_mode_key, False)
+
+                                    if _use_detailed:
+                                        # --- Detailed per-course input ---
+                                        _courses = db.get_semester_courses(_dept, _sem_n)
+                                        _course_grades = []
+                                        _det_points = 0.0
+                                        _det_credits = 0.0
+
+                                        if not _courses:
+                                            st.info(f"No course mapping found for Semester {_sem_n}.")
+                                        else:
+                                            for _c in _courses:
+                                                _cg_c1, _cg_c2 = st.columns([3, 1])
+                                                with _cg_c1:
+                                                    _c_label = _c.get('label', _c['code'])
+                                                    st.markdown(f"`{_c_label}` \u2014 {_c['credit']} cr")
+                                                with _cg_c2:
+                                                    _gp_key = f"sim_gp_{profile_name}_{reg}_{_sem_n}_{_c['code']}"
+                                                    _gp_val = st.number_input(
+                                                        "GP", min_value=0.00, max_value=4.00,
+                                                        value=0.00, step=0.25,
+                                                        key=_gp_key,
+                                                        label_visibility="collapsed"
+                                                    )
+                                                _course_grades.append({
+                                                    'code': _c['code'],
+                                                    'credit': _c['credit'],
+                                                    'gp': _gp_val,
+                                                })
+                                                if _gp_val > 0:
+                                                    _det_points += _gp_val * _c['credit']
+                                                    _det_credits += _c['credit']
+
+                                            # Show calculated SGPA for this semester
+                                            if _det_credits > 0:
+                                                _calc_sgpa = round(_det_points / _det_credits, 2)
+                                                st.success(
+                                                    f"Calculated SGPA: **{_calc_sgpa:.2f}** "
+                                                    f"({_det_credits:.1f} / {_sem_cr:.1f} cr filled)"
+                                                )
+                                            else:
+                                                st.caption("Enter course GPs above to calculate SGPA.")
+
+                                        _sim_semester_inputs.append({
+                                            'semester': _sem_n,
+                                            'mode': 'detailed',
+                                            'sgpa': None,
+                                            'course_grades': _course_grades,
+                                        })
+                                    else:
+                                        # --- Summary SGPA input ---
+                                        with _hdr_c3:
+                                            _sgpa_key = f"sim_sgpa_{profile_name}_{reg}_{_sem_n}"
+                                            _sgpa_val = st.number_input(
+                                                "Expected SGPA", min_value=0.00, max_value=4.00,
+                                                value=3.00, step=0.05,
+                                                key=_sgpa_key,
+                                                label_visibility="collapsed"
+                                            )
+
+                                        _sim_semester_inputs.append({
+                                            'semester': _sem_n,
+                                            'mode': 'summary',
+                                            'sgpa': _sgpa_val,
+                                            'course_grades': None,
+                                        })
+
+                            # --- Compute Graduation CGPA ---
+                            _sim_result = db.compute_graduation_cgpa_from_inputs(
+                                adj_cgpa=adj_cgpa,
+                                adj_credits=adj_credits,
+                                remaining_semester_inputs=_sim_semester_inputs,
+                                dept=_dept,
+                            )
+
+                            # --- Display Result ---
+                            st.markdown("---")
+                            _sim_c1, _sim_c2, _sim_c3 = st.columns(3)
+                            with _sim_c1:
+                                _grad_cgpa = _sim_result['graduation_cgpa']
+                                _grad_delta = _grad_cgpa - adj_cgpa
+                                st.metric(
+                                    "Projected Graduation CGPA",
+                                    f"{_grad_cgpa:.2f}",
+                                    delta=f"{_grad_delta:+.2f} from current adjusted",
+                                    delta_color="normal" if _grad_delta >= 0 else "inverse"
+                                )
+                            with _sim_c2:
+                                st.metric(
+                                    "Total Credits (All 8 Sems)",
+                                    f"{_sim_result['grand_total_credits']:.1f} cr"
+                                )
+                            with _sim_c3:
+                                st.metric(
+                                    "New Credits Projected",
+                                    f"{_sim_result['total_new_credits']:.1f} cr",
+                                    delta=f"from {len(_sim_semester_inputs)} semester(s)"
+                                )
+
+                            # Per-semester breakdown table
+                            with st.expander("\U0001f4ca Per-Semester Breakdown"):
+                                _bd_df = pd.DataFrame(_sim_result['per_semester_detail'])
+                                _bd_df.columns = ['Semester', 'SGPA', 'Credits', 'Quality Points']
+                                st.dataframe(_bd_df, hide_index=True, use_container_width=True)
+
+                            # Graduation status message
+                            if _grad_cgpa >= 3.75:
+                                st.success(f"\U0001f3c6 **First Class with Distinction!** Projected CGPA: {_grad_cgpa:.2f}")
+                            elif _grad_cgpa >= 3.50:
+                                st.success(f"\U0001f393 **First Class!** Projected CGPA: {_grad_cgpa:.2f}")
+                            elif _grad_cgpa >= 3.25:
+                                st.info(f"\U0001f4d8 **Second Class (Upper).** Projected CGPA: {_grad_cgpa:.2f}")
+                            elif _grad_cgpa >= 2.75:
+                                st.info(f"\U0001f4d7 **Second Class.** Projected CGPA: {_grad_cgpa:.2f}")
+                            elif _grad_cgpa >= 2.00:
+                                st.warning(f"\u26a0\ufe0f **Pass.** Projected CGPA: {_grad_cgpa:.2f}")
+                            else:
+                                st.error(f"\u26d4 **Below minimum graduation threshold.** Projected CGPA: {_grad_cgpa:.2f}")
 
                 else:
                     if hdr_col4.button("\U0001f52c Deep Analysis", key=btn_key,

@@ -772,6 +772,156 @@ def get_semester_total_credits(dept: str, semester_num: int) -> float:
     return dept_map.get(semester_num, 0.0)
 
 
+# Hardcoded clean curriculum for CSE semesters that have elective over-count.
+# Structure: {'code': str, 'credit': float, 'is_elective': bool, 'label': str}
+_CSE_ELECTIVE_SEMESTERS = {
+    7: {
+        'core': [
+            {'code': 'CSE-4101', 'credit': 3.0},
+            {'code': 'CSE-4102', 'credit': 3.0},
+            {'code': 'CSE-4111', 'credit': 1.5},
+            {'code': 'CSE-4113', 'credit': 1.5},
+            {'code': 'CSE-4114', 'credit': 2.0},
+            {'code': 'SS-4103',  'credit': 2.0},
+        ],
+        'elective_slots': [
+            {'code': 'ELEC-7-T1', 'credit': 3.0, 'label': 'Elective Theory I'},
+            {'code': 'ELEC-7-T2', 'credit': 3.0, 'label': 'Elective Theory II'},
+            {'code': 'ELEC-7-L1', 'credit': 1.5, 'label': 'Elective Lab I'},
+        ],
+    },
+    8: {
+        'core': [
+            {'code': 'CSE-4202', 'credit': 2.0},
+            {'code': 'CSE-4203', 'credit': 2.0},
+            {'code': 'CSE-4214', 'credit': 4.0},
+            {'code': 'ECO-4201', 'credit': 2.0},
+        ],
+        'elective_slots': [
+            {'code': 'ELEC-8-T1', 'credit': 3.0, 'label': 'Elective Theory I'},
+            {'code': 'ELEC-8-T2', 'credit': 3.0, 'label': 'Elective Theory II'},
+            {'code': 'ELEC-8-L1', 'credit': 1.5, 'label': 'Elective Lab I'},
+        ],
+    },
+}
+
+def get_semester_courses(dept: str, semester_num: int) -> list[dict]:
+    """
+    Returns a clean course list for a semester.
+    Each entry: {'code': str, 'credit': float, 'is_elective': bool, 'label': str}
+
+    For CSE sems 7 & 8: returns confirmed core courses + 3 named elective slots
+    (2 theory × 3.0 cr + 1 lab × 1.5 cr) instead of all 30+ elective variants.
+    For all other sems: derives courses from credit_mapping.json directly
+    (those semesters have exact 1:1 mappings — no over-count issue).
+    """
+    if dept == 'CSE' and semester_num in _CSE_ELECTIVE_SEMESTERS:
+        sem_def = _CSE_ELECTIVE_SEMESTERS[semester_num]
+        result = []
+        for c in sem_def['core']:
+            result.append({'code': c['code'], 'credit': c['credit'],
+                           'is_elective': False, 'label': c['code']})
+        for slot in sem_def['elective_slots']:
+            result.append({'code': slot['code'], 'credit': slot['credit'],
+                           'is_elective': True, 'label': slot['label']})
+        return result
+
+    # For semesters 1-6 (and EEE/Civil): derive directly — no elective over-count
+    dept_map = _credit_map.get(dept, {})
+    courses = []
+    for code, credit in dept_map.items():
+        if get_semester_from_code(code, dept) == semester_num:
+            courses.append({'code': code, 'credit': credit,
+                            'is_elective': False, 'label': code})
+    courses.sort(key=lambda c: c['code'])
+    return courses
+
+def compute_graduation_cgpa_from_inputs(
+    adj_cgpa: float,
+    adj_credits: float,
+    remaining_semester_inputs: list[dict],
+    dept: str,
+) -> dict:
+    """
+    Computes projected graduation CGPA from user-provided semester inputs.
+
+    remaining_semester_inputs: list of dicts, one per remaining semester:
+        {
+            'semester': int,                    # absolute semester number (1-8)
+            'mode': 'summary' | 'detailed',     # input mode
+            'sgpa': float | None,               # if mode='summary', the expected SGPA
+            'course_grades': list[dict] | None,  # if mode='detailed', list of
+                                                 #   {'code': str, 'credit': float, 'gp': float}
+        }
+
+    Returns:
+        {
+            'graduation_cgpa': float,
+            'total_new_points': float,
+            'total_new_credits': float,
+            'per_semester_detail': list[dict],  # [{semester, sgpa, credits, points}, ...]
+            'grand_total_credits': float,
+            'grand_total_points': float,
+        }
+    """
+    adj_points = adj_cgpa * adj_credits
+    total_new_points = 0.0
+    total_new_credits = 0.0
+    per_semester_detail = []
+
+    for sem_input in remaining_semester_inputs:
+        sem_num = sem_input['semester']
+        mode = sem_input.get('mode', 'summary')
+        sem_credits = get_semester_total_credits(dept, sem_num)
+
+        if mode == 'detailed' and sem_input.get('course_grades'):
+            # Calculate SGPA from individual course grades
+            course_points = 0.0
+            course_credits = 0.0
+            for cg in sem_input['course_grades']:
+                if cg.get('gp', 0) > 0 or cg.get('credit', 0) > 0:
+                    course_points += cg['gp'] * cg['credit']
+                    course_credits += cg['credit']
+
+            if course_credits > 0:
+                calculated_sgpa = round(course_points / course_credits, 2)
+            else:
+                calculated_sgpa = 0.0
+
+            # Use the actual credits filled in for the CGPA calculation
+            # (handles elective subsets correctly)
+            sem_points = course_points
+            effective_credits = course_credits
+        else:
+            # Summary mode: use input SGPA × standard semester credits
+            sgpa = sem_input.get('sgpa', 0.0) or 0.0
+            calculated_sgpa = sgpa
+            sem_points = sgpa * sem_credits
+            effective_credits = sem_credits
+
+        total_new_points += sem_points
+        total_new_credits += effective_credits
+        per_semester_detail.append({
+            'semester': sem_num,
+            'sgpa': round(calculated_sgpa, 2),
+            'credits': round(effective_credits, 1),
+            'points': round(sem_points, 2),
+        })
+
+    grand_total_credits = adj_credits + total_new_credits
+    grand_total_points = adj_points + total_new_points
+    graduation_cgpa = round(grand_total_points / grand_total_credits, 2) if grand_total_credits > 0 else 0.0
+
+    return {
+        'graduation_cgpa': graduation_cgpa,
+        'total_new_points': round(total_new_points, 2),
+        'total_new_credits': round(total_new_credits, 1),
+        'per_semester_detail': per_semester_detail,
+        'grand_total_credits': round(grand_total_credits, 1),
+        'grand_total_points': round(grand_total_points, 2),
+    }
+
+
 def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_label: str) -> dict:
     """
     Processes a student's full academic history (raw portal records) to compute:
