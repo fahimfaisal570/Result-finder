@@ -1,4 +1,4 @@
-Result Finder PRO
+# Result Finder PRO
 
 Batch-oriented academic result extraction & analytics engine
 
@@ -10,11 +10,11 @@ Batch-oriented academic result extraction & analytics engine
 
 ---
 
-🚀 Overview
+## 🚀 Overview
 
 Result Finder PRO turns fragmented result pages into structured, batch-level datasets for analysis.
 
-What it does
+### What it does
 
 - Scrapes results across ranges (multi-batch)
 - Normalizes and aggregates data
@@ -23,7 +23,7 @@ What it does
 
 ---
 
-🧭 Architecture (v1)
+## 🧭 Architecture (v1)
 
 Input (ranges/profiles)
         ↓
@@ -39,7 +39,7 @@ CLI / Streamlit UI
 
 ---
 
-⚡ Performance
+## ⚡ Performance
 
 - Threaded batch execution
 - Connection reuse (Keep-Alive)
@@ -49,7 +49,7 @@ CLI / Streamlit UI
 
 ---
 
-✨ Features
+## ✨ Features
 
 - Program/session discovery
 - Main vs retake exam filtering
@@ -61,7 +61,7 @@ CLI / Streamlit UI
 
 ---
 
-🧱 Key Modules
+## 🧱 Key Modules
 
 - Scraper: request engine, retries, pooling
 - Parser: regex-based extraction
@@ -70,13 +70,13 @@ CLI / Streamlit UI
 
 ---
 
-🛠️ Tech Stack
+## 🛠️ Tech Stack
 
 Python • Streamlit • "re" • Threading/Queue • JSON • "urllib"
 
 ---
 
-⚠️ Limitations
+## ⚠️ Limitations
 
 - Fragile to HTML changes (regex)
 - Loose data model (dict-heavy)
@@ -84,7 +84,7 @@ Python • Streamlit • "re" • Threading/Queue • JSON • "urllib"
 
 ---
 
-🔭 Next (direction)
+## 🔭 Next (direction)
 
 - Structured DB layer
 - Parser abstraction
@@ -93,13 +93,13 @@ Python • Streamlit • "re" • Threading/Queue • JSON • "urllib"
 
 ---
 
-▶️ Quick Start
+## ▶️ Quick Start
 
 pip install -r requirements.txt
 streamlit run app.py
 
 ---
 
-📌 Positioning
+## 📌 Positioning
 
 Not just a scraper — a batch data extraction + analytics engine.
