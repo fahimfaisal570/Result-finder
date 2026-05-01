@@ -2,11 +2,11 @@ Result Finder PRO
 
 Batch-oriented academic result extraction & analytics engine
 
-"Python" (https://img.shields.io/badge/Python-3.10%2B-blue)
-"UI" (https://img.shields.io/badge/UI-Streamlit-red)
-"Storage" (https://img.shields.io/badge/Storage-JSON-lightgrey)
-"Concurrency" (https://img.shields.io/badge/Concurrency-Threading-green)
-"Status" (https://img.shields.io/badge/Status-Stable-success)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![UI](https://img.shields.io/badge/UI-Streamlit-red)
+![Storage](https://img.shields.io/badge/Storage-JSON-lightgrey)
+![Concurrency](https://img.shields.io/badge/Concurrency-Threading-green)
+![Status](https://img.shields.io/badge/Status-Stable-success)
 
 ---
 
