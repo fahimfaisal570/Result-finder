@@ -815,13 +815,23 @@ def get_semester_courses(dept: str, semester_num: int) -> list[dict]:
     For all other sems: derives courses from credit_mapping.json directly
     (those semesters have exact 1:1 mappings — no over-count issue).
     """
-    # Fetch names mapping from database
+    # Fetch names mapping from database (department-aware and frequency-based)
     code_to_name = {
         'CSE-4203': 'Engineering Ethics'
     }
     try:
         with get_connection() as conn:
-            cur = conn.execute("SELECT DISTINCT subject_code, subject_name FROM subject_grades WHERE subject_name IS NOT NULL AND subject_name != ''")
+            # Query the names for the given department, sorting by frequency so the most common one wins
+            query = """
+                SELECT subject_code, subject_name, COUNT(*) as c 
+                FROM subject_grades 
+                WHERE subject_name IS NOT NULL 
+                  AND subject_name != '' 
+                  AND LOWER(profile_name) LIKE ?
+                GROUP BY subject_code, subject_name 
+                ORDER BY c ASC
+            """
+            cur = conn.execute(query, (f'%{dept.lower()}%',))
             for r in cur:
                 code_to_name[r[0]] = r[1]
     except Exception:
