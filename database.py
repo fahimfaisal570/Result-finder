@@ -808,22 +808,35 @@ _CSE_ELECTIVE_SEMESTERS = {
 def get_semester_courses(dept: str, semester_num: int) -> list[dict]:
     """
     Returns a clean course list for a semester.
-    Each entry: {'code': str, 'credit': float, 'is_elective': bool, 'label': str}
+    Each entry: {'code': str, 'credit': float, 'is_elective': bool, 'label': str, 'name': str}
 
     For CSE sems 7 & 8: returns confirmed core courses + 3 named elective slots
     (2 theory × 3.0 cr + 1 lab × 1.5 cr) instead of all 30+ elective variants.
     For all other sems: derives courses from credit_mapping.json directly
     (those semesters have exact 1:1 mappings — no over-count issue).
     """
+    # Fetch names mapping from database
+    code_to_name = {
+        'CSE-4203': 'Engineering Ethics'
+    }
+    try:
+        with get_connection() as conn:
+            cur = conn.execute("SELECT DISTINCT subject_code, subject_name FROM subject_grades WHERE subject_name IS NOT NULL AND subject_name != ''")
+            for r in cur:
+                code_to_name[r[0]] = r[1]
+    except Exception:
+        pass
+
     if dept == 'CSE' and semester_num in _CSE_ELECTIVE_SEMESTERS:
         sem_def = _CSE_ELECTIVE_SEMESTERS[semester_num]
         result = []
         for c in sem_def['core']:
+            name = code_to_name.get(c['code'], '')
             result.append({'code': c['code'], 'credit': c['credit'],
-                           'is_elective': False, 'label': c['code']})
+                           'is_elective': False, 'label': c['code'], 'name': name})
         for slot in sem_def['elective_slots']:
             result.append({'code': slot['code'], 'credit': slot['credit'],
-                           'is_elective': True, 'label': slot['label']})
+                           'is_elective': True, 'label': slot['label'], 'name': ''})
         return result
 
     # For semesters 1-6 (and EEE/Civil): derive directly — no elective over-count
@@ -831,8 +844,9 @@ def get_semester_courses(dept: str, semester_num: int) -> list[dict]:
     courses = []
     for code, credit in dept_map.items():
         if get_semester_from_code(code, dept) == semester_num:
+            name = code_to_name.get(code, '')
             courses.append({'code': code, 'credit': credit,
-                            'is_elective': False, 'label': code})
+                            'is_elective': False, 'label': code, 'name': name})
     courses.sort(key=lambda c: c['code'])
     return courses
 
@@ -1025,7 +1039,8 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
                 'gp': gp,
                 'credit': credit,
                 'source': 'main',
-                'exam_id': eid_int
+                'exam_id': eid_int,
+                'name': subj.get('name', '')
             }
 
     # --- Step 4: Apply retake improvements (only if strictly better) ---
@@ -1235,31 +1250,32 @@ def compute_advanced_projection(
         curr_gp = g['gp']
         credit = g['credit']
         source = g['source']
+        subj_name = g.get('name', '')
 
         if curr_gp < 2.0:
             simulated_gp = retake_clear_gp
             cgpa_impact = ((simulated_gp - curr_gp) * credit) / total_credits if total_credits > 0 else 0
             pending_retakes.append({
-                'code': code, 'current_gp': curr_gp, 'credit': credit,
+                'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
                 'simulated_gp': simulated_gp, 'cgpa_impact': cgpa_impact
             })
             projected_points_retakes += (simulated_gp - curr_gp) * credit
             projected_points_all += (simulated_gp - curr_gp) * credit
         elif source == 'retake_improved':
             ineligible_retake_cleared.append({
-                'code': code, 'current_gp': curr_gp, 'credit': credit,
+                'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
                 'reason': "Cleared via retake \u2014 cannot improve"
             })
         elif 2.0 <= curr_gp <= 2.75:
             if code in attempted_subjects:
                 attempt_gp = max((a['gp'] for a in attempted_subjects[code]), default=0)
                 already_attempted.append({
-                    'code': code, 'current_gp': curr_gp, 'credit': credit,
+                    'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
                     'attempt_gp': attempt_gp, 'reason': "Already improved once"
                 })
             else:
                 improvement_candidates.append({
-                    'code': code, 'current_gp': curr_gp, 'credit': credit,
+                    'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
                     'max_potential_gp': 4.0, 'source': source
                 })
                 if improvement_target_gp is not None:

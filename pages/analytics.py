@@ -1300,7 +1300,8 @@ with tabs[4]:
                                     with cc1:
                                         gp_display = f"{pr['current_gp']:.2f}" if pr['current_gp'] > 0 else "F"
                                         status_icon = "\u2705" if will_pass else "\u274c"
-                                        st.markdown(f"{status_icon} **{pr['code']}** \u2014 GP: {gp_display} ({pr['credit']} cr)")
+                                        name_str = f" | *{pr['name']}*" if pr.get('name') else ""
+                                        st.markdown(f"{status_icon} **{pr['code']}**{name_str} \u2014 GP: {gp_display} ({pr['credit']} cr)")
                                     with cc2:
                                         if will_pass:
                                             key = f"tgt_{profile_name}_{reg}_{pr['code']}"
@@ -1313,7 +1314,8 @@ with tabs[4]:
                                 for ic in adv_proj['improvement_candidates']:
                                     cc1, cc2 = st.columns([3, 1])
                                     with cc1:
-                                        st.markdown(f"\U0001f535 **{ic['code']}** \u2014 GP: {ic['current_gp']:.2f} ({ic['credit']} cr)")
+                                        name_str = f" | *{ic['name']}*" if ic.get('name') else ""
+                                        st.markdown(f"\U0001f535 **{ic['code']}**{name_str} \u2014 GP: {ic['current_gp']:.2f} ({ic['credit']} cr)")
                                     with cc2:
                                         key = f"tgt_{profile_name}_{reg}_{ic['code']}"
                                         st.number_input("Target GP", min_value=ic['current_gp'], max_value=4.00, value=overrides[ic['code']], step=0.25, key=key, label_visibility="collapsed")
@@ -1321,12 +1323,14 @@ with tabs[4]:
                         if adv_proj['already_attempted']:
                             with st.expander(f"\u26a0\ufe0f Already Attempted ({len(adv_proj['already_attempted'])})"):
                                 for aa in adv_proj['already_attempted']:
-                                    st.markdown(f"\U0001f6ab **{aa['code']}** \u2014 GP: {aa['current_gp']:.2f} | {aa['reason']}")
+                                    name_str = f" | *{aa['name']}*" if aa.get('name') else ""
+                                    st.markdown(f"\U0001f6ab **{aa['code']}**{name_str} \u2014 GP: {aa['current_gp']:.2f} | {aa['reason']}")
 
                         if adv_proj['ineligible_retake_cleared']:
                             with st.expander(f"\U0001f512 Retake-Cleared (not improvable, {len(adv_proj['ineligible_retake_cleared'])})"):
                                 for irc in adv_proj['ineligible_retake_cleared']:
-                                    st.markdown(f"\U0001f512 **{irc['code']}** \u2014 GP: {irc['current_gp']:.2f} | {irc['reason']}")
+                                    name_str = f" | *{irc['name']}*" if irc.get('name') else ""
+                                    st.markdown(f"\U0001f512 **{irc['code']}**{name_str} \u2014 GP: {irc['current_gp']:.2f} | {irc['reason']}")
 
                         st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp;\U0001f4ca Analyzed {deep_res['effective_grade_count']} subjects across {deep_res['semesters_found']} semester(s)")
 
@@ -1472,7 +1476,10 @@ with tabs[4]:
                                                 _cg_c1, _cg_c2 = st.columns([3, 1])
                                                 with _cg_c1:
                                                     _c_label = _c.get('label', _c['code'])
-                                                    st.markdown(f"`{_c_label}` \u2014 {_c['credit']} cr")
+                                                    if _c.get('name'):
+                                                        st.markdown(f"`{_c_label}` | *{_c['name']}* \u2014 {_c['credit']} cr")
+                                                    else:
+                                                        st.markdown(f"`{_c_label}` \u2014 {_c['credit']} cr")
                                                 with _cg_c2:
                                                     _gp_key = f"sim_gp_{profile_name}_{reg}_{_sem_n}_{_c['code']}"
                                                     _gp_val = st.number_input(
