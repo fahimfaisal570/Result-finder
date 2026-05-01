@@ -1,66 +1,105 @@
-# Result Finder PRO
+Result Finder PRO
 
-![Python](https://img.shields.io/badge/Python-12.3%2B-blue)
-![Streamlit](https://img.shields.io/badge/Frontend-Streamlit-red)
-![Status](https://img.shields.io/badge/Status-Stable-success)
-![Architecture](https://img.shields.io/badge/Architecture-Modular-informational)
+Batch-oriented academic result extraction & analytics engine
 
-High-performance academic result scraping and analytics engine built for Faridpur Engineering College.
+"Python" (https://img.shields.io/badge/Python-3.10%2B-blue)
+"UI" (https://img.shields.io/badge/UI-Streamlit-red)
+"Storage" (https://img.shields.io/badge/Storage-JSON-lightgrey)
+"Concurrency" (https://img.shields.io/badge/Concurrency-Threading-green)
+"Status" (https://img.shields.io/badge/Status-Stable-success)
 
 
 
-## 🚀 Overview
+🚀 Overview
 
-Result Finder PRO transforms scattered DUCMC result pages into structured, batch-wise datasets.
+Result Finder PRO turns fragmented result pages into structured, batch-level datasets for analysis.
 
-Core capabilities:
-- Multi-range result scraping
-- Batch analytics
-- Merit ranking & performance insights
+What it does
+
+- Scrapes results across ranges (multi-batch)
+- Normalizes and aggregates data
+- Computes rankings, pass/fail stats, and batch insights
+- Tracks students across exams
+
+
+
+🧭 Architecture (v1)
+
+Input (ranges/profiles)
+        ↓
+Scraper (threaded, keep-alive, retry)
+        ↓
+Parser (regex extraction)
+        ↓
+Storage (JSON profiles)
+        ↓
+Analytics (ranking, stats)
+        ↓
+CLI / Streamlit UI
+
+
+
+⚡ Performance
+
+- Threaded batch execution
+- Connection reuse (Keep-Alive)
+- Efficient range scanning
+
+«Throughput depends on network + portal behavior.»
+
+
+
+✨ Features
+
+- Program/session discovery
+- Main vs retake exam filtering
+- Multi-range scanning
+- Saved profiles (batch persistence)
 - Student history tracking
+- Merit lists & pass/fail analytics
+- CLI + dashboard workflow
 
 
 
-## 🧠 Architecture
+🧱 Key Modules
 
-Layered system design:
-
-- **Scraper Layer** → threaded requests, connection reuse
-- **Parser Layer** → regex-based extraction
-- **Data Layer** → lightweight persistence (JSON / SQLite)
-- **Analytics Layer** → ranking, stats, distributions
-- **Interface Layer** → CLI + Streamlit dashboard
+- Scraper: request engine, retries, pooling
+- Parser: regex-based extraction
+- Profiles: JSON persistence
+- Reports: analytics computations
 
 
 
-## ⚡ Performance
+🛠️ Tech Stack
 
-- 3–5× faster scraping via Keep-Alive pooling
-- Reduced overhead vs DOM parsing
-- Efficient batch execution for large datasets
-
-> Add your real benchmark numbers here — otherwise this claim is weak.
+Python • Streamlit • "re" • Threading/Queue • JSON • "urllib"
 
 
 
-## 📊 Features
+⚠️ Limitations
 
-- Program & session discovery
-- Exam filtering (main + retake support)
-- Multi-range batch scanning
-- Saved profiles
-- Student history tracking
-- Merit list generation
-- Pass/fail analytics
-- CLI + Dashboard workflow
+- Fragile to HTML changes (regex)
+- Loose data model (dict-heavy)
+- Coupling between core logic and UI
 
 
-## 🛠️ Tech Stack
 
-- Python
-- Streamlit
-- Regex (re)
-- Threading / concurrency
-- SQLite / JSON storage
+🔭 Next (direction)
+
+- Structured DB layer
+- Parser abstraction
+- Clear service boundaries
+- Automation workflows
 
 
+
+▶️ Quick Start
+
+pip install -r requirements.txt
+streamlit run app.py
+
+
+
+📌 Positioning
+
+Not just a scraper — a batch data extraction + analytics engine.
