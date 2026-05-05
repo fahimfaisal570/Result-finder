@@ -5,6 +5,7 @@ import os
 import altair as alt
 import sys
 import time
+import json
 import ui_components as ui
 
 st.set_page_config(page_title="Result Analytics", page_icon="favicon.ico", layout="wide")
@@ -290,6 +291,20 @@ with st.sidebar.expander("⚙️ Exam Management", expanded=False):
 df_raw     = load_base_df(profile_name, exam_id)
 df_sub_raw = load_subject_df(profile_name, exam_id)
 
+@st.cache_data(ttl=300)
+def load_longitudinal(profile_name):
+    return db.get_longitudinal_data(profile_name)
+
+_longitudinal_raw = load_longitudinal(profile_name)
+if _longitudinal_raw:
+    df_longitudinal = pd.DataFrame([
+        {**entry, 'reg_no': reg}
+        for reg, entries in _longitudinal_raw.items()
+        for entry in entries
+    ])
+else:
+    df_longitudinal = None
+
 if df_raw.empty:
     st.info("No exam results found for this semester. Try selecting a different exam or rescanning.")
     st.stop()
@@ -331,7 +346,7 @@ _incomplete_students = db.get_incomplete_history_students(profile_name)
 if _incomplete_students:
     with st.expander(
         f"⚠️ Incomplete Scan History Detected — {len(_incomplete_students)} Student(s)",
-        expanded=True
+        expanded=False
     ):
         st.warning(
             "The following student(s) have fewer semester records than this batch has published. "
@@ -838,7 +853,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 # TABS
 # ---------------------------------------------------------------------------
-tabs = st.tabs(["⭐ Baseline Insight", "🧪 Advanced Patterns", "🌀 Cube Pivot", "🏆 Clearing List", "🎯 GPA Projection"])
+tabs = st.tabs(["⭐ Baseline Insight", "📈 Trends", "🧪 Advanced Patterns", "🌀 Cube Pivot", "🏆 Clearing List", "🎯 GPA Projection"])
 
 # =========================================================================
 # TAB 1: BASELINE
@@ -948,10 +963,252 @@ with tabs[0]:
     if use_sgpa_grad:
         st.caption("ℹ️ First-semester fallback: Ranking based on **SGPA** (Cumulative GPA not yet available).")
 
+    st.divider()
+
+    # Row 4: Grade Distribution Breakdown
+    st.markdown("#### 📊 Grade Distribution Breakdown")
+    if not df_sub.empty:
+        def gp_to_letter(gp):
+            if gp >= 4.0: return 'A+'
+            elif gp >= 3.75: return 'A'
+            elif gp >= 3.5: return 'A-'
+            elif gp >= 3.25: return 'B+'
+            elif gp >= 3.0: return 'B'
+            elif gp >= 2.75: return 'B-'
+            elif gp >= 2.5: return 'C+'
+            elif gp >= 2.25: return 'C'
+            elif gp >= 2.0: return 'D'
+            else: return 'F'
+
+        def gp_to_order(gp):
+            if gp >= 4.0: return 1
+            elif gp >= 3.75: return 2
+            elif gp >= 3.5: return 3
+            elif gp >= 3.25: return 4
+            elif gp >= 3.0: return 5
+            elif gp >= 2.75: return 6
+            elif gp >= 2.5: return 7
+            elif gp >= 2.25: return 8
+            elif gp >= 2.0: return 9
+            else: return 10
+            
+        dist_df = df_sub.copy()
+        dist_df['letter'] = dist_df['gp'].apply(gp_to_letter)
+        dist_df['letter_order'] = dist_df['gp'].apply(gp_to_order)
+
+        # 100% Stacked Bar
+        color_scale = alt.Scale(
+            domain=['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'D', 'F'],
+            range=[
+                '#166534', '#15803d', '#22c55e', # Greens (A)
+                '#1e3a8a', '#1d4ed8', '#3b82f6', # Blues (B)
+                '#b45309', '#d97706', '#f59e0b', # Ambers/Oranges (C, D)
+                '#ef4444' # Red (F)
+            ]
+        )
+
+        dist_bar = alt.Chart(dist_df).mark_bar().encode(
+            x=alt.X('count(reg_no):Q', stack='normalize', title='Percentage of Students', axis=alt.Axis(format='%')),
+            y=alt.Y('subject_code:N', title='Subject'),
+            color=alt.Color('letter:N', scale=color_scale, legend=alt.Legend(title="Grade", orient="right")),
+            order=alt.Order('letter_order:Q', sort='ascending'),
+            tooltip=['subject_code', 'subject_name', 'letter', 'count(reg_no)']
+        ).properties(height=max(250, len(dist_df['subject_code'].unique()) * 40))
+        
+        st.altair_chart(dist_bar, width='stretch')
+    else:
+        st.info("No subject data available.")
+
 # =========================================================================
-# TAB 2: ADVANCED PATTERNS
+# TAB 2: TRENDS
 # =========================================================================
 with tabs[1]:
+    st.subheader("📈 Longitudinal Trends & Benchmarking")
+    
+    if df_longitudinal is None or df_longitudinal.empty:
+        st.info("No longitudinal data available for this profile. Try scanning more semesters.")
+    else:
+        # Section 3.1: Batch SGPA Trajectory Chart
+        st.markdown("#### Batch SGPA Trajectory")
+        
+        median_df = df_longitudinal.groupby('semester_num')['sgpa'].median().reset_index()
+        median_df['name'] = 'Batch Median'
+        median_df['reg_no'] = 0
+        median_df['is_median'] = True
+        
+        chart_df = df_longitudinal.copy()
+        chart_df['is_median'] = False
+        chart_df = pd.concat([chart_df, median_df], ignore_index=True)
+        
+        # Spotlight selector
+        student_list = ["None"] + sorted(df_longitudinal['name'].unique().tolist())
+        spotlight = st.selectbox("🔦 Spotlight Student:", student_list)
+        
+        # Determine opacity and color dynamically based on spotlight
+        def get_opacity(row):
+            if row['is_median']: return 1.0
+            if spotlight == "None": return 0.3
+            return 1.0 if row['name'] == spotlight else 0.05
+            
+        def get_color(row):
+            if row['is_median']: return '#ffffff'
+            return '#ef4444' if row['name'] == spotlight else '#3b82f6'
+
+        def get_stroke_dash(row):
+            return [5, 5] if row['is_median'] else [0]
+            
+        chart_df['opacity'] = chart_df.apply(get_opacity, axis=1)
+        chart_df['color'] = chart_df.apply(get_color, axis=1)
+        chart_df['strokeDash'] = chart_df.apply(get_stroke_dash, axis=1)
+
+        traj_chart = alt.Chart(chart_df).mark_line(point=True).encode(
+            x=alt.X('semester_num:O', title='Semester Index'),
+            y=alt.Y('sgpa:Q', title='SGPA', scale=alt.Scale(domain=[1.5, 4.0], clamp=True)),
+            detail='reg_no:N',
+            color=alt.Color('color:N', scale=None),
+            opacity=alt.Opacity('opacity:Q', scale=None),
+            strokeDash=alt.StrokeDash('strokeDash:N', scale=None),
+            tooltip=['name', 'reg_no', 'semester_label', 'sgpa']
+        ).properties(height=400)
+        
+        st.altair_chart(traj_chart, width='stretch')
+        
+        st.divider()
+
+        # Section 3.2: Student Trajectory Metrics Table
+        st.markdown("#### Student Trajectory Metrics")
+        
+        metrics = []
+        for reg, group in df_longitudinal.groupby('reg_no'):
+            if len(group) < 2:
+                metrics.append({
+                    'reg_no': reg, 'name': group.iloc[0]['name'], 'peak': group['sgpa'].max(),
+                    'valley': group['sgpa'].min(), 'consistency': 1.0, 'trajectory': 'Stable'
+                })
+                continue
+                
+            sgpas = group.sort_values('semester_num')['sgpa'].tolist()
+            peak = max(sgpas)
+            valley = min(sgpas)
+            consistency = 1 - np.std(sgpas)
+            slope, _ = np.polyfit(range(len(sgpas)), sgpas, 1)
+            
+            if slope > 0.08:
+                traj = "Rising"
+            elif slope < -0.08:
+                traj = "Declining"
+            else:
+                valley_idx = sgpas.index(valley)
+                if 0 < valley_idx < len(sgpas) - 1:
+                    if sgpas[0] - valley > 0.2 and sgpas[-1] - valley > 0.2:
+                        traj = "Recovery (V-shape)"
+                    else:
+                        traj = "Stable"
+                else:
+                    traj = "Stable"
+                    
+            metrics.append({
+                'reg_no': reg, 'name': group.iloc[0]['name'], 'peak': round(peak, 2),
+                'valley': round(valley, 2), 'consistency': round(consistency, 2),
+                'trajectory': traj
+            })
+            
+        metrics_df = pd.DataFrame(metrics).sort_values('consistency', ascending=False)
+        st.dataframe(metrics_df, hide_index=True, use_container_width=True)
+
+        st.divider()
+
+        # Section 3.3: Retake & Improvement Success Tracker
+        st.markdown("#### 🔄 Retake & Improvement Success Tracker")
+        @st.cache_data(ttl=300)
+        def load_retake_stats(p_name):
+            return db.get_retake_success_stats(p_name)
+            
+        retake_stats = load_retake_stats(profile_name)
+        if not retake_stats:
+            st.info("No retake or improvement data found for this batch.")
+        else:
+            r_df = pd.DataFrame(retake_stats)
+            total_attempts = r_df['attempts'].sum() - len(r_df) # Extra attempts
+            cleared_count = r_df['passed_after_retake'].sum()
+            avg_gain = r_df['gp_gain'].mean()
+            better_count = len(r_df[r_df['gp_gain'] > 0])
+            success_rate = (better_count / len(r_df)) * 100
+            
+            r_col1, r_col2, r_col3, r_col4 = st.columns(4)
+            r_col1.metric("Total Retakes Taken", len(r_df))
+            r_col2.metric("Success Rate", f"{success_rate:.1f}%", help="% of retakes where grade improved")
+            r_col3.metric("Avg GP Gain", f"+{avg_gain:.2f}")
+            r_col4.metric("Subjects Cleared", cleared_count, help="Failing grades turned into passing grades")
+            
+            st.markdown("**Per-Subject Retake Performance**")
+            sub_perf = r_df.groupby('subject_code').agg(
+                students=('reg_no', 'count'),
+                avg_gain=('gp_gain', 'mean'),
+                cleared=('passed_after_retake', 'sum')
+            ).reset_index().sort_values('students', ascending=False)
+            
+            st.dataframe(sub_perf, hide_index=True, use_container_width=True)
+
+        st.divider()
+
+        # Section 3.4: Cross-Batch Benchmarking
+        st.markdown("#### 📊 Cross-Batch Benchmarking")
+        all_profiles = sorted(db.get_profiles().keys())
+        current_dept = profile_name.split()[0].lower() if profile_name else ""
+        dept_profiles = [p for p in all_profiles if p.lower().startswith(current_dept)]
+        
+        sel_profiles = st.multiselect("Select profiles to compare:", all_profiles, default=dept_profiles)
+        sem_pattern = st.text_input("Semester Pattern (regex/string):", value=selected_label)
+        
+        if st.button("Run Comparison", type="primary"):
+            if not sel_profiles or not sem_pattern:
+                st.warning("Please select profiles and enter a pattern.")
+            else:
+                with st.spinner("Fetching cross-batch data..."):
+                    comp_data = db.get_cross_batch_comparison(sel_profiles, sem_pattern)
+                
+                if not comp_data:
+                    st.error("No matching main exams found across selected profiles.")
+                else:
+                    # Metrics Table
+                    comp_metrics = []
+                    for p, stats in comp_data.items():
+                        comp_metrics.append({
+                            'Profile': p,
+                            'Matched Exam': stats['exam_name'],
+                            'Students': stats['students'],
+                            'Mean SGPA': stats['mean_sgpa'],
+                            'Median SGPA': stats['median_sgpa'],
+                            'Pass Rate (%)': stats['pass_rate'],
+                            'Honours': stats['honours_count']
+                        })
+                    st.dataframe(pd.DataFrame(comp_metrics), hide_index=True, use_container_width=True)
+                    
+                    # Density Curve
+                    sgpa_flat = []
+                    for p, stats in comp_data.items():
+                        for s in stats['sgpa_list']:
+                            sgpa_flat.append({'Profile': p, 'SGPA': s})
+                    
+                    if sgpa_flat:
+                        dens_df = pd.DataFrame(sgpa_flat)
+                        dens_chart = alt.Chart(dens_df).transform_density(
+                            'SGPA',
+                            as_=['SGPA', 'density'],
+                            groupby=['Profile']
+                        ).mark_area(opacity=0.3).encode(
+                            x=alt.X('SGPA:Q', title='SGPA', scale=alt.Scale(domain=[1.5, 4.0], clamp=True)),
+                            y=alt.Y('density:Q', title='Density'),
+                            color='Profile:N',
+                            tooltip=['Profile', 'SGPA']
+                        ).properties(height=300)
+                        st.altair_chart(dens_chart, width='stretch')
+
+# =========================================================================
+# TAB 3: ADVANCED PATTERNS
+# =========================================================================
+with tabs[2]:
     st.subheader("Academic Variance & Pattern Extraction")
 
     st.markdown("#### 📦 Subject Performance Variance")
@@ -1122,9 +1379,9 @@ with tabs[1]:
             st.info("Select ≥2 subjects for the correlation heatmap.")
 
 # =========================================================================
-# TAB 3: PIVOT VIEW
+# TAB 4: CUBE PIVOT
 # =========================================================================
-with tabs[2]:
+with tabs[3]:
     st.subheader("🌀 Interactive Pivot Dimension")
     pivot_type = st.radio(
         "Cube Rotation:",
@@ -1143,9 +1400,9 @@ with tabs[2]:
         st.info("No data to pivot.")
 
 # =========================================================================
-# TAB 4: CLEARING LIST
+# TAB 5: CLEARING LIST
 # =========================================================================
-with tabs[3]:
+with tabs[4]:
     st.subheader("🏆 Semester-End Clearing List")
     st.markdown("Track eligibility for improvements and retakes after this semester's main exam.")
 
@@ -1164,9 +1421,9 @@ with tabs[3]:
 
 
 # =========================================================================
-# TAB 5: GPA PROJECTION
+# TAB 6: GPA PROJECTION
 # =========================================================================
-with tabs[4]:
+with tabs[5]:
     st.subheader("\U0001f3af GPA Projection & Graduation Planner")
     st.markdown(
         "Run a deep analysis for any student to see their **True CGPA**, "

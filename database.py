@@ -1576,6 +1576,202 @@ def rename_profile(old_name: str, new_name: str):
 
 
 # ---------------------------------------------------------------------------
+# Advanced Analytics (Trends & Grade Distribution)
+# ---------------------------------------------------------------------------
+
+def get_longitudinal_data(profile_name: str) -> dict:
+    """
+    Retrieves longitudinal data for all students in a profile, filtering out
+    retake exams and ensuring "latest exam_id wins" for readmitted students.
+    Returns: dict mapping reg_no -> list of semester records (sorted by semester_num)
+    """
+    import re
+    RETAKE_KEYWORDS = [
+        "retake", "re-take", "improvement", "special",
+        "make-up", "makeup", "supplementary"
+    ]
+    SEM_PATTERN = re.compile(
+        r'(\d+(?:st|nd|rd|th)\s+year\s+\d+(?:st|nd|rd|th)\s+semester)',
+        re.IGNORECASE
+    )
+
+    with get_connection() as conn:
+        # Fetch all exams and students for this profile
+        cur = conn.execute("""
+            SELECT e.reg_no, s.name, e.exam_id, e.exam_name, e.sgpa, e.cgpa, e.result_status
+            FROM exam_results e
+            JOIN students s ON e.profile_name = s.profile_name AND e.reg_no = s.reg_no
+            WHERE e.profile_name = ?
+        """, (profile_name,))
+        
+        all_records = cur.fetchall()
+
+    student_groups = {} # reg_no -> {sem_label -> record_dict}
+
+    for row in all_records:
+        reg_no, name, exam_id, exam_name, sgpa, cgpa, result_status = row
+        
+        if any(kw in (exam_name or '').lower() for kw in RETAKE_KEYWORDS):
+            continue
+            
+        m = SEM_PATTERN.search(exam_name or '')
+        sem_label = m.group(1).title().strip() if m else (exam_name or '').title().strip()
+        
+        try:
+            eid_int = int(exam_id)
+        except (ValueError, TypeError):
+            eid_int = 0
+
+        # Attempt to parse semester num from label
+        sem_num = 0
+        yr_match = re.search(r'(\d)[a-z]{2}\s*Yr', sem_label, re.IGNORECASE)
+        sem_match = re.search(r'(\d)[a-z]{2}\s*Sem', sem_label, re.IGNORECASE)
+        # Fallback to older patterns if 'Yr' isn't used
+        if not yr_match:
+            yr_match = re.search(r'(\d)[a-z]{2}\s*Year', sem_label, re.IGNORECASE)
+        if not sem_match:
+            sem_match = re.search(r'(\d)[a-z]{2}\s*Semester', sem_label, re.IGNORECASE)
+            
+        if yr_match and sem_match:
+            yr = int(yr_match.group(1))
+            sem_in_yr = int(sem_match.group(1))
+            sem_num = (yr - 1) * 2 + sem_in_yr
+
+        rec = {
+            'reg_no': reg_no,
+            'name': name,
+            'exam_id': eid_int,
+            'exam_name': exam_name,
+            'sgpa': sgpa or 0.0,
+            'cgpa': cgpa or 0.0,
+            'result_status': result_status,
+            'semester_num': sem_num,
+            'semester_label': sem_label
+        }
+
+        if reg_no not in student_groups:
+            student_groups[reg_no] = {}
+        
+        # Latest exam_id wins for the same semester label
+        if sem_label not in student_groups[reg_no]:
+            student_groups[reg_no][sem_label] = rec
+        else:
+            if eid_int > student_groups[reg_no][sem_label]['exam_id']:
+                student_groups[reg_no][sem_label] = rec
+
+    # Convert to sorted list per student
+    final_data = {}
+    for reg_no, sem_dict in student_groups.items():
+        if not sem_dict:
+            continue
+        sorted_records = sorted(sem_dict.values(), key=lambda x: (x['semester_num'], x['exam_id']))
+        final_data[reg_no] = sorted_records
+
+    return final_data
+
+
+def get_retake_success_stats(profile_name: str) -> list[dict]:
+    """
+    Computes success rates for retakes and improvements across the batch.
+    Requires at least 2 attempts for a subject.
+    """
+    with get_connection() as conn:
+        cur = conn.execute("""
+            SELECT reg_no, subject_code, MIN(grade_point) as first_gp, MAX(grade_point) as best_gp, COUNT(*) as attempts
+            FROM subject_grades
+            WHERE profile_name = ?
+            GROUP BY reg_no, subject_code
+            HAVING COUNT(*) > 1
+        """, (profile_name,))
+        
+        rows = cur.fetchall()
+
+    stats = []
+    for reg, code, first_gp, best_gp, attempts in rows:
+        passed_after = (first_gp < 2.0 and best_gp >= 2.0)
+        gp_gain = best_gp - first_gp
+        stats.append({
+            'reg_no': reg,
+            'subject_code': code,
+            'attempts': attempts,
+            'first_gp': first_gp,
+            'best_gp': best_gp,
+            'gp_gain': gp_gain,
+            'passed_after_retake': passed_after
+        })
+    return stats
+
+
+def get_cross_batch_comparison(profile_names: list[str], semester_pattern: str) -> dict:
+    """
+    Compares the performance of multiple batches on a specific semester.
+    Finds the main exam (highest student count) matching the pattern for each profile.
+    """
+    RETAKE_KEYWORDS = [
+        "retake", "re-take", "improvement", "special",
+        "make-up", "makeup", "supplementary"
+    ]
+    
+    results = {}
+    
+    with get_connection() as conn:
+        for profile in profile_names:
+            # Find all exams matching the pattern
+            cur = conn.execute("""
+                SELECT exam_id, exam_name, COUNT(reg_no) as student_count
+                FROM exam_results
+                WHERE profile_name = ? AND exam_name LIKE ?
+                GROUP BY exam_id, exam_name
+            """, (profile, f"%{semester_pattern}%"))
+            
+            exams = cur.fetchall()
+            
+            # Filter out retakes and find the one with the most students (the "main" cohort)
+            main_exam = None
+            max_students = 0
+            
+            for eid, ename, scount in exams:
+                if any(kw in (ename or '').lower() for kw in RETAKE_KEYWORDS):
+                    continue
+                # If tied, take higher exam_id
+                if scount > max_students or (scount == max_students and main_exam and int(eid) > int(main_exam[0])):
+                    max_students = scount
+                    main_exam = (eid, ename)
+            
+            if not main_exam:
+                continue
+                
+            eid, ename = main_exam
+            
+            # Fetch all SGPAs for this exam
+            cur = conn.execute("""
+                SELECT sgpa
+                FROM exam_results
+                WHERE profile_name = ? AND exam_id = ?
+            """, (profile, eid))
+            
+            sgpas = [row[0] for row in cur.fetchall() if row[0] is not None]
+            
+            if not sgpas:
+                continue
+                
+            import statistics
+            sgpas_sorted = sorted(sgpas)
+            
+            results[profile] = {
+                'exam_name': ename,
+                'students': len(sgpas),
+                'mean_sgpa': round(statistics.mean(sgpas), 2),
+                'median_sgpa': round(statistics.median(sgpas), 2),
+                'pass_rate': round(sum(1 for s in sgpas if s >= 2.0) / len(sgpas) * 100, 1),
+                'honours_count': sum(1 for s in sgpas if s >= 3.75),
+                'sgpa_list': sgpas
+            }
+            
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Legacy migration helpers
 # ---------------------------------------------------------------------------
 

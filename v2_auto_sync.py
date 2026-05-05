@@ -101,11 +101,15 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
         reg = r.get('Registration No', r.get('Reg', '?'))
         name = r.get('Name', 'Unknown')
 
-        if overlap_ratio >= 0.5:
+        candidate_subject_count = len(candidate_codes)
+        reference_subject_count = len(reference_codes)
+        subject_load_ratio = candidate_subject_count / reference_subject_count if reference_subject_count else 0
+
+        if overlap_ratio >= 0.5 and subject_load_ratio >= 0.7:
             filtered_readds.append(r)
             print(f"    [READD] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%})")
         else:
-            print(f"    [GHOST] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%}) -> skipped")
+            print(f"    [IMPROVEMENT GUEST / GHOST] {name} ({reg}) - {candidate_subject_count}/{reference_subject_count} subjects ({subject_load_ratio:.0%} load), {overlap_ratio:.0%} overlap -> skipped")
     
     readd_results = filtered_readds
 
