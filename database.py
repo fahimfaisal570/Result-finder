@@ -1611,11 +1611,14 @@ def get_longitudinal_data(profile_name: str) -> dict:
     for row in all_records:
         reg_no, name, exam_id, exam_name, sgpa, cgpa, result_status = row
         
-        if any(kw in (exam_name or '').lower() for kw in RETAKE_KEYWORDS):
+        # Safeguard: if exam_name is NaN (float) or int, force to string
+        safe_exam_name = str(exam_name) if exam_name is not None and exam_name == exam_name else ""
+        
+        if any(kw in safe_exam_name.lower() for kw in RETAKE_KEYWORDS):
             continue
             
-        m = SEM_PATTERN.search(exam_name or '')
-        sem_label = m.group(1).title().strip() if m else (exam_name or '').title().strip()
+        m = SEM_PATTERN.search(safe_exam_name)
+        sem_label = m.group(1).title().strip() if m else safe_exam_name.title().strip()
         
         try:
             eid_int = int(exam_id)
