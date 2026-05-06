@@ -1056,6 +1056,9 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
     # --- Step 4: Apply retake improvements (only if strictly better) ---
     retake_records.sort(key=lambda r: int(r.get('_exam_id', 0) or 0))
     for rec in retake_records:
+        ename = str(rec.get('_exam_name', '')).lower()
+        # Determine if this specific exam is an improvement or a retake
+        is_improvement_exam = 'improvement' in ename
         for subj in rec.get('Subjects', []):
             code = str(subj.get('code', '')).strip().upper().replace(' ', '-')
             if not code:
@@ -1071,7 +1074,10 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
                 # Only apply if retake grade is strictly better
                 if gp > effective_grades[code]['gp']:
                     effective_grades[code]['gp'] = gp
-                    effective_grades[code]['source'] = 'retake_improved'
+                    effective_grades[code]['source'] = (
+                        'improvement_cleared' if is_improvement_exam
+                        else 'retake_cleared'
+                    )
             # else: subject only in retake but not in any main exam → skip
             # (this avoids counting subjects from a different batch's curriculum)
 
@@ -1271,10 +1277,14 @@ def compute_advanced_projection(
             })
             projected_points_retakes += (simulated_gp - curr_gp) * credit
             projected_points_all += (simulated_gp - curr_gp) * credit
-        elif source == 'retake_improved':
+        elif source in ('retake_cleared', 'improvement_cleared', 'retake_improved'):
+            if source == 'improvement_cleared':
+                reason = "Cleared via improvement \u2014 cannot improve again"
+            else:
+                reason = "Cleared via retake \u2014 cannot improve"
             ineligible_retake_cleared.append({
                 'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
-                'reason': "Cleared via retake \u2014 cannot improve"
+                'reason': reason, 'clear_type': source
             })
         elif 2.0 <= curr_gp <= 2.75:
             if code in attempted_subjects:

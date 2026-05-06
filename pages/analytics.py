@@ -1584,10 +1584,19 @@ with tabs[5]:
                                     st.markdown(f"\U0001f6ab **{aa['code']}**{name_str} \u2014 GP: {aa['current_gp']:.2f} | {aa['reason']}")
 
                         if adv_proj['ineligible_retake_cleared']:
-                            with st.expander(f"\U0001f512 Retake-Cleared (not improvable, {len(adv_proj['ineligible_retake_cleared'])})"):
+                            _n_retake = sum(1 for x in adv_proj['ineligible_retake_cleared'] if x.get('clear_type') != 'improvement_cleared')
+                            _n_improv = sum(1 for x in adv_proj['ineligible_retake_cleared'] if x.get('clear_type') == 'improvement_cleared')
+                            _counts_parts = []
+                            if _n_retake:
+                                _counts_parts.append(f"{_n_retake} retake")
+                            if _n_improv:
+                                _counts_parts.append(f"{_n_improv} improvement")
+                            _counts_str = ", ".join(_counts_parts) if _counts_parts else str(len(adv_proj['ineligible_retake_cleared']))
+                            with st.expander(f"\U0001f512 Cleared (not improvable, {_counts_str})"):
                                 for irc in adv_proj['ineligible_retake_cleared']:
                                     name_str = f" | *{irc['name']}*" if irc.get('name') else ""
-                                    st.markdown(f"\U0001f512 **{irc['code']}**{name_str} \u2014 GP: {irc['current_gp']:.2f} | {irc['reason']}")
+                                    icon = "\U0001f504" if irc.get('clear_type') == 'improvement_cleared' else "\U0001f512"
+                                    st.markdown(f"{icon} **{irc['code']}**{name_str} \u2014 GP: {irc['current_gp']:.2f} | {irc['reason']}")
 
                         st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp;\U0001f4ca Analyzed {deep_res['effective_grade_count']} subjects across {deep_res['semesters_found']} semester(s)")
 
