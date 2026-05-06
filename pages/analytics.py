@@ -1114,7 +1114,7 @@ with tabs[1]:
             })
             
         metrics_df = pd.DataFrame(metrics).sort_values('consistency', ascending=False)
-        st.dataframe(metrics_df, hide_index=True, use_container_width=True)
+        st.dataframe(metrics_df, hide_index=True, width='stretch')
 
         st.divider()
 
@@ -1148,7 +1148,7 @@ with tabs[1]:
                 cleared=('passed_after_retake', 'sum')
             ).reset_index().sort_values('students', ascending=False)
             
-            st.dataframe(sub_perf, hide_index=True, use_container_width=True)
+            st.dataframe(sub_perf, hide_index=True, width='stretch')
 
         st.divider()
 
@@ -1183,7 +1183,7 @@ with tabs[1]:
                             'Pass Rate (%)': stats['pass_rate'],
                             'Honours': stats['honours_count']
                         })
-                    st.dataframe(pd.DataFrame(comp_metrics), hide_index=True, use_container_width=True)
+                    st.dataframe(pd.DataFrame(comp_metrics), hide_index=True, width='stretch')
                     
                     # Density Curve
                     sgpa_flat = []
@@ -1824,7 +1824,7 @@ with tabs[5]:
                             with st.expander("\U0001f4ca Per-Semester Breakdown"):
                                 _bd_df = pd.DataFrame(_sim_result['per_semester_detail'])
                                 _bd_df.columns = ['Semester', 'SGPA', 'Credits', 'Quality Points']
-                                st.dataframe(_bd_df, hide_index=True, use_container_width=True)
+                                st.dataframe(_bd_df, hide_index=True, width='stretch')
 
                             # Graduation status message
                             if _grad_cgpa >= 3.75:
