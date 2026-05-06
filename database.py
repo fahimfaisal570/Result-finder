@@ -1056,9 +1056,6 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
     # --- Step 4: Apply retake improvements (only if strictly better) ---
     retake_records.sort(key=lambda r: int(r.get('_exam_id', 0) or 0))
     for rec in retake_records:
-        ename = str(rec.get('_exam_name', '')).lower()
-        # Determine if this specific exam is an improvement or a retake
-        is_improvement_exam = 'improvement' in ename
         for subj in rec.get('Subjects', []):
             code = str(subj.get('code', '')).strip().upper().replace(' ', '-')
             if not code:
@@ -1071,13 +1068,18 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
                 gp = 0.0
 
             if code in effective_grades:
+                original_gp = effective_grades[code]['gp']
                 # Only apply if retake grade is strictly better
-                if gp > effective_grades[code]['gp']:
-                    effective_grades[code]['gp'] = gp
-                    effective_grades[code]['source'] = (
-                        'improvement_cleared' if is_improvement_exam
+                if gp > original_gp:
+                    # Classify based on the ORIGINAL grade, not the exam name:
+                    # - Original GP < 2.0 (was failing) → retake to clear
+                    # - Original GP >= 2.0 (was passing) → improvement to boost
+                    clear_type = (
+                        'improvement_cleared' if original_gp >= 2.0
                         else 'retake_cleared'
                     )
+                    effective_grades[code]['gp'] = gp
+                    effective_grades[code]['source'] = clear_type
             # else: subject only in retake but not in any main exam → skip
             # (this avoids counting subjects from a different batch's curriculum)
 
