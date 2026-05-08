@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cli_scraper as cs
 import database as db
 
-st.set_page_config(page_title="Student Record", page_icon="📄", layout="wide")
+st.set_page_config(page_title="Student Record", layout="wide")
 ui.inject_essential_ui()
 
 # --- Read URL params ---
@@ -23,13 +23,13 @@ profile_name = params.get("profile", "")
 sess_id      = params.get("sess_id", "AUTO")
 
 if not reg_str or not pro_id:
-    st.error("❌ Missing parameters. Please navigate from the main dashboard.")
+    st.error("Missing parameters. Please navigate from the main dashboard.")
     st.stop()
 
 try:
     st_reg = int(reg_str)
 except:
-    st.error("❌ Invalid registration number.")
+    st.error("Invalid registration number.")
     st.stop()
 
 # Smart Scope Fix: Resolve per-student sess_id (readd students differ from batch sess_id)
@@ -57,7 +57,7 @@ if (sess_id == "AUTO" or not sess_id) and profile_name:
     except Exception as e:
         st.error(f"Error loading profile database for transcript: {e}")
 
-st.title("📄 Student Record")
+st.title("Student Record")
 st.caption(f"**Name:** {profile_name} &nbsp;|&nbsp; **Registration:** {st_reg}")
 
 # Pinpoint Fix: Ensure a valid session handshake before starting history scan
@@ -65,7 +65,7 @@ with st.spinner("Initializing session with university portal..."):
     programs, sessions = cs.fetch_programs_and_sessions()
 
 # Display scan mode
-st.info("⌛ **Deep CLI-Native Scan Active**: Probing every session across every exam for 100% parity. This takes 1-3 mins but finds every retake found by the CLI.", icon="⏳")
+st.info("**Deep CLI-Native Scan Active**: Probing every session across every exam for 100% parity. This takes 1-3 mins but finds every retake found by the CLI.", icon=":material/info:")
 st.divider()
 
 # --- Load all exams for this program ---
@@ -73,7 +73,7 @@ with st.spinner("Fetching examination list from portal…"):
     all_exams = cs.fetch_exams(pro_id)
 
 if not all_exams:
-    st.error("❌ Could not load examination list. Portal may be down.")
+    st.error("Could not load examination list. Portal may be down.")
     st.stop()
 
 # --- Exhaustive CLI Scan Logic (Native Engine) ---
@@ -84,10 +84,10 @@ def update_progress(current, total, status_text=None):
     val = current / total if total > 0 else 0
     if status_text:
         progress_bar.progress(val, text=f"Scanning… {status_text}")
-        status_msg.caption(f"🔍 {status_text}")
+        status_msg.caption(f"{status_text}")
     else:
-        progress_bar.progress(val, text=f"🏁 Processed {current}/{total} exams.")
-        status_msg.caption(f"🏁 Processed {current}/{total} exams.")
+        progress_bar.progress(val, text=f"Processed {current}/{total} exams.")
+        status_msg.caption(f"Processed {current}/{total} exams.")
 
 # --- Smart Scope Hardening ---
 # 1. Resolve the student's start year from their pinned session name
@@ -123,7 +123,7 @@ for eid, ename in all_exams.items():
 exam_tasks = [(st_reg, sess_id, eid) for eid in filtered_exam_ids]
 
 # --- Absolute CLI-Native Exhaustive Scan ---
-status_msg.info(f"🔍 Deep Probing {len(filtered_exam_ids)} relevant examinations from {start_search_year or 'all years'}...")
+status_msg.info(f"Deep Probing {len(filtered_exam_ids)} relevant examinations from {start_search_year or 'all years'}...")
 history = cs.run_batch_scan_engine(
     tasks=exam_tasks,
     pro_id=pro_id,
@@ -136,7 +136,7 @@ progress_bar.empty()
 status_msg.empty()
 
 if not history:
-    st.warning("⚠️ No records found for this student across any examination. The portal might be busy or the session expired.")
+    st.warning("No records found for this student across any examination. The portal might be busy or the session expired.")
     st.stop()
 
 # Map exam names from IDs and sort chronologically (Ascending, 1st year at top)
@@ -152,7 +152,7 @@ student_name = history[0].get("Name") or history[0].get("Student Name") or f"Stu
 try:
     html_out = cs.generate_transcript_report(history, "Academic History", student_name, return_html=True)
 except Exception as e:
-    st.error(f"❌ CLI HTML generation failed: {e}")
+    st.error(f"CLI HTML generation failed: {e}")
     st.stop()
 
 # --- Render inline (Iframe with dynamic height to prevent cut-off) ---
@@ -161,7 +161,7 @@ st.components.v1.html(html_out, height=calc_height, scrolling=True)
 
 # --- Download Button ---
 st.download_button(
-    label="⬇️ Download Student Record HTML",
+    label="Download Student Record HTML",
     data=html_out.encode("utf-8"),
     file_name=f"Student_Record_{student_name.replace(' ', '_')}_{st_reg}.html",
     mime="text/html"

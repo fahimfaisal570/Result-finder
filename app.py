@@ -93,7 +93,7 @@ class BatchManager:
 batch_manager = BatchManager()
 
 # --- Header ---
-st.title("🎓 Result Finder")
+st.title("Result Finder")
 st.write("A premium, high-performance web dashboard for academic result analytics.")
 
 if 'programs' not in st.session_state:
@@ -107,7 +107,7 @@ with st.sidebar:
         b64 = get_base64_logo(logo_file)
         st.markdown(f'<div style="text-align: center; margin-top:-70px;"><img src="data:image/png;base64,{b64}" width="160"></div>', unsafe_allow_html=True)
     else:
-        st.title("🎓 Result Finder")
+        st.title("Result Finder")
     
     st.write("---")
     
@@ -182,11 +182,11 @@ if mode == "Interactive Scan":
         if payload:
             payload_str = base64.b64encode(json.dumps(payload).encode()).decode()
             res_url = f"/results?pro_id={pro_id}&exam_id={exam_id}&exam_name={_quote(exam_name)}&payload={payload_str}"
-            st.link_button(f"🚀 Run Scraper & View Results ({len(payload)} Batches)", url=res_url, width='stretch')
+            st.link_button(f"Run Scraper & View Results ({len(payload)} Batches)", url=res_url, width='stretch')
 
 else: # Saved Profiles Mode
     st.sidebar.markdown("---")
-    st.sidebar.page_link("pages/analytics.py", label="Open Data Analytics", icon="📊")
+    st.sidebar.page_link("pages/analytics.py", label="Open Data Analytics", icon=":material/analytics:")
     st.sidebar.markdown("---")
     profiles = db.get_profiles()
     if not profiles:
@@ -196,10 +196,10 @@ else: # Saved Profiles Mode
         p_selected = st.sidebar.selectbox("Select Profile", sorted(list(profiles.keys())))
         profile_data = profiles[p_selected]
 
-        st.header(f"📋 Profile: {p_selected}")
+        st.header(f"Profile: {p_selected}")
         st.write(f"Students: {len(profile_data.get('regs', []))}")
         
-        with st.expander("👥 View Student List"):
+        with st.expander("View Student List"):
             p_regs = profile_data.get('regs', [])
             pro_id_p = profile_data.get('pro_id', '')
             import urllib.parse as _urlparse
@@ -219,7 +219,7 @@ else: # Saved Profiles Mode
             probe_regs = [r[0] for r in p_regs if str(r[1]) == str(active_sess_id)][:5]
             mains_dict, others_dict = classify_exams(exams_raw, active_sess_name, probe_regs=probe_regs, pro_id=profile_data.get('pro_id'))
             
-            st.markdown(f"<div style='text-align: center; color: #8b949e; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: 20px;'>⭐ MAIN BATCH EXAMS</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; color: #8b949e; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase;'>Main Batch Exams</div>", unsafe_allow_html=True)
             for eid, ename in mains_dict.items():
                 from urllib.parse import quote as _quote
                 url = f"/results?profile={_quote(p_selected)}&exam_id={eid}&exam_name={_quote(ename)}"
@@ -235,17 +235,17 @@ else: # Saved Profiles Mode
                 batch_b64 = base64.b64encode(json.dumps(batch_payload).encode()).decode()
                 batch_url = f"/results?profile={_quote(p_selected)}&batch_exams={batch_b64}"
                 
-                st.link_button("🚀 Batch Scan All Main Exams", url=batch_url, width='stretch', type="primary")
+                st.link_button("Batch Scan All Main Exams", url=batch_url, width='stretch', type="primary")
                 st.caption("Automatic one-click scan of all detected main semester exams for this profile.")
 
             if others_dict:
-                with st.expander("🔄 Other / Retake Exams"):
+                with st.expander("Other / Retake Exams"):
                     for eid, ename in others_dict.items():
                         url = f"/results?profile={_quote(p_selected)}&exam_id={eid}&exam_name={_quote(ename)}"
                         st.markdown(f"• **[{ename}]({url})**")
 
             # --- Add Student Feature ---
-            with st.expander("➕ Add Student to Profile"):
+            with st.expander("Add Student to Profile"):
                 st.caption("Manually add students from other sessions/batches to this profile by scanning the portal.")
                 
                 add_reg_input = st.text_input(
@@ -265,7 +265,7 @@ else: # Saved Profiles Mode
                 add_exam_name = st.selectbox("Scan Against Exam", options=all_exam_names, key="add_student_exam")
                 add_exam_id = [k for k, v in exams_raw.items() if v == add_exam_name][0] if exams_raw and add_exam_name else ""
                 
-                if st.button("🔍 Scan Students", key="add_student_scan_btn", width='stretch'):
+                if st.button("Scan Students", key="add_student_scan_btn", width='stretch'):
                     if not add_reg_input or not add_exam_id:
                         st.error("Please provide registration number(s) and select an exam.")
                     else:
@@ -292,7 +292,7 @@ else: # Saved Profiles Mode
                 # Display found students with checkboxes
                 if 'add_student_found' in st.session_state and st.session_state['add_student_found']:
                     found = st.session_state['add_student_found']
-                    st.success(f"✅ Found {len(found)} student(s):")
+                    st.success(f"Found {len(found)} student(s):")
                     
                     selected = []
                     for i, res in enumerate(found):
@@ -308,7 +308,7 @@ else: # Saved Profiles Mode
                     
                     col_confirm, col_cancel = st.columns(2)
                     with col_confirm:
-                        if st.button("✅ Confirm & Add Selected", width='stretch', type="primary"):
+                        if st.button("Confirm & Add Selected", width='stretch', type="primary"):
                             if not selected:
                                 st.error("No students selected.")
                             else:
@@ -325,21 +325,20 @@ else: # Saved Profiles Mode
                                 if 'add_student_sess_id' in st.session_state:
                                     del st.session_state['add_student_sess_id']
                                 st.cache_data.clear()
-                                st.success(f"✅ Added {added_count} student(s) to '{p_selected}'!")
+                                st.success(f"Added {added_count} student(s) to '{p_selected}'!")
                                 time.sleep(1)
                                 st.rerun()
                     
                     with col_cancel:
-                        if st.button("❌ Cancel", width='stretch'):
+                        if st.button("Cancel", width='stretch'):
                             del st.session_state['add_student_found']
                             if 'add_student_sess_id' in st.session_state:
                                 del st.session_state['add_student_sess_id']
                             st.rerun()
 
     st.markdown("---")
-    st.markdown("<div style='text-align: center; color: #858585; font-size: 0.8rem;'>Developed with ❤️ for Academic Excellence | Showcase Version</div>", unsafe_allow_html=True)
 with st.sidebar:
-    with st.expander("🔒 Admin Access"):
+    with st.expander("Admin Access"):
         admin_pw = st.text_input("Admin Password", type="password")
         st.session_state.is_admin = (admin_pw == "admin123")
 
