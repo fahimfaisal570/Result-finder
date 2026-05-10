@@ -219,9 +219,9 @@ else: # Saved Profiles Mode
             probe_regs = [r[0] for r in p_regs if str(r[1]) == str(active_sess_id)][:5]
             mains_dict, others_dict = classify_exams(exams_raw, active_sess_name, probe_regs=probe_regs, pro_id=profile_data.get('pro_id'))
             
+            from urllib.parse import quote as _quote
             st.markdown(f"<div style='text-align: center; color: #8b949e; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase;'>Main Batch Exams</div>", unsafe_allow_html=True)
             for eid, ename in mains_dict.items():
-                from urllib.parse import quote as _quote
                 url = f"/results?profile={_quote(p_selected)}&exam_id={eid}&exam_name={_quote(ename)}"
                 st.markdown(f"• **[{ename}]({url})**")
             
@@ -229,7 +229,6 @@ else: # Saved Profiles Mode
             if mains_dict:
                 st.write("")
                 import json, base64
-                from urllib.parse import quote as _quote
                 # Prepare batch payload: list of [id, name]
                 batch_payload = [[eid, ename] for eid, ename in mains_dict.items()]
                 batch_b64 = base64.b64encode(json.dumps(batch_payload).encode()).decode()
@@ -292,15 +291,24 @@ else: # Saved Profiles Mode
                 # Display found students with checkboxes
                 if 'add_student_found' in st.session_state and st.session_state['add_student_found']:
                     found = st.session_state['add_student_found']
-                    st.success(f"Found {len(found)} student(s):")
+                    existing_regs_set = {r[0] if isinstance(r, list) else r for r in profile_data.get('regs', [])}
+                    new_in_found = sum(1 for res in found if int(res.get('Registration No', res.get('Reg', 0))) not in existing_regs_set)
+                    dup_in_found = len(found) - new_in_found
+                    
+                    if dup_in_found:
+                        st.warning(f"Found {len(found)} student(s) — {dup_in_found} already in profile (will update info if re-added).")
+                    else:
+                        st.success(f"Found {len(found)} new student(s):")
                     
                     selected = []
                     for i, res in enumerate(found):
-                        reg = res.get('Registration No', res.get('Reg', '?'))
+                        reg = int(res.get('Registration No', res.get('Reg', '0')))
                         name = res.get('Name', 'Unknown')
+                        is_dup = reg in existing_regs_set
+                        label = f"{'↻ ' if is_dup else ''}{name} ({reg}){' — already in profile' if is_dup else ''}"
                         checked = st.checkbox(
-                            f"{name} ({reg})",
-                            value=True,
+                            label,
+                            value=not is_dup,  # New students checked by default, duplicates unchecked
                             key=f"add_student_check_{i}"
                         )
                         if checked:
@@ -313,20 +321,32 @@ else: # Saved Profiles Mode
                                 st.error("No students selected.")
                             else:
                                 stored_sess_id = st.session_state.get('add_student_sess_id', 'AUTO')
-                                added_count = 0
+                                # Check which students already exist in the profile
+                                existing_regs = {r[0] if isinstance(r, list) else r for r in profile_data.get('regs', [])}
+                                new_count = 0
+                                updated_count = 0
                                 for res in selected:
                                     reg = int(res.get('Registration No', res.get('Reg', 0)))
                                     name = str(res.get('Name', 'Unknown'))
+                                    if reg in existing_regs:
+                                        updated_count += 1
+                                    else:
+                                        new_count += 1
                                     db.upsert_student(p_selected, reg, name, str(stored_sess_id))
-                                    added_count += 1
                                 
                                 # Cleanup
                                 del st.session_state['add_student_found']
                                 if 'add_student_sess_id' in st.session_state:
                                     del st.session_state['add_student_sess_id']
                                 st.cache_data.clear()
-                                st.success(f"Added {added_count} student(s) to '{p_selected}'!")
-                                time.sleep(1)
+                                # Informative feedback
+                                if new_count and updated_count:
+                                    st.success(f"Added {new_count} new student(s) and updated {updated_count} existing student(s) in '{p_selected}'.")
+                                elif new_count:
+                                    st.success(f"Added {new_count} new student(s) to '{p_selected}'!")
+                                else:
+                                    st.info(f"All {updated_count} student(s) already existed in '{p_selected}'. Their info has been refreshed.")
+                                time.sleep(1.5)
                                 st.rerun()
                     
                     with col_cancel:
