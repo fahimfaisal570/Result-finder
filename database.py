@@ -164,7 +164,7 @@ def migrate_schema_v2():
             WHERE id NOT IN (
                 SELECT MIN(id)
                 FROM exam_results
-                GROUP BY profile_name, reg_no, exam_id
+                GROUP BY profile_name, reg_no, sess_id, exam_id
             )
         """)
 
@@ -174,7 +174,7 @@ def migrate_schema_v2():
             WHERE id NOT IN (
                 SELECT MIN(id)
                 FROM students
-                GROUP BY profile_name, reg_no
+                GROUP BY profile_name, reg_no, sess_id
             )
         """)
 
@@ -562,7 +562,8 @@ def save_exam_analytics_only(profile_name: str, exam_id: str, exam_name: str, re
     """
     stmts = []
     for res in results_list:
-        upsert_exam_result(profile_name, res, exam_id, exam_name, stmts)
+        student_sess = str(res.get('_sess_id', 'AUTO'))
+        upsert_exam_result(profile_name, res, exam_id, exam_name, stmts, sess_id=student_sess)
     update_scan_log(profile_name, exam_id, len(results_list), stmts)
 
     with get_connection() as conn:
@@ -586,12 +587,12 @@ def update_profile_metadata(name: str, pro_id: str = None, sess_id: str = None):
         conn.commit()
 
 
-def remove_student_from_profile(profile_name: str, reg_no: int):
+def remove_student_from_profile(profile_name: str, reg_no: int, sess_id: str):
     """Removes a student and all their associated results from a profile."""
     with get_connection() as conn:
-        conn.execute("DELETE FROM subject_grades WHERE profile_name=? AND reg_no=?", (profile_name, reg_no))
-        conn.execute("DELETE FROM exam_results WHERE profile_name=? AND reg_no=?", (profile_name, reg_no))
-        conn.execute("DELETE FROM students WHERE profile_name=? AND reg_no=?", (profile_name, reg_no))
+        conn.execute("DELETE FROM subject_grades WHERE profile_name=? AND reg_no=? AND sess_id=?", (profile_name, reg_no, sess_id))
+        conn.execute("DELETE FROM exam_results WHERE profile_name=? AND reg_no=? AND sess_id=?", (profile_name, reg_no, sess_id))
+        conn.execute("DELETE FROM students WHERE profile_name=? AND reg_no=? AND sess_id=?", (profile_name, reg_no, sess_id))
         conn.commit()
 
 # ---------------------------------------------------------------------------
@@ -631,18 +632,18 @@ def get_effective_cgpa_per_student(profile_name: str) -> list:
     with get_connection() as conn:
         # Get all students in this profile
         students_cur = conn.execute(
-            "SELECT reg_no, name FROM students WHERE profile_name=?", (profile_name,)
+            "SELECT reg_no, name, sess_id FROM students WHERE profile_name=?", (profile_name,)
         )
         students = students_cur.fetchall()
 
-        for reg_no, name in students:
+        for reg_no, name, sess_id in students:
             # Get best grade per subject across all exams for this student
             best_cur = conn.execute("""
                 SELECT subject_code, MAX(grade_point) as best_gp, credit_hours
                 FROM subject_grades
-                WHERE profile_name=? AND reg_no=?
+                WHERE profile_name=? AND reg_no=? AND sess_id=?
                 GROUP BY subject_code
-            """, (profile_name, reg_no))
+            """, (profile_name, reg_no, sess_id))
             best_grades = best_cur.fetchall()
 
             if not best_grades:
@@ -663,16 +664,16 @@ def get_effective_cgpa_per_student(profile_name: str) -> list:
             # Did they have ANY grade < 2.0 in any attempt for this profile?
             fail_check_cur = conn.execute("""
                 SELECT COUNT(*) FROM subject_grades 
-                WHERE profile_name=? AND reg_no=? AND grade_point < 2.0
-            """, (profile_name, reg_no))
+                WHERE profile_name=? AND reg_no=? AND sess_id=? AND grade_point < 2.0
+            """, (profile_name, reg_no, sess_id))
             has_ever_failed = fail_check_cur.fetchone()[0] > 0
 
             # Latest raw CGPA from exam_results for comparison
             raw_cur = conn.execute("""
                 SELECT cgpa, result_status FROM exam_results
-                WHERE profile_name=? AND reg_no=?
+                WHERE profile_name=? AND reg_no=? AND sess_id=?
                 ORDER BY exam_id DESC LIMIT 1
-            """, (profile_name, reg_no))
+            """, (profile_name, reg_no, sess_id))
             raw_row = raw_cur.fetchone()
             raw_cgpa = round(raw_row[0], 2) if raw_row else 0.0
             
@@ -688,6 +689,7 @@ def get_effective_cgpa_per_student(profile_name: str) -> list:
 
             results.append({
                 "reg_no": reg_no,
+                "sess_id": sess_id,
                 "name": name,
                 "effective_cgpa": effective_cgpa,
                 "raw_cgpa": raw_cgpa,
@@ -742,7 +744,7 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
     with get_connection() as conn:
         # Pull raw_json so we can extract GPA (sgpa) which may be 0 in the sgpa column for legacy rows
         students_cur = conn.execute("""
-            SELECT s.reg_no, s.name, er.sgpa, er.cgpa, er.result_status, er.raw_json
+            SELECT s.reg_no, s.name, er.sgpa, er.cgpa, er.result_status, er.raw_json, s.sess_id
             FROM students s
             JOIN exam_results er ON s.profile_name = er.profile_name
                                 AND s.reg_no = er.reg_no
@@ -751,7 +753,7 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
         """, (profile_name, exam_id))
         students = students_cur.fetchall()
 
-        for reg_no, name, sgpa_col, cgpa, db_status, raw_json_str in students:
+        for reg_no, name, sgpa_col, cgpa, db_status, raw_json_str, sess_id in students:
             # Subject grades FOR THIS EXAM ONLY
             grades_cur = conn.execute("""
                 SELECT subject_code, grade_point, credit_hours
@@ -819,6 +821,7 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
 
             results.append({
                 "reg_no":            reg_no,
+                "sess_id":           sess_id,
                 "name":              name,
                 "sgpa":              round(float(sgpa  or 0), 2),
                 "cgpa":              round(float(cgpa  or 0), 2),
@@ -1547,7 +1550,8 @@ def save_cross_batch_history(
     profile_name: str,
     reg_no: int,
     scanned_history: list,
-    exam_name_map: dict
+    exam_name_map: dict,
+    sess_id: str = None
 ) -> int:
     """
     Saves intelligently filtered cross-batch history for a readd student.
@@ -1591,6 +1595,15 @@ def save_cross_batch_history(
     if not main_exams:
         return 0
 
+    # Resolve sess_id: use provided value, or look up from students table
+    if not sess_id:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT sess_id FROM students WHERE profile_name=? AND reg_no=? LIMIT 1",
+                (profile_name, reg_no)
+            ).fetchone()
+            sess_id = row[0] if row else 'AUTO'
+
     # Step 2: Group by semester label, keep latest exam_id per group
     semester_groups = {}  # sem_label -> (exam_id_int, result_dict)
     for res in main_exams:
@@ -1615,7 +1628,7 @@ def save_cross_batch_history(
     for sem_label, (eid_int, res) in semester_groups.items():
         exam_id  = str(res['_exam_id'])
         exam_name = res['_resolved_exam_name']
-        upsert_exam_result(profile_name, res, exam_id, exam_name, stmts)
+        upsert_exam_result(profile_name, res, exam_id, exam_name, stmts, sess_id=sess_id)
 
     if stmts:
         with get_connection() as conn:

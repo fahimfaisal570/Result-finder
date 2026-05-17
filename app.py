@@ -291,8 +291,9 @@ else: # Saved Profiles Mode
                 # Display found students with checkboxes
                 if 'add_student_found' in st.session_state and st.session_state['add_student_found']:
                     found = st.session_state['add_student_found']
-                    existing_regs_set = {r[0] if isinstance(r, list) else r for r in profile_data.get('regs', [])}
-                    new_in_found = sum(1 for res in found if int(res.get('Registration No', res.get('Reg', 0))) not in existing_regs_set)
+                    existing_regs_set = {(r[0], str(r[1])) if isinstance(r, list) else (r, 'AUTO') for r in profile_data.get('regs', [])}
+                    stored_sess_id = st.session_state.get('add_student_sess_id', 'AUTO')
+                    new_in_found = sum(1 for res in found if (int(res.get('Registration No', res.get('Reg', 0))), str(stored_sess_id)) not in existing_regs_set)
                     dup_in_found = len(found) - new_in_found
                     
                     if dup_in_found:
@@ -304,7 +305,7 @@ else: # Saved Profiles Mode
                     for i, res in enumerate(found):
                         reg = int(res.get('Registration No', res.get('Reg', '0')))
                         name = res.get('Name', 'Unknown')
-                        is_dup = reg in existing_regs_set
+                        is_dup = (reg, str(stored_sess_id)) in existing_regs_set
                         label = f"{'↻ ' if is_dup else ''}{name} ({reg}){' — already in profile' if is_dup else ''}"
                         checked = st.checkbox(
                             label,
@@ -322,13 +323,13 @@ else: # Saved Profiles Mode
                             else:
                                 stored_sess_id = st.session_state.get('add_student_sess_id', 'AUTO')
                                 # Check which students already exist in the profile
-                                existing_regs = {r[0] if isinstance(r, list) else r for r in profile_data.get('regs', [])}
+                                existing_regs = {(r[0], str(r[1])) if isinstance(r, list) else (r, 'AUTO') for r in profile_data.get('regs', [])}
                                 new_count = 0
                                 updated_count = 0
                                 for res in selected:
                                     reg = int(res.get('Registration No', res.get('Reg', 0)))
                                     name = str(res.get('Name', 'Unknown'))
-                                    if reg in existing_regs:
+                                    if (reg, str(stored_sess_id)) in existing_regs:
                                         updated_count += 1
                                     else:
                                         new_count += 1

@@ -20,6 +20,7 @@ database.DB_PATH = TEST_DB
 database.init_db()
 database.migrate_schema_v2()
 database.migrate_schema_v3()
+database.migrate_schema_v4()
 
 PROFILE = "test_profile"
 PRO_ID  = "99"
@@ -169,7 +170,8 @@ class TestSchemaAndAcid(unittest.TestCase):
             make_result(1001, subjects=[
                 {"code": "CS101", "name": "Intro CS", "grade": "A", "gp": "4.00"},
             ], cgpa=3.2, gpa=4.0),
-            RETAKE_ID, "Retake Sem 1"
+            RETAKE_ID, "Retake Sem 1",
+            sess_id=SESS_ID
         )
 
         results = database.get_effective_cgpa_per_student(PROFILE)

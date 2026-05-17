@@ -465,7 +465,7 @@ promo_target, is_even_sem, promo_yr = get_promotion_rules(selected_label)
 if'_deep_cache' not in st.session_state:
   st.session_state._deep_cache = {} # keyed by f"{profile_name}_{reg}"
 
-def _run_deep_analysis(reg_no, stu_name):
+def _run_deep_analysis(reg_no, stu_name, sess_id):
   """Fetch full student record from portal and compute precise analysis."""
   import cli_scraper as cs
   import re as _re
@@ -475,20 +475,7 @@ def _run_deep_analysis(reg_no, stu_name):
   if not _pro_id:
     return None
 
-  # Resolve per-student sess_id
-  _sess_id = "AUTO"
-  for reg_entry in _p_data.get("regs", []):
-    if isinstance(reg_entry, list) and len(reg_entry) >= 2:
-      try:
-        if int(reg_entry[0]) == int(reg_no):
-          candidate = str(reg_entry[1])
-          if candidate and candidate != "AUTO":
-            _sess_id = candidate
-          break
-      except (ValueError, TypeError):
-        pass
-  if _sess_id == "AUTO":
-    _sess_id = _p_data.get("sess_id", "AUTO")
+  _sess_id = sess_id
 
   # Fetch portal data - retry up to 3 times on empty response
   _programs, _sessions = cs.fetch_programs_and_sessions()
@@ -550,11 +537,11 @@ def _run_deep_analysis(reg_no, stu_name):
   return db.compute_deep_analysis(_history, profile_name, selected_label)
 
 
-def _render_deep_result(result, reg, name=""):
+def _render_deep_result(result, reg, name="", sess_id="AUTO"):
   """Render the deep analysis result inline."""
   if result is None:
-    cache_key = f"{profile_name}_{reg}"
-    retry_key = f"retry_{profile_name}_{exam_id}_{reg}"
+    cache_key = f"{profile_name}_{reg}_{sess_id}"
+    retry_key = f"retry_{profile_name}_{exam_id}_{reg}_{sess_id}"
     cols_err = st.columns([0.05, 0.55, 0.4])
     with cols_err[1]:
       st.caption("⚠ Could not fetch records — portal may be busy or student not found.")
@@ -607,7 +594,7 @@ def _render_deep_result(result, reg, name=""):
 if'_deep_cache' not in st.session_state:
   st.session_state._deep_cache = {} # keyed by "{profile_name}_{reg}"
 
-def _run_deep_analysis(reg_no, stu_name):
+def _run_deep_analysis(reg_no, stu_name, sess_id):
   """Fetch full student record from portal and compute precise analysis."""
   import cli_scraper as cs
   import re as _re
@@ -617,19 +604,7 @@ def _run_deep_analysis(reg_no, stu_name):
   if not _pro_id:
     return None
 
-  _sess_id = "AUTO"
-  for reg_entry in _p_data.get("regs", []):
-    if isinstance(reg_entry, list) and len(reg_entry) >= 2:
-      try:
-        if int(reg_entry[0]) == int(reg_no):
-          candidate = str(reg_entry[1])
-          if candidate and candidate != "AUTO":
-            _sess_id = candidate
-          break
-      except (ValueError, TypeError):
-        pass
-  if _sess_id == "AUTO":
-    _sess_id = _p_data.get("sess_id", "AUTO")
+  _sess_id = sess_id
 
   _programs, _sessions = cs.fetch_programs_and_sessions()
   _all_exams = {}
@@ -795,21 +770,21 @@ if show_strategic_brief:
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• **{name}** `{reg}`")
 
           # Deep Analysis button
-          cache_key = f"{profile_name}_{reg}"
-          btn_key = f"deep_{profile_name}_{exam_id}_{reg}"
+          cache_key = f"{profile_name}_{reg}_{sess_id}"
+          btn_key = f"deep_{profile_name}_{exam_id}_{reg}_{sess_id}"
 
           if cache_key in st.session_state._deep_cache:
             cached = st.session_state._deep_cache[cache_key]
             if cached is None:
               # Failed last time — show error + retry button
-              _render_deep_result(None, reg, name)
+              _render_deep_result(None, reg, name, sess_id)
             else:
               # Successful — show results
-              _render_deep_result(cached, reg, name)
+              _render_deep_result(cached, reg, name, sess_id)
           else:
             if st.button(f"Deep Analysis", key=btn_key, help=f"Fetch full record for {name} and compute precise CGPA, target, and pending retakes"):
               with st.spinner(f"Scanning full academic history for {name} ({reg})… This takes 1-2 minutes."):
-                result = _run_deep_analysis(reg, name)
+                result = _run_deep_analysis(reg, name, sess_id)
               st.session_state._deep_cache[cache_key] = result
               st.rerun()
 
@@ -1463,12 +1438,13 @@ with tabs[5]:
 
     for _, row in proj_df.iterrows():
       reg = row["reg_no"]
+      sess_id = row.get("sess_id", "AUTO")
       name = row.get("name", f"Reg {reg}")
       sgpa = row.get("sgpa", 0.0)
       cgpa = row.get("cgpa", 0.0)
 
-      cache_key = f"{profile_name}_{reg}"
-      btn_key  = f"proj_deep_{profile_name}_{exam_id}_{reg}"
+      cache_key = f"{profile_name}_{reg}_{sess_id}"
+      btn_key  = f"proj_deep_{profile_name}_{exam_id}_{reg}_{sess_id}"
 
       with st.container(border=True):
         hdr_col1, hdr_col2, hdr_col3, hdr_col4 = st.columns([3, 1, 1, 2])
@@ -1483,7 +1459,7 @@ with tabs[5]:
           hdr_col4.markdown("\u2705 **Analysed**")
 
           if deep_res is None:
-            retry_key = f"retry_{profile_name}_{exam_id}_{reg}"
+            retry_key = f"retry_{profile_name}_{exam_id}_{reg}_{sess_id}"
             cols_err = st.columns([0.05, 0.55, 0.4])
             with cols_err[1]:
               st.caption("\u26a0\ufe0f Could not fetch records \u2014 portal may be busy or student not found.")
@@ -1747,7 +1723,7 @@ with tabs[5]:
                           else:
                             st.markdown(f"`{_c_label}` \u2014 {_c['credit']} cr")
                         with _cg_c2:
-                          _gp_key = f"sim_gp_{profile_name}_{reg}_{_sem_n}_{_c['code']}"
+                          _gp_key = f"sim_gp_{profile_name}_{reg}_{sess_id}_{_sem_n}_{_c['code']}"
                           _gp_val = st.number_input(
                             "GP", min_value=0.00, max_value=4.00,
                             value=0.00, step=0.25,
@@ -1782,7 +1758,7 @@ with tabs[5]:
                   else:
                     # --- Summary SGPA input ---
                     with _hdr_c3:
-                      _sgpa_key = f"sim_sgpa_{profile_name}_{reg}_{_sem_n}"
+                      _sgpa_key = f"sim_sgpa_{profile_name}_{reg}_{sess_id}_{_sem_n}"
                       _sgpa_val = st.number_input(
                         "Expected SGPA", min_value=0.00, max_value=4.00,
                         value=3.00, step=0.05,
@@ -1853,7 +1829,7 @@ with tabs[5]:
           if hdr_col4.button("Deep Analysis", key=btn_key,
                     help=f"Fetch full record for {name} and compute True CGPA + projections"):
             with st.spinner(f"Scanning full academic history for {name} ({reg})\u2026 1\u20132 min."):
-              result = _run_deep_analysis(reg, name)
+              result = _run_deep_analysis(reg, name, sess_id)
             st.session_state._deep_cache[cache_key] = result
             st.rerun()
 

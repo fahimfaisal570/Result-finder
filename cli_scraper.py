@@ -166,7 +166,36 @@ class BatchManager:
             
     def remove_from_batch(self, name, rs_rem):
         for r in rs_rem:
-            db.remove_student_from_profile(name, int(r))
+            reg = int(r)
+            # Query all session variants for this reg_no
+            with db.get_connection() as conn:
+                variants = conn.execute(
+                    "SELECT sess_id, name FROM students WHERE profile_name=? AND reg_no=?",
+                    (name, reg)
+                ).fetchall()
+            if not variants:
+                print(f"  Student {reg} not found in '{name}'.")
+                continue
+            if len(variants) == 1:
+                db.remove_student_from_profile(name, reg, variants[0][0])
+            else:
+                print(f"\n  Multiple entries found for reg {reg}:")
+                for i, (sid, sname) in enumerate(variants, 1):
+                    print(f"    [{i}] {sname} (session: {sid})")
+                print(f"    [A] Remove ALL")
+                choice = input_func(f"  Which one to remove? (1-{len(variants)} or A): ").strip()
+                if choice.upper() == 'A':
+                    for sid, _ in variants:
+                        db.remove_student_from_profile(name, reg, sid)
+                else:
+                    try:
+                        idx = int(choice) - 1
+                        if 0 <= idx < len(variants):
+                            db.remove_student_from_profile(name, reg, variants[idx][0])
+                        else:
+                            print("  Invalid choice. Skipped.")
+                    except ValueError:
+                        print("  Invalid choice. Skipped.")
             
     def delete_batch(self, name):
         db.delete_profile(name)

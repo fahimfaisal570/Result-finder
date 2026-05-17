@@ -16,6 +16,7 @@ db.DB_PATH = TEST_DB
 db.init_db()
 db.migrate_schema_v2()
 db.migrate_schema_v3()
+db.migrate_schema_v4()
 
 import cli_scraper as cs
 
@@ -85,6 +86,7 @@ class TestFullSystem(unittest.TestCase):
         # Retake scan (Higher Grade)
         exam2_results = [{
             "Registration No": 999,
+            "_sess_id": "22",
             "Name": "Retake Roy",
             "GPA": "4.00", "CGPA": "3.00",
             "Subjects": [{"code": "MAT101", "name": "Math", "grade": "A+", "gp": "4.00"}]
@@ -99,6 +101,7 @@ class TestFullSystem(unittest.TestCase):
         # Retake scan (Lower Grade - Should be ignored by effective CGPA)
         exam3_results = [{
             "Registration No": 999,
+            "_sess_id": "22",
             "Name": "Retake Roy",
             "GPA": "3.00", "CGPA": "3.50",
             "Subjects": [{"code": "MAT101", "name": "Math", "grade": "B", "gp": "3.00"}]
