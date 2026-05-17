@@ -204,6 +204,142 @@ def migrate_schema_v3():
         conn.commit()
 
 
+def migrate_schema_v4():
+    """
+    Idempotent migration to v4:
+    - Adds sess_id to exam_results and subject_grades tables.
+    - Recreates students, exam_results, and subject_grades with updated
+      UNIQUE constraints that include sess_id, allowing two students
+      with the same reg_no but different sessions in the same profile.
+    """
+    with get_connection() as conn:
+        conn.execute("PRAGMA foreign_keys = OFF")
+
+        # --- Add sess_id column to exam_results if missing ---
+        er_cols = [r[1] for r in conn.execute("PRAGMA table_info(exam_results)").fetchall()]
+        if 'sess_id' not in er_cols:
+            conn.execute("ALTER TABLE exam_results ADD COLUMN sess_id TEXT NOT NULL DEFAULT 'AUTO'")
+            # Backfill sess_id from students table
+            conn.execute("""
+                UPDATE exam_results
+                SET sess_id = COALESCE(
+                    (SELECT s.sess_id FROM students s
+                     WHERE s.profile_name = exam_results.profile_name
+                       AND s.reg_no = exam_results.reg_no
+                     LIMIT 1),
+                    'AUTO'
+                )
+                WHERE sess_id = 'AUTO'
+            """)
+
+        # --- Add sess_id column to subject_grades if missing ---
+        sg_cols = [r[1] for r in conn.execute("PRAGMA table_info(subject_grades)").fetchall()]
+        if 'sess_id' not in sg_cols:
+            conn.execute("ALTER TABLE subject_grades ADD COLUMN sess_id TEXT NOT NULL DEFAULT 'AUTO'")
+            conn.execute("""
+                UPDATE subject_grades
+                SET sess_id = COALESCE(
+                    (SELECT s.sess_id FROM students s
+                     WHERE s.profile_name = subject_grades.profile_name
+                       AND s.reg_no = subject_grades.reg_no
+                     LIMIT 1),
+                    'AUTO'
+                )
+                WHERE sess_id = 'AUTO'
+            """)
+
+        # --- Recreate students with UNIQUE(profile_name, reg_no, sess_id) ---
+        students_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='students'"
+        ).fetchone()[0]
+        if 'UNIQUE(profile_name, reg_no, sess_id)' not in students_sql:
+            conn.execute("""
+                CREATE TABLE students_v4 (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_name TEXT NOT NULL,
+                    reg_no       INTEGER NOT NULL,
+                    name         TEXT,
+                    sess_id      TEXT NOT NULL DEFAULT 'AUTO',
+                    FOREIGN KEY(profile_name) REFERENCES profiles(name) ON DELETE CASCADE,
+                    UNIQUE(profile_name, reg_no, sess_id)
+                )
+            """)
+            conn.execute("""
+                INSERT OR IGNORE INTO students_v4 (id, profile_name, reg_no, name, sess_id)
+                SELECT id, profile_name, reg_no, name, COALESCE(NULLIF(sess_id,''), 'AUTO') FROM students
+            """)
+            conn.execute("DROP TABLE students")
+            conn.execute("ALTER TABLE students_v4 RENAME TO students")
+
+        # --- Recreate exam_results with UNIQUE(profile_name, reg_no, exam_id, sess_id) ---
+        er_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='exam_results'"
+        ).fetchone()[0]
+        if 'UNIQUE(profile_name, reg_no, exam_id, sess_id)' not in er_sql:
+            conn.execute("""
+                CREATE TABLE exam_results_v4 (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_name  TEXT NOT NULL,
+                    reg_no        INTEGER NOT NULL,
+                    exam_id       TEXT NOT NULL,
+                    exam_name     TEXT,
+                    result_status TEXT,
+                    sgpa          REAL DEFAULT 0.0,
+                    cgpa          REAL DEFAULT 0.0,
+                    raw_json      TEXT,
+                    portal_sgpa   REAL,
+                    portal_cgpa   REAL,
+                    sess_id       TEXT NOT NULL DEFAULT 'AUTO',
+                    FOREIGN KEY(profile_name) REFERENCES profiles(name) ON DELETE CASCADE,
+                    UNIQUE(profile_name, reg_no, exam_id, sess_id)
+                )
+            """)
+            conn.execute("""
+                INSERT OR IGNORE INTO exam_results_v4
+                SELECT id, profile_name, reg_no, exam_id, exam_name, result_status,
+                       sgpa, cgpa, raw_json, portal_sgpa, portal_cgpa,
+                       COALESCE(NULLIF(sess_id,''), 'AUTO')
+                FROM exam_results
+            """)
+            conn.execute("DROP TABLE exam_results")
+            conn.execute("ALTER TABLE exam_results_v4 RENAME TO exam_results")
+
+        # --- Recreate subject_grades with UNIQUE(profile_name, reg_no, subject_code, exam_id, sess_id) ---
+        sg_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='subject_grades'"
+        ).fetchone()[0]
+        if 'UNIQUE(profile_name, reg_no, subject_code, exam_id, sess_id)' not in sg_sql:
+
+            conn.execute("""
+                CREATE TABLE subject_grades_v4 (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile_name TEXT NOT NULL,
+                    reg_no       INTEGER NOT NULL,
+                    exam_id      TEXT NOT NULL,
+                    subject_code TEXT NOT NULL,
+                    subject_name TEXT,
+                    grade_point  REAL DEFAULT 0.0,
+                    credit_hours REAL DEFAULT 3.0,
+                    sess_id      TEXT NOT NULL DEFAULT 'AUTO',
+                    FOREIGN KEY(profile_name) REFERENCES profiles(name) ON DELETE CASCADE,
+                    UNIQUE(profile_name, reg_no, subject_code, exam_id, sess_id)
+                )
+            """)
+            conn.execute("""
+                INSERT OR IGNORE INTO subject_grades_v4
+                SELECT id, profile_name, reg_no, exam_id, subject_code, subject_name,
+                       grade_point, credit_hours,
+                       COALESCE(NULLIF(sess_id,''), 'AUTO')
+                FROM subject_grades
+            """)
+            conn.execute("DROP TABLE subject_grades")
+            conn.execute("ALTER TABLE subject_grades_v4 RENAME TO subject_grades")
+
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.commit()
+        logger.info("Schema v4 migration complete.")
+
+
 # ---------------------------------------------------------------------------
 # Core Upsert Helpers (idempotent — safe to call multiple times)
 # ---------------------------------------------------------------------------
@@ -217,7 +353,7 @@ def _parse_gp(value) -> float:
         return 0.0
 
 
-def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects: list, exam_name: str = None, statement_list: list = None):
+def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects: list, exam_name: str = None, statement_list: list = None, sess_id: str = 'AUTO'):
     """
     Insert or replace individual subject grades.
     Includes 'Syllabus-Aware' failure inference.
@@ -254,10 +390,11 @@ def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects
                     'grade': 'F', 'gp': 0.0, 'is_inferred': True
                 })
 
+    _sess = sess_id or 'AUTO'
     sql = """
         INSERT OR REPLACE INTO subject_grades
-        (profile_name, reg_no, exam_id, subject_code, subject_name, grade_point, credit_hours)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (profile_name, reg_no, exam_id, subject_code, subject_name, grade_point, credit_hours, sess_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """
     
     for s in subjects:
@@ -266,7 +403,7 @@ def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects
         subj_name = str(s.get('name', '')).strip()
         gp = _parse_gp(s.get('gp', 0))
         ch = get_subject_credits(code, profile_name, exam_name)
-        params = (profile_name, reg_no, exam_id, code, subj_name, gp, ch)
+        params = (profile_name, reg_no, exam_id, code, subj_name, gp, ch, _sess)
         
         if statement_list is not None:
             statement_list.append((sql, params))
@@ -275,7 +412,7 @@ def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects
                 conn.execute(sql, params)
 
 
-def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: str, statement_list: list = None):
+def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: str, statement_list: list = None, sess_id: str = 'AUTO'):
     """
     Verified Source of Truth: Calculates SGPA locally using verified credits.
     Stores the portal value in 'portal_sgpa' for background auditing.
@@ -326,12 +463,13 @@ def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: st
     # CGPA remains primarily portal-sourced as it requires multi-exam history
     cgpa = portal_cgpa
 
+    _sess = sess_id or 'AUTO'
     sql = """
         INSERT OR REPLACE INTO exam_results
-            (profile_name, reg_no, exam_id, exam_name, result_status, sgpa, cgpa, portal_sgpa, portal_cgpa, raw_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (profile_name, reg_no, exam_id, exam_name, result_status, sgpa, cgpa, portal_sgpa, portal_cgpa, raw_json, sess_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
-    params = (profile_name, reg_no, exam_id, exam_name, status, sgpa, cgpa, portal_sgpa, portal_cgpa, json.dumps(res))
+    params = (profile_name, reg_no, exam_id, exam_name, status, sgpa, cgpa, portal_sgpa, portal_cgpa, json.dumps(res), _sess)
 
     if statement_list is not None:
         statement_list.append((sql, params))
@@ -340,15 +478,16 @@ def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: st
             conn.execute(sql, params)
 
     # Now upsert subject grades
-    upsert_subject_grades(profile_name, reg_no, exam_id, subjects, exam_name, statement_list)
+    upsert_subject_grades(profile_name, reg_no, exam_id, subjects, exam_name, statement_list, sess_id=_sess)
 
 
 def upsert_student(profile_name: str, reg_no: int, name: str, sess_id: str, statement_list: list = None):
-    """Idempotent student upsert — updates name if reg already exists."""
+    """Idempotent student upsert — keyed by (profile_name, reg_no, sess_id)."""
+    sess_id = sess_id or 'AUTO'
     sql = """
         INSERT INTO students (profile_name, reg_no, name, sess_id)
         VALUES (?, ?, ?, ?)
-        ON CONFLICT(profile_name, reg_no) DO UPDATE SET name=excluded.name, sess_id=excluded.sess_id
+        ON CONFLICT(profile_name, reg_no, sess_id) DO UPDATE SET name=excluded.name
     """
     params = (profile_name, reg_no, name, sess_id)
     if statement_list is not None:
@@ -402,7 +541,7 @@ def save_profile_and_results(profile_name: str, pro_id: str, sess_id: str,
         student_name = str(res.get('Name', res.get('Student Name', 'Unknown')))
         student_sess = str(res.get('_sess_id', sess_id))
         upsert_student(profile_name, reg_no, student_name, student_sess, stmts)
-        upsert_exam_result(profile_name, res, exam_id, exam_name, stmts)
+        upsert_exam_result(profile_name, res, exam_id, exam_name, stmts, sess_id=student_sess)
 
     update_scan_log(profile_name, exam_id, len(results_list), stmts)
 
@@ -605,7 +744,9 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
         students_cur = conn.execute("""
             SELECT s.reg_no, s.name, er.sgpa, er.cgpa, er.result_status, er.raw_json
             FROM students s
-            JOIN exam_results er ON s.profile_name = er.profile_name AND s.reg_no = er.reg_no
+            JOIN exam_results er ON s.profile_name = er.profile_name
+                                AND s.reg_no = er.reg_no
+                                AND s.sess_id = er.sess_id
             WHERE s.profile_name=? AND er.exam_id=?
         """, (profile_name, exam_id))
         students = students_cur.fetchall()
@@ -701,7 +842,9 @@ def get_subject_data_for_exam(profile_name: str, exam_id: str) -> list:
             SELECT sg.reg_no, s.name, sg.subject_code, sg.subject_name,
                    sg.grade_point as gp, sg.credit_hours
             FROM subject_grades sg
-            JOIN students s ON sg.profile_name = s.profile_name AND sg.reg_no = s.reg_no
+            JOIN students s ON sg.profile_name = s.profile_name
+                           AND sg.reg_no = s.reg_no
+                           AND sg.sess_id = s.sess_id
             WHERE sg.profile_name=? AND sg.exam_id=?
         """, (profile_name, exam_id))
         cols = [d[0] for d in cur.description]
@@ -1379,9 +1522,11 @@ def get_incomplete_history_students(profile_name: str) -> list:
                    COUNT(DISTINCT er.exam_id) as student_exam_count
             FROM students s
             LEFT JOIN exam_results er
-                   ON s.profile_name = er.profile_name AND s.reg_no = er.reg_no
+                   ON s.profile_name = er.profile_name
+                  AND s.reg_no = er.reg_no
+                  AND s.sess_id = er.sess_id
             WHERE s.profile_name=?
-            GROUP BY s.reg_no
+            GROUP BY s.reg_no, s.sess_id
             HAVING COUNT(DISTINCT er.exam_id) < ?
             ORDER BY student_exam_count ASC
         """, (profile_name, profile_exam_count))
@@ -1612,7 +1757,9 @@ def get_longitudinal_data(profile_name: str) -> dict:
         cur = conn.execute("""
             SELECT e.reg_no, s.name, e.exam_id, e.exam_name, e.sgpa, e.cgpa, e.result_status
             FROM exam_results e
-            JOIN students s ON e.profile_name = s.profile_name AND e.reg_no = s.reg_no
+            JOIN students s ON e.profile_name = s.profile_name
+                           AND e.reg_no = s.reg_no
+                           AND e.sess_id = s.sess_id
             WHERE e.profile_name = ?
         """, (profile_name,))
         
@@ -1880,6 +2027,7 @@ def _bootstrap():
     init_db()
     migrate_schema_v2()
     migrate_schema_v3()
+    migrate_schema_v4()
     migrate_legacy_json()
     _bootstrapped = True
 
