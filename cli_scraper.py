@@ -1031,7 +1031,7 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
                     continue
                 
                 # Robust Discovery Logic: Match CLI baseline (GPA or Subjects)
-                if res and isinstance(res, dict) and (res.get('GPA') != '-' or res.get('Subjects')):
+                if res and isinstance(res, dict) and (res.get('GPA', res.get('SGPA', '-')) != '-' or res.get('Subjects')):
                     student_found_in_any_session = True
                     break
                 res = None; break
@@ -1584,7 +1584,7 @@ def hidden_menu_handler(programs, sessions):
                     for tsid in s_to_try:
                         time.sleep(random.uniform(0.05, 0.15))
                         res, _ = fetch_student_result(reg_no, pro_id, tsid, eid)
-                        if res and isinstance(res, dict) and (res.get('GPA') != '-' or res.get('Subjects')):
+                        if res and isinstance(res, dict) and (res.get('GPA', res.get('SGPA', '-')) != '-' or res.get('Subjects')):
                             with h_lock:
                                 res['_exam_name'] = exams_cache[eid]
                                 history.append(res)
@@ -1647,7 +1647,7 @@ def generate_transcript_report(records, title, name, return_html=False):
         
         if not is_extra:
             html += "<div class='summary'>"
-            html += "Result: {} | GPA: {} | CGPA: {}".format(r.get('Overall Result', '-'), r.get('GPA', '-'), r.get('CGPA', '-'))
+            html += "Result: {} | GPA: {} | CGPA: {}".format(r.get('Overall Result', '-'), r.get('GPA', r.get('SGPA', '-')), r.get('CGPA', '-'))
             html += "</div>"
         html += "</div>"
         

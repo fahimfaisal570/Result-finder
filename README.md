@@ -37,7 +37,7 @@ Moved from flat JSON files to a relational SQLite database (WAL mode) with 6 nor
 - **Schema Migrations:** Automated versioning (`v1` → `v2` → `v3`) without data loss.
 
 ### 🧠 Intelligent Academic Analytics
-- **Shadow SGPA Audit:** Detects and flags university portal rounding errors by validating every SGPA against a local database of 300+ official subject credits.
+- **Shadow GPA Audit:** Detects and flags university portal rounding errors by validating every GPA against a local database of 300+ official subject credits.
 - **Retake-Aware CGPA Engine:** Evaluates complete student history and picks the *best* grade for repeated courses, computing true cumulative standing.
 - **Readmission Resolution:** "Latest exam wins" semantics automatically merge histories for students repeating years across different batches.
 
@@ -49,7 +49,7 @@ Moved from flat JSON files to a relational SQLite database (WAL mode) with 6 nor
 flowchart TD
     Portal[University Portal HTML] --> |100-connection HTTP pool| Scraper[Scraper Engine\ncli_scraper.py]
     Scraper --> |Regex extraction| DB[(SQLite Database\ndatabase.py)]
-    DB --> |Retake-aware CGPA\nShadow SGPA Audit| Analytics[Analytics Engine]
+    DB --> |Retake-aware CGPA\nShadow GPA Audit| Analytics[Analytics Engine]
     Analytics --> UI[Streamlit UI\napp.py]
     
     subgraph UI System

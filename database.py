@@ -105,7 +105,7 @@ def init_db():
                 exam_id       TEXT NOT NULL,
                 exam_name     TEXT,
                 result_status TEXT,
-                sgpa          REAL DEFAULT 0.0,
+                gpa          REAL DEFAULT 0.0,
                 cgpa          REAL DEFAULT 0.0,
                 raw_json      TEXT,
                 FOREIGN KEY(profile_name) REFERENCES profiles(name) ON DELETE CASCADE,
@@ -185,7 +185,7 @@ def migrate_schema_v2():
 def migrate_schema_v3():
     """
     Idempotent migration to v3:
-    - Adds portal_sgpa to exam_results for shadow auditing.
+    - Adds portal_gpa to exam_results for shadow auditing.
     - Adds portal_cgpa to exam_results for shadow auditing.
     """
     with get_connection() as conn:
@@ -193,9 +193,9 @@ def migrate_schema_v3():
         cur = conn.execute("PRAGMA table_info(exam_results)")
         cols = [row[1] for row in cur.fetchall()]
         
-        if 'portal_sgpa' not in cols:
-            conn.execute("ALTER TABLE exam_results ADD COLUMN portal_sgpa REAL")
-            logger.info("Added portal_sgpa column to exam_results.")
+        if 'portal_gpa' not in cols:
+            conn.execute("ALTER TABLE exam_results ADD COLUMN portal_gpa REAL")
+            logger.info("Added portal_gpa column to exam_results.")
         
         if 'portal_cgpa' not in cols:
             conn.execute("ALTER TABLE exam_results ADD COLUMN portal_cgpa REAL")
@@ -284,10 +284,10 @@ def migrate_schema_v4():
                     exam_id       TEXT NOT NULL,
                     exam_name     TEXT,
                     result_status TEXT,
-                    sgpa          REAL DEFAULT 0.0,
+                    gpa          REAL DEFAULT 0.0,
                     cgpa          REAL DEFAULT 0.0,
                     raw_json      TEXT,
-                    portal_sgpa   REAL,
+                    portal_gpa   REAL,
                     portal_cgpa   REAL,
                     sess_id       TEXT NOT NULL DEFAULT 'AUTO',
                     FOREIGN KEY(profile_name) REFERENCES profiles(name) ON DELETE CASCADE,
@@ -297,7 +297,7 @@ def migrate_schema_v4():
             conn.execute("""
                 INSERT OR IGNORE INTO exam_results_v4
                 SELECT id, profile_name, reg_no, exam_id, exam_name, result_status,
-                       sgpa, cgpa, raw_json, portal_sgpa, portal_cgpa,
+                       gpa, cgpa, raw_json, portal_gpa, portal_cgpa,
                        COALESCE(NULLIF(sess_id,''), 'AUTO')
                 FROM exam_results
             """)
@@ -414,22 +414,22 @@ def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects
 
 def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: str, statement_list: list = None, sess_id: str = 'AUTO'):
     """
-    Verified Source of Truth: Calculates SGPA locally using verified credits.
-    Stores the portal value in 'portal_sgpa' for background auditing.
+    Verified Source of Truth: Calculates GPA locally using verified credits.
+    Stores the portal value in 'portal_gpa' for background auditing.
     """
     reg_no = int(res.get('Registration No', res.get('Reg', 0)))
-    raw_sgpa_str = str(res.get('GPA', res.get('SGPA', '-'))).strip()
+    raw_gpa_str = str(res.get('GPA', res.get('SGPA', '-'))).strip()
     raw_cgpa_str = str(res.get('CGPA', '-')).strip()
     
     # Shadow values (what the website claims)
-    portal_sgpa = _parse_gp(raw_sgpa_str)
+    portal_gpa = _parse_gp(raw_gpa_str)
     portal_cgpa = _parse_gp(raw_cgpa_str)
     
     status = str(res.get('Result', res.get('Overall Result', 'Unknown')))
     subjects = res.get('Subjects', [])
 
-    # Local Verification Logic: Calculate SGPA from our mapping
-    sgpa = 0.0
+    # Local Verification Logic: Calculate GPA from our mapping
+    gpa = 0.0
     tc = 0.0
     is_mapping_incomplete = False
     
@@ -448,17 +448,17 @@ def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: st
             tc += ch
         
         if not is_mapping_incomplete and tc > 0:
-            sgpa = round(tp / tc, 2)
+            gpa = round(tp / tc, 2)
             
             # Shadow Audit: Logging drift between local math and portal math
-            if raw_sgpa_str not in ['-', '', 'None'] and abs(sgpa - portal_sgpa) > 0.01:
-                logger.warning(f"Credit Drift Detected [Reg {reg_no} | {profile_name}]: Portal says {portal_sgpa}, We calculated {sgpa}.")
+            if raw_gpa_str not in ['-', '', 'None'] and abs(gpa - portal_gpa) > 0.01:
+                logger.warning(f"Credit Drift Detected [Reg {reg_no} | {profile_name}]: Portal says {portal_gpa}, We calculated {gpa}.")
         else:
-            # Fallback to portal SGPA IF we can't calculate it locally (mapping missing)
-            sgpa = portal_sgpa
+            # Fallback to portal GPA IF we can't calculate it locally (mapping missing)
+            gpa = portal_gpa
     else:
         # Fallback if no subjects list was extracted at all
-        sgpa = portal_sgpa
+        gpa = portal_gpa
 
     # CGPA remains primarily portal-sourced as it requires multi-exam history
     cgpa = portal_cgpa
@@ -466,10 +466,10 @@ def upsert_exam_result(profile_name: str, res: dict, exam_id: str, exam_name: st
     _sess = sess_id or 'AUTO'
     sql = """
         INSERT OR REPLACE INTO exam_results
-            (profile_name, reg_no, exam_id, exam_name, result_status, sgpa, cgpa, portal_sgpa, portal_cgpa, raw_json, sess_id)
+            (profile_name, reg_no, exam_id, exam_name, result_status, gpa, cgpa, portal_gpa, portal_cgpa, raw_json, sess_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
-    params = (profile_name, reg_no, exam_id, exam_name, status, sgpa, cgpa, portal_sgpa, portal_cgpa, json.dumps(res), _sess)
+    params = (profile_name, reg_no, exam_id, exam_name, status, gpa, cgpa, portal_gpa, portal_cgpa, json.dumps(res), _sess)
 
     if statement_list is not None:
         statement_list.append((sql, params))
@@ -733,7 +733,7 @@ def get_exams_for_profile(profile_name: str) -> list:
 def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
     """
     Returns per-student analytics strictly scoped to one exam (semester).
-    - sgpa: from raw_json['GPA'] (semester GPA as reported by portal)
+    - gpa: from raw_json['GPA'] (semester GPA as reported by portal)
     - cgpa: from exam_results.cgpa (cumulative since semester 1, as stored by the portal)
     - first_chance_fail: True if the student has any grade < 2.0 IN THIS EXAM
     - improvement_count: subjects with 2.0 <= gp <= 2.75 IN THIS EXAM
@@ -742,9 +742,9 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
     """
     results = []
     with get_connection() as conn:
-        # Pull raw_json so we can extract GPA (sgpa) which may be 0 in the sgpa column for legacy rows
+        # Pull raw_json so we can extract GPA (gpa) which may be 0 in the gpa column for legacy rows
         students_cur = conn.execute("""
-            SELECT s.reg_no, s.name, er.sgpa, er.cgpa, er.result_status, er.raw_json, s.sess_id
+            SELECT s.reg_no, s.name, er.gpa, er.cgpa, er.result_status, er.raw_json, s.sess_id
             FROM students s
             JOIN exam_results er ON s.profile_name = er.profile_name
                                 AND s.reg_no = er.reg_no
@@ -753,7 +753,7 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
         """, (profile_name, exam_id))
         students = students_cur.fetchall()
 
-        for reg_no, name, sgpa_col, cgpa, db_status, raw_json_str, sess_id in students:
+        for reg_no, name, gpa_col, cgpa, db_status, raw_json_str, sess_id in students:
             # Subject grades FOR THIS EXAM ONLY
             grades_cur = conn.execute("""
                 SELECT subject_code, grade_point, credit_hours
@@ -769,26 +769,26 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
             retake_count      = sum(1 for _, gp, _ in grades if gp < 2.0)
             first_chance_fail = retake_count > 0
 
-            # Extract SGPA: prefer raw_json GPA field (always stored correctly by scraper)
-            sgpa = sgpa_col
-            raw_sgpa_str = None
+            # Extract GPA: prefer raw_json GPA field (always stored correctly by scraper)
+            gpa = gpa_col
+            raw_gpa_str = None
             raw_cgpa_str = None
             if raw_json_str:
                 try:
                     raw = json.loads(raw_json_str)
-                    raw_sgpa_str = str(raw.get('GPA', raw.get('SGPA', '-')))
+                    raw_gpa_str = str(raw.get('GPA', raw.get('SGPA', '-')))
                     raw_cgpa_str = str(raw.get('CGPA', '-'))
-                    if sgpa == 0.0:
-                        sgpa = _parse_gp(raw_sgpa_str)
+                    if gpa == 0.0:
+                        gpa = _parse_gp(raw_gpa_str)
                 except Exception:
                     pass
 
-            # Fallback for missing SGPA IFF it was truly omitted in the scrape
-            if sgpa == 0.0 and grades and (raw_sgpa_str in ['-', '', 'None']):
+            # Fallback for missing GPA IFF it was truly omitted in the scrape
+            if gpa == 0.0 and grades and (raw_gpa_str in ['-', '', 'None']):
                 total_points = sum(gp * ch for _, gp, ch in grades)
                 total_credits = sum(ch for _, _, ch in grades)
                 if total_credits > 0:
-                    sgpa = round(total_points / total_credits, 2)
+                    gpa = round(total_points / total_credits, 2)
 
             # Fallback for missing CGPA IFF it was truly omitted in the scrape
             if (cgpa is None or cgpa == 0.0) and (raw_cgpa_str in ['-', '', 'None']):
@@ -823,7 +823,7 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
                 "reg_no":            reg_no,
                 "sess_id":           sess_id,
                 "name":              name,
-                "sgpa":              round(float(sgpa  or 0), 2),
+                "gpa":              round(float(gpa  or 0), 2),
                 "cgpa":              round(float(cgpa  or 0), 2),
                 "result_status":     status,
                 "improvement_count": improvement_count,
@@ -1019,7 +1019,7 @@ def compute_graduation_cgpa_from_inputs(
         {
             'semester': int,                    # absolute semester number (1-8)
             'mode': 'summary' | 'detailed',     # input mode
-            'sgpa': float | None,               # if mode='summary', the expected SGPA
+            'gpa': float | None,               # if mode='summary', the expected GPA
             'course_grades': list[dict] | None,  # if mode='detailed', list of
                                                  #   {'code': str, 'credit': float, 'gp': float}
         }
@@ -1029,7 +1029,7 @@ def compute_graduation_cgpa_from_inputs(
             'graduation_cgpa': float,
             'total_new_points': float,
             'total_new_credits': float,
-            'per_semester_detail': list[dict],  # [{semester, sgpa, credits, points}, ...]
+            'per_semester_detail': list[dict],  # [{semester, gpa, credits, points}, ...]
             'grand_total_credits': float,
             'grand_total_points': float,
         }
@@ -1045,7 +1045,7 @@ def compute_graduation_cgpa_from_inputs(
         sem_credits = get_semester_total_credits(dept, sem_num)
 
         if mode == 'detailed' and sem_input.get('course_grades'):
-            # Calculate SGPA from individual course grades
+            # Calculate GPA from individual course grades
             course_points = 0.0
             course_credits = 0.0
             for cg in sem_input['course_grades']:
@@ -1054,26 +1054,26 @@ def compute_graduation_cgpa_from_inputs(
                     course_credits += cg['credit']
 
             if course_credits > 0:
-                calculated_sgpa = round(course_points / course_credits, 2)
+                calculated_gpa = round(course_points / course_credits, 2)
             else:
-                calculated_sgpa = 0.0
+                calculated_gpa = 0.0
 
             # Use the actual credits filled in for the CGPA calculation
             # (handles elective subsets correctly)
             sem_points = course_points
             effective_credits = course_credits
         else:
-            # Summary mode: use input SGPA × standard semester credits
-            sgpa = sem_input.get('sgpa', 0.0) or 0.0
-            calculated_sgpa = sgpa
-            sem_points = sgpa * sem_credits
+            # Summary mode: use input GPA × standard semester credits
+            gpa = sem_input.get('gpa', 0.0) or 0.0
+            calculated_gpa = gpa
+            sem_points = gpa * sem_credits
             effective_credits = sem_credits
 
         total_new_points += sem_points
         total_new_credits += effective_credits
         per_semester_detail.append({
             'semester': sem_num,
-            'sgpa': round(calculated_sgpa, 2),
+            'gpa': round(calculated_gpa, 2),
             'credits': round(effective_credits, 1),
             'points': round(sem_points, 2),
         })
@@ -1097,14 +1097,14 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
     Processes a student's full academic history (raw portal records) to compute:
     - True CGPA (credit-weighted, considering retake improvements)
     - Pending retakes (subjects still failing after all attempts)
-    - Precise target SGPA for next semester
+    - Precise target GPA for next semester
 
     Rules:
     1. Main semester exams: grouped by semester label, latest exam_id wins
        (handles readd students — current batch exam supersedes old batch).
     2. Retake/improvement exams: applied only if the grade is STRICTLY BETTER
        than the current effective grade for that subject.
-    3. Target SGPA: computed using actual next-semester credit weight, not
+    3. Target GPA: computed using actual next-semester credit weight, not
        the old 1.1 approximation.
     """
     dept = get_dept_from_profile(profile_name)
@@ -1199,6 +1199,32 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
                 'name': subj.get('name', '')
             }
 
+    # --- Step 3.5: Collect official GPA/CGPA per semester from portal records ---
+    official_semester_records = {}  # sem_num -> {gpa, cgpa}
+    for sem_label, (eid_int, rec) in semester_groups.items():
+        abs_sem = _get_abs_sem(rec)
+        if abs_sem > 0:
+            raw_gpa = rec.get('GPA', rec.get('SGPA', 0))
+            raw_cgpa = rec.get('CGPA', 0)
+            
+            try:
+                if isinstance(raw_gpa, str): raw_gpa = raw_gpa.strip()
+                o_gpa = round(float(raw_gpa or 0), 2)
+            except (ValueError, TypeError):
+                o_gpa = 0.0
+                
+            try:
+                if isinstance(raw_cgpa, str): raw_cgpa = raw_cgpa.strip()
+                o_cgpa = round(float(raw_cgpa or 0), 2)
+            except (ValueError, TypeError):
+                o_cgpa = 0.0
+                
+            # Fallback for 1st semester if CGPA is completely missing or 0 but GPA exists
+            if abs_sem == 1 and o_cgpa == 0.0 and o_gpa > 0:
+                o_cgpa = o_gpa
+                
+            official_semester_records[abs_sem] = {'gpa': o_gpa, 'cgpa': o_cgpa}
+
     # --- Step 4: Apply retake improvements (only if strictly better) ---
     retake_records.sort(key=lambda r: int(r.get('_exam_id', 0) or 0))
     for rec in retake_records:
@@ -1224,6 +1250,7 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
                         'improvement_cleared' if original_gp >= 2.0
                         else 'retake_cleared'
                     )
+                    effective_grades[code]['original_gp'] = original_gp  # preserve pre-retake GP
                     effective_grades[code]['gp'] = gp
                     effective_grades[code]['source'] = clear_type
             # else: subject only in retake but not in any main exam → skip
@@ -1259,12 +1286,12 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
             })
     pending_retakes.sort(key=lambda x: x['code'])
 
-    # --- Step 8: Calculate precise target SGPA ---
+    # --- Step 8: Calculate precise target GPA ---
     # Parse current semester from exam label
     yr_match = re.search(r'(\d)[a-z]{2}\s*Yr', current_exam_label, re.IGNORECASE)
     sem_match = re.search(r'(\d)[a-z]{2}\s*Sem', current_exam_label, re.IGNORECASE)
 
-    precise_target_sgpa = 0.0
+    precise_target_gpa = 0.0
     next_sem_credits = 0.0
     promo_target = None
     current_abs_sem = 0
@@ -1286,11 +1313,11 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
         if promo_target is not None and not is_even_sem and next_abs_sem <= 8:
             next_sem_credits = get_semester_total_credits(dept, next_abs_sem)
             if next_sem_credits > 0 and total_credits > 0:
-                precise_target_sgpa = (
+                precise_target_gpa = (
                     promo_target * (total_credits + next_sem_credits) -
                     true_cgpa * total_credits
                 ) / next_sem_credits
-                precise_target_sgpa = max(0.0, round(precise_target_sgpa, 2))
+                precise_target_gpa = max(0.0, round(precise_target_gpa, 2))
 
     return {
         'true_cgpa': true_cgpa,
@@ -1302,11 +1329,12 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
         'promo_target': promo_target,
         'pending_retakes': pending_retakes,
         'pending_retake_count': len(pending_retakes),
-        'precise_target_sgpa': precise_target_sgpa,
+        'precise_target_gpa': precise_target_gpa,
         'next_sem_credits': next_sem_credits,
         'effective_grade_count': len(effective_grades),
         'effective_grades': effective_grades,
         'retake_records': retake_records,
+        'official_semester_records': official_semester_records,
     }
 
 
@@ -1318,13 +1346,13 @@ def compute_graduation_projection(
 ) -> dict:
     """
     Given the output of compute_deep_analysis() and a user target graduation CGPA,
-    calculates the minimum average SGPA required across ALL remaining semesters.
+    calculates the minimum average GPA required across ALL remaining semesters.
 
     Math:
         current_points    = true_cgpa * total_credits_completed
         remaining_credits = sum(get_semester_total_credits(dept, sem)
                             for sem in range(current_semester+1, total_semesters+1))
-        required_avg_sgpa = (target_grad_cgpa * (total_credits + remaining_credits)
+        required_avg_gpa = (target_grad_cgpa * (total_credits + remaining_credits)
                             - current_points) / remaining_credits
     """
     true_cgpa        = deep_result.get("true_cgpa", 0.0)
@@ -1352,7 +1380,7 @@ def compute_graduation_projection(
             "remaining_semesters": 0,
             "remaining_credits": 0.0,
             "remaining_credits_breakdown": [],
-            "required_avg_sgpa": 0.0,
+            "required_avg_gpa": 0.0,
             "is_achievable": already_met,
             "already_met": already_met,
             "deficit_points": 0.0,
@@ -1360,9 +1388,9 @@ def compute_graduation_projection(
 
     total_all_credits = total_credits + remaining_credits
     required_points   = target_grad_cgpa * total_all_credits - current_points
-    required_avg_sgpa = round(required_points / remaining_credits, 2)
+    required_avg_gpa = round(required_points / remaining_credits, 2)
 
-    already_met = required_avg_sgpa <= 0.0
+    already_met = required_avg_gpa <= 0.0
 
     return {
         "target_cgpa": target_grad_cgpa,
@@ -1371,8 +1399,8 @@ def compute_graduation_projection(
         "remaining_semesters": len(remaining_breakdown),
         "remaining_credits": round(remaining_credits, 1),
         "remaining_credits_breakdown": remaining_breakdown,
-        "required_avg_sgpa": required_avg_sgpa,
-        "is_achievable": required_avg_sgpa <= 4.0,
+        "required_avg_gpa": required_avg_gpa,
+        "is_achievable": required_avg_gpa <= 4.0,
         "already_met": already_met,
         "deficit_points": 0.0,
     }
@@ -1382,12 +1410,23 @@ def compute_advanced_projection(
     deep_result: dict,
     effective_grades: dict,
     retake_records: list,
+    profile_name: str = '',
     retake_clear_gp: float = 2.0,
     improvement_target_gp: float | None = None,
 ) -> dict:
     """
     Computes advanced projection details including retake clears and improvement eligibility.
+
+    Classification rules (v2):
+      - GP < 2.0  → pending_retakes (still failing)
+      - GP >= 3.0 AND source is retake/improvement → ineligible_retake_cleared (well cleared)
+      - 2.0 <= GP <= 2.75 → improvement_candidates (eligible, with GP widgets)
+            ALSO if attempted before → already_attempted (informational, read-only, non-exclusive)
+      - 2.76 <= GP <= 2.99 AND source is retake/improvement → ineligible_retake_cleared
+      - 2.76 <= GP <= 2.99 AND source is main → not shown (fine as-is)
     """
+    dept = get_dept_from_profile(profile_name) if profile_name else 'CSE'
+
     attempted_subjects = {}
     for rec in retake_records:
         for subj in rec.get('Subjects', []):
@@ -1415,47 +1454,80 @@ def compute_advanced_projection(
         credit = g['credit']
         source = g['source']
         subj_name = g.get('name', '')
+        sem_num = get_semester_from_code(code, dept)
 
         if curr_gp < 2.0:
+            # --- Still failing ---
             simulated_gp = retake_clear_gp
             cgpa_impact = ((simulated_gp - curr_gp) * credit) / total_credits if total_credits > 0 else 0
             pending_retakes.append({
                 'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
-                'simulated_gp': simulated_gp, 'cgpa_impact': cgpa_impact
+                'simulated_gp': simulated_gp, 'cgpa_impact': cgpa_impact, 'semester': sem_num
             })
             projected_points_retakes += (simulated_gp - curr_gp) * credit
             projected_points_all += (simulated_gp - curr_gp) * credit
-        elif source in ('retake_cleared', 'improvement_cleared', 'retake_improved'):
+
+        elif curr_gp >= 3.0 and source in ('retake_cleared', 'improvement_cleared', 'retake_improved'):
+            # --- Well cleared (GP >= 3.0 via retake/improvement) ---
             if source == 'improvement_cleared':
                 reason = "Cleared via improvement \u2014 cannot improve again"
             else:
                 reason = "Cleared via retake \u2014 cannot improve"
             ineligible_retake_cleared.append({
                 'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
-                'reason': reason, 'clear_type': source
+                'original_gp': g.get('original_gp', curr_gp),
+                'reason': reason, 'clear_type': source, 'semester': sem_num
             })
+
         elif 2.0 <= curr_gp <= 2.75:
+            # --- Eligible for improvement (regardless of past attempts) ---
+            improvement_candidates.append({
+                'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
+                'max_potential_gp': 4.0, 'source': source, 'semester': sem_num
+            })
+            if improvement_target_gp is not None:
+                simulated_gp = max(curr_gp, improvement_target_gp)
+                projected_points_all += (simulated_gp - curr_gp) * credit
+
+            # --- ALSO log in already_attempted if a retake/improvement was taken before ---
             if code in attempted_subjects:
                 attempt_gp = max((a['gp'] for a in attempted_subjects[code]), default=0)
                 already_attempted.append({
                     'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
-                    'attempt_gp': attempt_gp, 'reason': "Already improved once"
+                    'attempt_gp': attempt_gp,
+                    'reason': f"Attempted but still {curr_gp:.2f}",
+                    'semester': sem_num
                 })
-            else:
-                improvement_candidates.append({
+            elif source in ('retake_cleared', 'improvement_cleared', 'retake_improved'):
+                # Retake improved it but still <= 2.75
+                already_attempted.append({
                     'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
-                    'max_potential_gp': 4.0, 'source': source
+                    'attempt_gp': curr_gp,
+                    'reason': f"Retake/improvement applied but still {curr_gp:.2f}",
+                    'semester': sem_num
                 })
-                if improvement_target_gp is not None:
-                    simulated_gp = max(curr_gp, improvement_target_gp)
-                    projected_points_all += (simulated_gp - curr_gp) * credit
+
+        elif 2.76 <= curr_gp <= 2.99 and source in ('retake_cleared', 'improvement_cleared', 'retake_improved'):
+            # --- Retake pushed GP above 2.75 but below 3.0 → treat as cleared ---
+            if source == 'improvement_cleared':
+                reason = "Cleared via improvement \u2014 cannot improve again"
+            else:
+                reason = "Cleared via retake \u2014 cannot improve"
+            ineligible_retake_cleared.append({
+                'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
+                'original_gp': g.get('original_gp', curr_gp),
+                'reason': reason, 'clear_type': source, 'semester': sem_num
+            })
+
+        # else: 2.76 <= GP <= 2.99 from main exam → no action needed, not shown
 
     proj_cgpa_retakes = projected_points_retakes / total_credits if total_credits > 0 else 0.0
     proj_cgpa_all = projected_points_all / total_credits if total_credits > 0 else 0.0
 
-    improvement_candidates.sort(key=lambda x: x['code'])
-    already_attempted.sort(key=lambda x: x['code'])
-    ineligible_retake_cleared.sort(key=lambda x: x['code'])
+    improvement_candidates.sort(key=lambda x: (x.get('semester', 0), x['code']))
+    already_attempted.sort(key=lambda x: (x.get('semester', 0), x['code']))
+    ineligible_retake_cleared.sort(key=lambda x: (x.get('semester', 0), x['code']))
+    pending_retakes.sort(key=lambda x: (x.get('semester', 0), x['code']))
 
     return {
         "current_true_cgpa": deep_result['true_cgpa'],
@@ -1494,6 +1566,86 @@ def compute_adjusted_cgpa(
         total_credits += credit
     adjusted_cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
     return adjusted_cgpa, total_credits
+
+
+def compute_per_semester_breakdown(
+    effective_grades: dict,
+    dept: str,
+    current_semester: int,
+    overrides: dict | None = None,
+    official_records: dict | None = None,
+) -> list[dict]:
+    """
+    Computes per-semester GPA and cumulative CGPA from effective grades.
+
+    Args:
+        effective_grades: code -> {gp, credit, source, ...} from deep analysis
+        dept: department string (CSE, EEE, Civil)
+        current_semester: absolute semester number (1-8)
+        overrides: optional per-code GP overrides (for Adjusted CGPA mode)
+        official_records: optional dict of {semester_num: {gpa, cgpa}} from portal
+
+    Returns:
+        List of dicts sorted by semester:
+        [{'semester': 1, 'label': '1-1', 'computed_gpa': 3.12, 'computed_cgpa': 3.12,
+          'official_gpa': 3.10, 'official_cgpa': 3.10, 'credits': 20.5, 'points': 63.96}, ...]
+    """
+    def _sem_label(sem_num):
+        yr = (sem_num - 1) // 2 + 1
+        s = 1 if sem_num % 2 == 1 else 2
+        return f"{yr}-{s}"
+
+    # Group effective grades by semester
+    sem_courses = {}  # sem_num -> [(code, gp, credit), ...]
+    for code, g in effective_grades.items():
+        sem = get_semester_from_code(code, dept)
+        if sem <= 0:
+            continue
+        gp = g['gp']
+        credit = g['credit']
+        # Apply override if present (Adjusted CGPA mode)
+        if overrides and code in overrides:
+            override_gp = overrides[code]
+            if override_gp > gp:
+                gp = override_gp
+        if sem not in sem_courses:
+            sem_courses[sem] = []
+        sem_courses[sem].append((code, gp, credit))
+
+    # Build per-semester breakdown with running CGPA
+    result = []
+    cumulative_points = 0.0
+    cumulative_credits = 0.0
+
+    for sem_num in range(1, current_semester + 1):
+        courses = sem_courses.get(sem_num, [])
+        if not courses:
+            continue
+
+        sem_points = sum(gp * cr for _, gp, cr in courses)
+        sem_credits = sum(cr for _, _, cr in courses)
+        sem_gpa = round(sem_points / sem_credits, 2) if sem_credits > 0 else 0.0
+
+        cumulative_points += sem_points
+        cumulative_credits += sem_credits
+        cumulative_cgpa = round(cumulative_points / cumulative_credits, 2) if cumulative_credits > 0 else 0.0
+
+        # Get official values if available
+        official = official_records.get(sem_num, {}) if official_records else {}
+
+        result.append({
+            'semester': sem_num,
+            'label': _sem_label(sem_num),
+            'computed_gpa': sem_gpa,
+            'computed_cgpa': cumulative_cgpa,
+            'official_gpa': official.get('gpa'),
+            'official_cgpa': official.get('cgpa'),
+            'credits': round(sem_credits, 1),
+            'points': round(sem_points, 2),
+            'course_count': len(courses),
+        })
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1768,7 +1920,7 @@ def get_longitudinal_data(profile_name: str) -> dict:
     with get_connection() as conn:
         # Fetch all exams and students for this profile
         cur = conn.execute("""
-            SELECT e.reg_no, s.name, e.exam_id, e.exam_name, e.sgpa, e.cgpa, e.result_status
+            SELECT e.reg_no, s.name, e.exam_id, e.exam_name, e.gpa, e.cgpa, e.result_status
             FROM exam_results e
             JOIN students s ON e.profile_name = s.profile_name
                            AND e.reg_no = s.reg_no
@@ -1781,7 +1933,7 @@ def get_longitudinal_data(profile_name: str) -> dict:
     student_groups = {} # reg_no -> {sem_label -> record_dict}
 
     for row in all_records:
-        reg_no, name, exam_id, exam_name, sgpa, cgpa, result_status = row
+        reg_no, name, exam_id, exam_name, gpa, cgpa, result_status = row
         
         # Safeguard: if exam_name is NaN (float) or int, force to string
         safe_exam_name = str(exam_name) if exam_name is not None and exam_name == exam_name else ""
@@ -1817,7 +1969,7 @@ def get_longitudinal_data(profile_name: str) -> dict:
             'name': name,
             'exam_id': eid_int,
             'exam_name': exam_name,
-            'sgpa': sgpa or 0.0,
+            'gpa': gpa or 0.0,
             'cgpa': cgpa or 0.0,
             'result_status': result_status,
             'semester_num': sem_num,
@@ -1918,29 +2070,29 @@ def get_cross_batch_comparison(profile_names: list[str], semester_pattern: str) 
                 
             eid, ename = main_exam
             
-            # Fetch all SGPAs for this exam
+            # Fetch all GPAs for this exam
             cur = conn.execute("""
-                SELECT sgpa
+                SELECT gpa
                 FROM exam_results
                 WHERE profile_name = ? AND exam_id = ?
             """, (profile, eid))
             
-            sgpas = [row[0] for row in cur.fetchall() if row[0] is not None]
+            gpas = [row[0] for row in cur.fetchall() if row[0] is not None]
             
-            if not sgpas:
+            if not gpas:
                 continue
                 
             import statistics
-            sgpas_sorted = sorted(sgpas)
+            gpas_sorted = sorted(gpas)
             
             results[profile] = {
                 'exam_name': ename,
-                'students': len(sgpas),
-                'mean_sgpa': round(statistics.mean(sgpas), 2),
-                'median_sgpa': round(statistics.median(sgpas), 2),
-                'pass_rate': round(sum(1 for s in sgpas if s >= 2.0) / len(sgpas) * 100, 1),
-                'honours_count': sum(1 for s in sgpas if s >= 3.75),
-                'sgpa_list': sgpas
+                'students': len(gpas),
+                'mean_gpa': round(statistics.mean(gpas), 2),
+                'median_gpa': round(statistics.median(gpas), 2),
+                'pass_rate': round(sum(1 for s in gpas if s >= 2.0) / len(gpas) * 100, 1),
+                'honours_count': sum(1 for s in gpas if s >= 3.75),
+                'gpa_list': gpas
             }
             
     return results

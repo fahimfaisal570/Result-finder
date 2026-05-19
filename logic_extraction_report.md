@@ -31,14 +31,14 @@ ctx = {
     'exam_id': str,             # e.g. "1666"
     'selected_label': str,      # condensed exam name "3rd Yr 1st Sem '24 [1666]"
     'profiles': dict,           # all profiles from db.get_profiles()
-    'df_main': DataFrame,       # per-student row: reg_no, name, sgpa, cgpa, result_status, improvement_count, retake_count, first_chance_fail
+    'df_main': DataFrame,       # per-student row: reg_no, name, gpa, cgpa, result_status, improvement_count, retake_count, first_chance_fail
     'df_sub': DataFrame,        # per-subject-per-student: reg_no, name, subject_code, subject_name, gp, credit_hours
     'df_pivot': DataFrame,      # pivot of df_sub: index=reg_no, columns=subject_code, values=gp
-    'is_first_sem': bool,       # True if sgpa==cgpa or "1st Yr 1st Sem" in label
+    'is_first_sem': bool,       # True if gpa==cgpa or "1st Yr 1st Sem" in label
     'promo_target': float,      # Year-based promotion threshold (2.00/2.25/2.50/2.75)
     'is_even_sem': bool,        # True if 2nd semester of year
     'promo_yr': int,            # 1-4
-    'df_longitudinal': DataFrame | None,  # multi-semester SGPA trajectory
+    'df_longitudinal': DataFrame | None,  # multi-semester GPA trajectory
     'selected_subjects': list,  # active subject filter
     'readd_reg_nos': list[str], # reg numbers of incomplete-history students
 }
@@ -58,7 +58,7 @@ ctx = {
 - **Groups by `(reg_no, semester_label)`** — extracts semester label via regex from exam name
 - **Latest exam_id wins** per semester group (handles readmitted students who may have two different exam entries for the same "1st year 1st semester")
 - Computes `semester_num` from label: `(year-1)*2 + sem_in_year`
-- Returns `dict[reg_no → sorted list of {reg_no, name, exam_id, exam_name, sgpa, cgpa, result_status, semester_num, semester_label}]`
+- Returns `dict[reg_no → sorted list of {reg_no, name, exam_id, exam_name, gpa, cgpa, result_status, semester_num, semester_label}]`
 
 **Key regexes:**
 ```python
@@ -91,7 +91,7 @@ else:
 ```
 
 > [!IMPORTANT]
-> The dict-to-DataFrame flattening adds `reg_no` as a column (it's the dict key). The resulting DataFrame has one row per student per semester, with columns: `reg_no, name, exam_id, exam_name, sgpa, cgpa, result_status, semester_num, semester_label`.
+> The dict-to-DataFrame flattening adds `reg_no` as a column (it's the dict key). The resulting DataFrame has one row per student per semester, with columns: `reg_no, name, exam_id, exam_name, gpa, cgpa, result_status, semester_num, semester_label`.
 
 ---
 
@@ -99,11 +99,11 @@ else:
 
 **Location:** [tab_trends.py](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/analytics_engine/tab_trends.py)
 
-### 3.1 Batch SGPA Trajectory Chart
+### 3.1 Batch GPA Trajectory Chart
 
 **Logic:**
 1. Requires `df_longitudinal` (multi-semester data). Shows warning if None/empty.
-2. Computes **batch median** per semester: `df_longitudinal.groupby('semester_label')['sgpa'].median()`
+2. Computes **batch median** per semester: `df_longitudinal.groupby('semester_label')['gpa'].median()`
 3. Renders an **Altair multi-line chart** — one line per student, plus a dashed white median line
 4. **Spotlight feature**: selectbox lets user pick one student → that student gets `opacity=1.0, size=3, color=#ef4444`, all others get `opacity=0.1, size=1, color=#60a5fa`
 
@@ -111,12 +111,12 @@ else:
 ```python
 line = alt.Chart(chart_data).mark_line().encode(
     x=alt.X('semester_num:O', title='Semester Sequence'),
-    y=alt.Y('sgpa:Q', scale=alt.Scale(domain=[1.5, 4.0])),
+    y=alt.Y('gpa:Q', scale=alt.Scale(domain=[1.5, 4.0])),
     detail='reg_no:N',
     opacity='opacity:Q',
     size='size:Q',
     color=alt.Color('color:N', scale=None),
-    tooltip=['reg_no', 'semester_label', 'sgpa']
+    tooltip=['reg_no', 'semester_label', 'gpa']
 )
 median_line = alt.Chart(median_trend).mark_line(
     strokeDash=[5, 5], color='white', size=3
@@ -128,27 +128,27 @@ median_line = alt.Chart(median_trend).mark_line(
 **Logic per student:**
 ```python
 for reg, grp in df_longitudinal.groupby('reg_no'):
-    sgpas = grp.sort_values('semester_num')['sgpa'].tolist()
+    gpas = grp.sort_values('semester_num')['gpa'].tolist()
     metrics.append({
-        'Peak SGPA': max(sgpas),
-        'Valley SGPA': min(sgpas),
-        'Consistency': 1 - np.std(sgpas),      # higher = more consistent
-        'Trend Slope': np.polyfit(range(len(sgpas)), sgpas, 1)[0],  # linear regression slope
-        'Trajectory': classify_trajectory(sgpas)  # → "Rising"/"Declining"/"Recovery (V-shape)"/"Stable"
+        'Peak GPA': max(gpas),
+        'Valley GPA': min(gpas),
+        'Consistency': 1 - np.std(gpas),      # higher = more consistent
+        'Trend Slope': np.polyfit(range(len(gpas)), gpas, 1)[0],  # linear regression slope
+        'Trajectory': classify_trajectory(gpas)  # → "Rising"/"Declining"/"Recovery (V-shape)"/"Stable"
     })
 ```
 
 **Trajectory Classification (`archetypes.classify_trajectory`):**
 ```python
-def classify_trajectory(sgpa_list):
-    slope = np.polyfit(range(len(sgpa_list)), sgpa_list, 1)[0]
+def classify_trajectory(gpa_list):
+    slope = np.polyfit(range(len(gpa_list)), gpa_list, 1)[0]
     if slope > 0.08: return "Rising"
     if slope < -0.08: return "Declining"
     # V-shape detection: valley in middle with significant drop and recovery
-    min_idx = sgpa_list.index(min(sgpa_list))
-    if min_idx > 0 and min_idx < len(sgpa_list) - 1:
-        pre_drop = sgpa_list[min_idx - 1] - sgpa_list[min_idx]
-        post_rise = sgpa_list[-1] - sgpa_list[min_idx]
+    min_idx = gpa_list.index(min(gpa_list))
+    if min_idx > 0 and min_idx < len(gpa_list) - 1:
+        pre_drop = gpa_list[min_idx - 1] - gpa_list[min_idx]
+        post_rise = gpa_list[-1] - gpa_list[min_idx]
         if pre_drop > 0.2 and post_rise > 0.2:
             return "Recovery (V-shape)"
     return "Stable"
@@ -196,13 +196,13 @@ d['passed_after_retake'] = d['first_gp'] < 2.00 and d['best_gp'] >= 2.00
 1. For each profile, finds all exam entries matching the `semester_pattern` regex
 2. **Filters out retake exams** (same keyword set)
 3. **Picks the exam with the highest student count** (the "Main" cohort exam — avoids improvement exam pollution)
-4. Fetches all SGPA values for that winning exam_id
-5. Returns per-profile: `{students, mean_sgpa, median_sgpa, pass_rate (≥2.20), honours_count (≥3.75), sgpa_list}`
+4. Fetches all GPA values for that winning exam_id
+5. Returns per-profile: `{students, mean_gpa, median_gpa, pass_rate (≥2.20), honours_count (≥3.75), gpa_list}`
 
 **UI:**
 - User selects profiles via multiselect + enters a semester regex pattern
 - Comparison table with formatted stats
-- **Density curve chart** via `alt.Chart().transform_density('SGPA', groupby=['Profile'])`
+- **Density curve chart** via `alt.Chart().transform_density('GPA', groupby=['Profile'])`
 
 ---
 
@@ -345,9 +345,9 @@ CREATE TABLE exam_results (
     exam_id       TEXT NOT NULL,
     exam_name     TEXT,
     result_status TEXT,
-    sgpa          REAL DEFAULT 0.0,
+    gpa          REAL DEFAULT 0.0,
     cgpa          REAL DEFAULT 0.0,
-    portal_sgpa   REAL,
+    portal_gpa   REAL,
     portal_cgpa   REAL,
     raw_json      TEXT,
     UNIQUE(profile_name, reg_no, exam_id)
@@ -398,4 +398,4 @@ Year 4 → promo_target = 2.75
 ```
 
 ### Pattern: First-Semester Fallback
-When `df_main['cgpa'].sum() == 0` or `sgpa == cgpa`, the system treats it as first semester and uses SGPA instead of CGPA for rankings, disables promotion logic, and shows "Initial Baseline" instead of momentum.
+When `df_main['cgpa'].sum() == 0` or `gpa == cgpa`, the system treats it as first semester and uses GPA instead of CGPA for rankings, disables promotion logic, and shows "Initial Baseline" instead of momentum.

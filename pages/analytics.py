@@ -62,7 +62,7 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
   """
   if df_pivot.empty or df_main.empty: return None
   
-  # 1. Merge Pivot (variance) with Main (sgpa, cgpa)
+  # 1. Merge Pivot (variance) with Main (gpa, cgpa)
   # Do not drop NA here. Senior batches have electives, so NaNs are expected.
   data = df_pivot.copy()
   if len(data) < 4: return None # Statistical minimum
@@ -71,14 +71,14 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
   features = pd.DataFrame(index=data.index)
   features['std_gp'] = data.std(axis=1).fillna(0)
   
-  # Merge with df_main to get SGPA & CGPA for momentum/state
-  features = features.merge(df_main[['reg_no','sgpa','cgpa']], left_index=True, right_on='reg_no', how='left')
+  # Merge with df_main to get GPA & CGPA for momentum/state
+  features = features.merge(df_main[['reg_no','gpa','cgpa']], left_index=True, right_on='reg_no', how='left')
   features.set_index('reg_no', inplace=True)
-  features['momentum'] = features['sgpa'] - features['cgpa'] if not is_first_sem else 0.0
+  features['momentum'] = features['gpa'] - features['cgpa'] if not is_first_sem else 0.0
   
   # 2. Dynamic Thresholds (Percentile Quartiles)
-  p75_sgpa = features['sgpa'].quantile(0.75)
-  p50_sgpa = features['sgpa'].quantile(0.50)
+  p75_gpa = features['gpa'].quantile(0.75)
+  p50_gpa = features['gpa'].quantile(0.50)
   
   rising_threshold = 0.15
   slipping_threshold = -0.15
@@ -87,14 +87,14 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
   def get_compound_status(row):
     base = "Average"
     detail = "Average"
-    target_sgpa = 0.0
+    target_gpa = 0.0
 
     if promo_target is not None and promo_yr is not None:
       sem_index = (promo_yr * 2) - 1
-      # Calculate target SGPA to reach promo_target by end of year
+      # Calculate target GPA to reach promo_target by end of year
       # Inverse of: max_possible_cgpa = ((row['cgpa'] * sem_index) + (S * 1.1)) / (sem_index + 1.1)
-      target_sgpa = (promo_target * (sem_index + 1.1) - row['cgpa'] * sem_index) / 1.1
-      target_sgpa = max(0.0, round(target_sgpa, 2))
+      target_gpa = (promo_target * (sem_index + 1.1) - row['cgpa'] * sem_index) / 1.1
+      target_gpa = max(0.0, round(target_gpa, 2))
     
     # Promotion overrides define the lowest tier
     if promo_target is not None:
@@ -126,10 +126,10 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
         
     # If not overridden by the absolute promotion system, assign relative batch percentile state
     if detail == "Average":
-      if row['sgpa'] >= p75_sgpa or row['cgpa'] >= 3.5:
+      if row['gpa'] >= p75_gpa or row['cgpa'] >= 3.5:
         base = "Top"
         detail = "Top"
-      elif row['sgpa'] >= p50_sgpa:
+      elif row['gpa'] >= p50_gpa:
         base = "Steady"
         detail = "Steady"
       else:
@@ -138,16 +138,16 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
         
     trend = ""
     if not is_first_sem and row['cgpa'] > 0:
-      variance_ratio = (row['sgpa'] - row['cgpa']) / row['cgpa']
+      variance_ratio = (row['gpa'] - row['cgpa']) / row['cgpa']
       if variance_ratio >= 0.05:
         trend =" ↑ (Improving)"
       elif variance_ratio <= -0.05:
         trend =" ↓ (Declining)"
       
-    return pd.Series([f"{base}{trend}", detail, target_sgpa])
+    return pd.Series([f"{base}{trend}", detail, target_gpa])
 
-  features[['Archetype','Detailed_Status','Target_SGPA']] = features.apply(get_compound_status, axis=1)
-  return features[['Archetype','Detailed_Status','std_gp','Target_SGPA']]
+  features[['Archetype','Detailed_Status','Target_GPA']] = features.apply(get_compound_status, axis=1)
+  return features[['Archetype','Detailed_Status','std_gp','Target_GPA']]
 
 def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=False):
   """
@@ -156,14 +156,14 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
   insights = {}
   
   # 1. Performance & Honours
-  valid_main = df_main[df_main['sgpa'] > 0].copy()
+  valid_main = df_main[df_main['gpa'] > 0].copy()
   if not valid_main.empty:
     if is_first_sem:
-      insights['mean_sgpa'] = valid_main['sgpa'].mean().round(2)
+      insights['mean_gpa'] = valid_main['gpa'].mean().round(2)
     else:
-      insights['batch_momentum'] = (valid_main['sgpa'].mean() - valid_main['cgpa'].mean()).round(2)
+      insights['batch_momentum'] = (valid_main['gpa'].mean() - valid_main['cgpa'].mean()).round(2)
       
-    insights['honours_count'] = len(valid_main[valid_main['cgpa'] >= 3.5 if not is_first_sem else valid_main['sgpa'] >= 3.5])
+    insights['honours_count'] = len(valid_main[valid_main['cgpa'] >= 3.5 if not is_first_sem else valid_main['gpa'] >= 3.5])
     insights['honours_pct'] = (insights['honours_count'] / len(valid_main)) * 100
   
   # 2. Risk Tally
@@ -182,8 +182,8 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
     arc_with_info = archetypes.merge(df_main[['reg_no','name']], left_index=True, right_on='reg_no', how='left').set_index('reg_no')
     def _student_list(mask_series):
       regs = archetypes[mask_series].index.tolist()
-      rows = arc_with_info.loc[arc_with_info.index.isin(regs), ['name','Target_SGPA']].reset_index()
-      return [(r['reg_no'], r['name'], r['Target_SGPA']) for _, r in rows.iterrows()]
+      rows = arc_with_info.loc[arc_with_info.index.isin(regs), ['name','Target_GPA']].reset_index()
+      return [(r['reg_no'], r['name'], r['Target_GPA']) for _, r in rows.iterrows()]
     
     insights['readd_students']  = _student_list(archetypes['Detailed_Status'].str.contains("Readd", case=False))
     insights['failed_students']  = _student_list(archetypes['Detailed_Status'].str.contains(r"Non-Promoted \(Failed\)", case=False))
@@ -443,9 +443,9 @@ df_sub = df_sub_raw[df_sub_raw['subject_code'].isin(selected_subjects)].copy() i
 df_main = df_raw[(df_raw['cgpa'] >= cgpa_range[0]) & (df_raw['cgpa'] <= cgpa_range[1])].copy()
 
 # Resilience Detection: Is this the first semester scan?
-# In 1st Sem, portal often repeats SGPA as CGPA. Detect by equality or sum.
+# In 1st Sem, portal often repeats GPA as CGPA. Detect by equality or sum.
 is_first_sem = (df_main['cgpa'].sum() == 0) or \
-        (df_main['sgpa'].equals(df_main['cgpa'])) or \
+        (df_main['gpa'].equals(df_main['cgpa'])) or \
         ("1st Yr 1st Sem" in selected_label)
 
 df_pivot = pd.DataFrame()
@@ -564,15 +564,15 @@ def _render_deep_result(result, reg, name="", sess_id="AUTO"):
       delta_color="normal" if diff >= 0 else "inverse"
     )
   with cols[1]:
-    if result['precise_target_sgpa'] > 0:
-      target_val = result['precise_target_sgpa']
+    if result['precise_target_gpa'] > 0:
+      target_val = result['precise_target_gpa']
       if target_val > 4.0:
-        st.metric("Precise Target SGPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
+        st.metric("Precise Target GPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
       else:
-        st.metric("Precise Target SGPA", f"{target_val:.2f}",
+        st.metric("Precise Target GPA", f"{target_val:.2f}",
              delta=f"Next sem ({result['next_sem_credits']:.1f} cr)")
     else:
-      st.metric("Target SGPA", "N/A", delta="Even sem / computed")
+      st.metric("Target GPA", "N/A", delta="Even sem / computed")
   with cols[2]:
     st.metric("Pending Retakes", f"{result['pending_retake_count']}",
          delta=f"{result['total_credits']:.1f} cr completed")
@@ -687,16 +687,16 @@ def _render_deep_result(result, reg, name="", context_suffix=""):
       delta_color="normal" if diff >= 0 else "inverse"
     )
   with cols[1]:
-    if result["precise_target_sgpa"] > 0:
-      target_val = result["precise_target_sgpa"]
+    if result["precise_target_gpa"] > 0:
+      target_val = result["precise_target_gpa"]
       if target_val > 4.0:
-        st.metric("Precise Target SGPA", "Impossible",
+        st.metric("Precise Target GPA", "Impossible",
              delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
       else:
-        st.metric("Precise Target SGPA", f"{target_val:.2f}",
+        st.metric("Precise Target GPA", f"{target_val:.2f}",
              delta=f"Next sem ({result['next_sem_credits']:.1f} cr)")
     else:
-      st.metric("Target SGPA", "N/A", delta="Even sem / computed")
+      st.metric("Target GPA", "N/A", delta="Even sem / computed")
   with cols[2]:
     st.metric("Pending Retakes", f"{result['pending_retake_count']}",
          delta=f"{result['total_credits']:.1f} cr completed")
@@ -723,7 +723,7 @@ if show_strategic_brief:
     
     # Metric 1: Performance / Momentum
     if is_first_sem:
-      m_col1.metric("Mean Semester GPA", f"{insights.get('mean_sgpa', 0):.2f}", 
+      m_col1.metric("Mean Semester GPA", f"{insights.get('mean_gpa', 0):.2f}", 
              delta="Initial Baseline")
     else:
       momentum = insights.get('batch_momentum', 0)
@@ -789,7 +789,7 @@ if show_strategic_brief:
               st.rerun()
 
       if m_ct > 0:
-        st.error(f"** {m_ct} Student(s) Readd Alert:** Deficit too high to reach Year {promo_yr} **{promo_target} CGPA** threshold even with perfect SGPA next semester.")
+        st.error(f"** {m_ct} Student(s) Readd Alert:** Deficit too high to reach Year {promo_yr} **{promo_target} CGPA** threshold even with perfect GPA next semester.")
         _render_student_list(insights.get('readd_students', []))
       if f_ct > 0:
         st.error(f"** {f_ct} Student(s) Failed Promotion:** Did not meet the Year {promo_yr} **{promo_target} CGPA** threshold.")
@@ -841,22 +841,22 @@ with tabs[0]:
   row1_c1, row1_c2 = st.columns([1.6, 1])
 
   with row1_c1:
-    st.markdown("#### SGPA Distribution (This Semester Only)")
-    dist_df = df_main[df_main['sgpa'] > 0].copy()
+    st.markdown("#### GPA Distribution (This Semester Only)")
+    dist_df = df_main[df_main['gpa'] > 0].copy()
     
     # High-leverage axis anchoring: Remove the'0.0 - 2.0' void
-    curr_min = dist_df['sgpa'].min() if not dist_df.empty else 0.0
+    curr_min = dist_df['gpa'].min() if not dist_df.empty else 0.0
     import numpy as np
     axis_start = max(0.0, float(np.floor(curr_min * 5) / 5) - 0.2)
     
     dist_chart = alt.Chart(dist_df).mark_bar().encode(
-      alt.X("sgpa:Q",
+      alt.X("gpa:Q",
          bin=alt.Bin(maxbins=40, extent=[axis_start, 4.0], step=0.05), # Preciser bins
-         title="Semester GPA (SGPA)",
+         title="Semester GPA (GPA)",
          scale=alt.Scale(domain=[axis_start, 4], nice=False)),
       alt.Y('count()', title='Student Count'),
       tooltip=[
-        alt.Tooltip('sgpa:Q', bin=alt.Bin(maxbins=40, extent=[axis_start, 4.0], step=0.05), title='GPA Band'),
+        alt.Tooltip('gpa:Q', bin=alt.Bin(maxbins=40, extent=[axis_start, 4.0], step=0.05), title='GPA Band'),
         alt.Tooltip('count()', title='Students')
       ]
     ).properties(height=300)
@@ -918,10 +918,10 @@ with tabs[0]:
   # Row 3: Achievement Gradient (rank vs CGPA)
   st.markdown("#### Achievement Gradient (Rank vs GPA)")
   
-  # Adaptive Fallback: In 1st semester, CGPA is typically 0. Use SGPA instead.
-  use_sgpa_grad = df_main['cgpa'].sum() == 0
-  gpa_col ='sgpa' if use_sgpa_grad else'cgpa'
-  gpa_title = "Semester GPA (SGPA)" if use_sgpa_grad else "Cumulative GPA"
+  # Adaptive Fallback: In 1st semester, CGPA is typically 0. Use GPA instead.
+  use_gpa_grad = df_main['cgpa'].sum() == 0
+  gpa_col ='gpa' if use_gpa_grad else'cgpa'
+  gpa_title = "Semester GPA (GPA)" if use_gpa_grad else "Cumulative GPA"
   
   rank_df = df_main[df_main[gpa_col] > 0].sort_values(gpa_col, ascending=False).copy()
   rank_df['Rank'] = range(1, len(rank_df) + 1)
@@ -936,8 +936,8 @@ with tabs[0]:
     tooltip=['name', alt.Tooltip(f'{gpa_col}:Q', format='.2f', title=gpa_title),'Rank']
   ).properties(height=350)
   st.altair_chart(line, width='stretch')
-  if use_sgpa_grad:
-    st.caption("ℹ First-semester fallback: Ranking based on **SGPA** (Cumulative GPA not yet available).")
+  if use_gpa_grad:
+    st.caption("ℹ First-semester fallback: Ranking based on **GPA** (Cumulative GPA not yet available).")
 
   st.divider()
 
@@ -1004,10 +1004,10 @@ with tabs[1]:
   if df_longitudinal is None or df_longitudinal.empty:
     st.info("No longitudinal data available for this profile. Try scanning more semesters.")
   else:
-    # Section 3.1: Batch SGPA Trajectory Chart
-    st.markdown("#### Batch SGPA Trajectory")
+    # Section 3.1: Batch GPA Trajectory Chart
+    st.markdown("#### Batch GPA Trajectory")
     
-    median_df = df_longitudinal.groupby('semester_num')['sgpa'].median().reset_index()
+    median_df = df_longitudinal.groupby('semester_num')['gpa'].median().reset_index()
     median_df['name'] ='Batch Median'
     median_df['reg_no'] = 0
     median_df['is_median'] = True
@@ -1039,12 +1039,12 @@ with tabs[1]:
 
     traj_chart = alt.Chart(chart_df).mark_line(point=True).encode(
       x=alt.X('semester_num:O', title='Semester Index'),
-      y=alt.Y('sgpa:Q', title='SGPA', scale=alt.Scale(domain=[1.5, 4.0], clamp=True)),
+      y=alt.Y('gpa:Q', title='GPA', scale=alt.Scale(domain=[1.5, 4.0], clamp=True)),
       detail='reg_no:N',
       color=alt.Color('color:N', scale=None),
       opacity=alt.Opacity('opacity:Q', scale=None),
       strokeDash=alt.StrokeDash('strokeDash:N', scale=None),
-      tooltip=['name','reg_no','semester_label','sgpa']
+      tooltip=['name','reg_no','semester_label','gpa']
     ).properties(height=400)
     
     st.altair_chart(traj_chart, width='stretch')
@@ -1058,25 +1058,25 @@ with tabs[1]:
     for reg, group in df_longitudinal.groupby('reg_no'):
       if len(group) < 2:
         metrics.append({
-         'reg_no': reg,'name': group.iloc[0]['name'],'peak': group['sgpa'].max(),
-         'valley': group['sgpa'].min(),'consistency': 1.0,'trajectory':'Stable'
+         'reg_no': reg,'name': group.iloc[0]['name'],'peak': group['gpa'].max(),
+         'valley': group['gpa'].min(),'consistency': 1.0,'trajectory':'Stable'
         })
         continue
         
-      sgpas = group.sort_values('semester_num')['sgpa'].tolist()
-      peak = max(sgpas)
-      valley = min(sgpas)
-      consistency = 1 - np.std(sgpas)
-      slope, _ = np.polyfit(range(len(sgpas)), sgpas, 1)
+      gpas = group.sort_values('semester_num')['gpa'].tolist()
+      peak = max(gpas)
+      valley = min(gpas)
+      consistency = 1 - np.std(gpas)
+      slope, _ = np.polyfit(range(len(gpas)), gpas, 1)
       
       if slope > 0.08:
         traj = "Rising"
       elif slope < -0.08:
         traj = "Declining"
       else:
-        valley_idx = sgpas.index(valley)
-        if 0 < valley_idx < len(sgpas) - 1:
-          if sgpas[0] - valley > 0.2 and sgpas[-1] - valley > 0.2:
+        valley_idx = gpas.index(valley)
+        if 0 < valley_idx < len(gpas) - 1:
+          if gpas[0] - valley > 0.2 and gpas[-1] - valley > 0.2:
             traj = "Recovery (V-shape)"
           else:
             traj = "Stable"
@@ -1154,30 +1154,30 @@ with tabs[1]:
              'Profile': p,
              'Matched Exam': stats['exam_name'],
              'Students': stats['students'],
-             'Mean SGPA': stats['mean_sgpa'],
-             'Median SGPA': stats['median_sgpa'],
+             'Mean GPA': stats['mean_gpa'],
+             'Median GPA': stats['median_gpa'],
              'Pass Rate (%)': stats['pass_rate'],
              'Honours': stats['honours_count']
             })
           st.dataframe(pd.DataFrame(comp_metrics), hide_index=True, width='stretch')
           
           # Density Curve
-          sgpa_flat = []
+          gpa_flat = []
           for p, stats in comp_data.items():
-            for s in stats['sgpa_list']:
-              sgpa_flat.append({'Profile': p,'SGPA': s})
+            for s in stats['gpa_list']:
+              gpa_flat.append({'Profile': p,'GPA': s})
           
-          if sgpa_flat:
-            dens_df = pd.DataFrame(sgpa_flat)
+          if gpa_flat:
+            dens_df = pd.DataFrame(gpa_flat)
             dens_chart = alt.Chart(dens_df).transform_density(
-             'SGPA',
-              as_=['SGPA','density'],
+             'GPA',
+              as_=['GPA','density'],
               groupby=['Profile']
             ).mark_area(opacity=0.3).encode(
-              x=alt.X('SGPA:Q', title='SGPA', scale=alt.Scale(domain=[1.5, 4.0], clamp=True)),
+              x=alt.X('GPA:Q', title='GPA', scale=alt.Scale(domain=[1.5, 4.0], clamp=True)),
               y=alt.Y('density:Q', title='Density'),
               color='Profile:N',
-              tooltip=['Profile','SGPA']
+              tooltip=['Profile','GPA']
             ).properties(height=300)
             st.altair_chart(dens_chart, width='stretch')
 
@@ -1222,7 +1222,7 @@ with tabs[2]:
       clusters = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
       if clusters is not None:
         clust_df = df_main.merge(clusters, left_on='reg_no', right_index=True)
-        clust_df['momentum'] = (clust_df['sgpa'] - clust_df['cgpa']).round(2) if not is_first_sem else 0.0
+        clust_df['momentum'] = (clust_df['gpa'] - clust_df['cgpa']).round(2) if not is_first_sem else 0.0
         
         # Innovative Visualization: Strategic Quadrant (Y: Performance, X: Momentum/Variance)
         # Fallback: In 1st sem, plot vs Subject Variance (Consistency) since momentum is 0
@@ -1278,8 +1278,8 @@ with tabs[2]:
           x=alt.X(f'{x_col}:Q', title=x_title, 
               axis=alt.Axis(grid=True),
               scale=alt.Scale(domain=[clust_df[x_col].min()-0.1, clust_df[x_col].max()+0.1])),
-          y=alt.Y('sgpa:Q', title='Semester GPA (SGPA)', 
-              scale=alt.Scale(domain=[clust_df['sgpa'].min()-0.2, 4.1])),
+          y=alt.Y('gpa:Q', title='Semester GPA (GPA)', 
+              scale=alt.Scale(domain=[clust_df['gpa'].min()-0.2, 4.1])),
           color=alt.Color('Archetype:N', 
                   scale=alt.Scale(domain=active_domains, range=active_ranges),
                   legend=alt.Legend(orient="bottom", columns=2, titleLimit=0, labelLimit=0),
@@ -1290,7 +1290,7 @@ with tabs[2]:
             alt.value(1.0)
           ),
           tooltip=['name', alt.Tooltip('reg_no:N', title='Reg No'),'Archetype',
-               alt.Tooltip('sgpa:Q', format='.2f', title='Current SGPA'),
+               alt.Tooltip('gpa:Q', format='.2f', title='Current GPA'),
                alt.Tooltip('cgpa:Q', format='.2f', title='Historical Average'),
                alt.Tooltip(f'{x_col}:Q', format='.2f', title=x_title)]
         )
@@ -1298,9 +1298,9 @@ with tabs[2]:
         df_danger = clust_df[clust_df['Archetype'].isin(danger_archetypes)]
         if not df_danger.empty:
           danger_overlay = alt.Chart(df_danger).mark_text(text='⚠️', size=18).encode(
-            x=f'{x_col}:Q', y='sgpa:Q',
+            x=f'{x_col}:Q', y='gpa:Q',
             tooltip=['name', alt.Tooltip('reg_no:N', title='Reg No'),'Archetype',
-                 alt.Tooltip('sgpa:Q', format='.2f', title='Current SGPA'),
+                 alt.Tooltip('gpa:Q', format='.2f', title='Current GPA'),
                  alt.Tooltip('cgpa:Q', format='.2f', title='Historical Average'),
                  alt.Tooltip(f'{x_col}:Q', format='.2f', title=x_title)]
           )
@@ -1313,7 +1313,7 @@ with tabs[2]:
           if not df_spot.empty:
             spot_overlay = alt.Chart(df_spot).mark_circle(
               size=700, color='transparent', stroke='#fbbf24', strokeWidth=3
-            ).encode(x=f'{x_col}:Q', y='sgpa:Q')
+            ).encode(x=f'{x_col}:Q', y='gpa:Q')
             scatter = scatter + spot_overlay
         
         # Add a vertical zero-line for clarity in momentum mode
@@ -1328,8 +1328,8 @@ with tabs[2]:
         
         # Mobile-Friendly Companion Data Table
         with st.expander("View Quadrant Data Matrix (Tap-Free)"):
-          st_view_df = clust_df[['reg_no','name','sgpa','cgpa','Archetype']].sort_values('sgpa', ascending=False)
-          st_view_df = st_view_df.rename(columns={'reg_no':'Reg','name':'Name','sgpa':'SGPA','cgpa':'CGPA','Archetype':'Status'})
+          st_view_df = clust_df[['reg_no','name','gpa','cgpa','Archetype']].sort_values('gpa', ascending=False)
+          st_view_df = st_view_df.rename(columns={'reg_no':'Reg','name':'Name','gpa':'GPA','cgpa':'CGPA','Archetype':'Status'})
           st.dataframe(st_view_df, width='stretch', hide_index=True)
       else:
         st.info("Not enough students for clustering (need ≥4 with complete subject data).")
@@ -1390,7 +1390,7 @@ with tabs[4]:
     "text/csv"
   )
 
-  disp_cols = ['reg_no','name','sgpa','cgpa','result_status','improvement_count','retake_count']
+  disp_cols = ['reg_no','name','gpa','cgpa','result_status','improvement_count','retake_count']
   disp_df = df_main.sort_values('cgpa', ascending=False).reset_index(drop=True)
   st.dataframe(disp_df[disp_cols], width='stretch')
 
@@ -1403,7 +1403,7 @@ with tabs[5]:
   st.subheader("GPA Projection & Graduation Planner")
   st.markdown(
     "Run a deep analysis for any student to see their **True CGPA**, "
-    "**pending retakes**, and compute the **minimum average SGPA** needed "
+    "**pending retakes**, and compute the **minimum average GPA** needed "
     "to reach any target graduation CGPA."
   )
   st.info(
@@ -1440,7 +1440,7 @@ with tabs[5]:
       reg = row["reg_no"]
       sess_id = row.get("sess_id", "AUTO")
       name = row.get("name", f"Reg {reg}")
-      sgpa = row.get("sgpa", 0.0)
+      gpa = row.get("gpa", 0.0)
       cgpa = row.get("cgpa", 0.0)
 
       cache_key = f"{profile_name}_{reg}_{sess_id}"
@@ -1449,7 +1449,7 @@ with tabs[5]:
       with st.container(border=True):
         hdr_col1, hdr_col2, hdr_col3, hdr_col4 = st.columns([3, 1, 1, 2])
         hdr_col1.markdown(f"**{name}** &nbsp; `{reg}`")
-        hdr_col2.markdown(f"SGPA &nbsp;**{sgpa:.2f}**")
+        hdr_col2.markdown(f"GPA &nbsp;**{gpa:.2f}**")
         hdr_col3.markdown(f"CGPA &nbsp;**{cgpa:.2f}**")
 
         already_done = cache_key in st.session_state._deep_cache
@@ -1472,8 +1472,15 @@ with tabs[5]:
               deep_result=deep_res,
               effective_grades=deep_res.get('effective_grades', {}),
               retake_records=deep_res.get('retake_records', []),
+              profile_name=profile_name,
             )
             
+            # --- Semester label helper ---
+            def _semester_label(sem_num):
+              yr = (sem_num - 1) // 2 + 1
+              s = 1 if sem_num % 2 == 1 else 2
+              return f"{yr}-{s}"
+
             # --- Metrics Row ---
             diff = deep_res['cgpa_diff']
             diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
@@ -1482,14 +1489,14 @@ with tabs[5]:
               st.metric("True CGPA", f"{deep_res['true_cgpa']:.2f}",
                    delta=f"{diff_str} vs official {deep_res['official_cgpa']:.2f}", delta_color="normal" if diff >= 0 else "inverse")
             with cols[1]:
-              if deep_res['precise_target_sgpa'] > 0:
-                target_val = deep_res['precise_target_sgpa']
+              if deep_res['precise_target_gpa'] > 0:
+                target_val = deep_res['precise_target_gpa']
                 if target_val > 4.0:
-                  st.metric("Precise Target SGPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
+                  st.metric("Precise Target GPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
                 else:
-                  st.metric("Precise Target SGPA", f"{target_val:.2f}", delta=f"Next sem ({deep_res['next_sem_credits']:.1f} cr)")
+                  st.metric("Precise Target GPA", f"{target_val:.2f}", delta=f"Next sem ({deep_res['next_sem_credits']:.1f} cr)")
               else:
-                st.metric("Target SGPA", "N/A", delta="Even sem / computed")
+                st.metric("Target GPA", "N/A", delta="Even sem / computed")
             with cols[2]:
               st.metric("Pending Retakes", f"{deep_res['pending_retake_count']}", delta=f"{deep_res['total_credits']:.1f} cr completed")
 
@@ -1522,10 +1529,69 @@ with tabs[5]:
             adj_cgpa, adj_credits = db.compute_adjusted_cgpa(deep_res.get('effective_grades', {}), overrides)
             cgpa_gain = adj_cgpa - deep_res['true_cgpa']
 
+            # === SEMESTER-WISE GPA/CGPA BREAKDOWN (Collapsed by default) ===
+            _dept = db.get_dept_from_profile(profile_name)
+            _current_sem = deep_res.get("current_semester", 0)
+            _official_sem_records = deep_res.get('official_semester_records', {})
+
+            _sem_breakdown = db.compute_per_semester_breakdown(
+              effective_grades=deep_res.get('effective_grades', {}),
+              dept=_dept,
+              current_semester=_current_sem,
+              overrides=overrides,
+              official_records=_official_sem_records,
+            )
+
+            if _sem_breakdown:
+              with st.expander("📊 Semester-wise GPA & CGPA Breakdown", expanded=False):
+                # Header row
+                _hdr = st.columns([1, 1.2, 1.2, 1.2, 1.2, 0.8])
+                _hdr[0].markdown("**Semester**")
+                _hdr[1].markdown("**Official GPA**")
+                _hdr[2].markdown("**Computed GPA**")
+                _hdr[3].markdown("**Official CGPA**")
+                _hdr[4].markdown("**Adjusted CGPA**")
+                _hdr[5].markdown("**Credits**")
+                st.markdown("---")
+
+                for _sb in _sem_breakdown:
+                  _row = st.columns([1, 1.2, 1.2, 1.2, 1.2, 0.8])
+                  _row[0].markdown(f"**{_sb['label']}**")
+                  # Official GPA
+                  _o_gpa = _sb.get('official_gpa')
+                  _row[1].markdown(f"{_o_gpa:.2f}" if _o_gpa is not None else "—")
+                  # Computed GPA (with retake improvements)
+                  _row[2].markdown(f"{_sb['computed_gpa']:.2f}")
+                  # Official CGPA
+                  _o_cgpa = _sb.get('official_cgpa')
+                  _row[3].markdown(f"{_o_cgpa:.2f}" if _o_cgpa is not None else "—")
+                  # Adjusted CGPA (with user overrides)
+                  _adj_diff = ""
+                  if _o_cgpa is not None and _o_cgpa > 0:
+                    _delta = _sb['computed_cgpa'] - _o_cgpa
+                    if abs(_delta) >= 0.01:
+                      _color = "green" if _delta > 0 else "red"
+                      _adj_diff = f" :{_color}[({_delta:+.2f})]"
+                  _row[4].markdown(f"{_sb['computed_cgpa']:.2f}{_adj_diff}")
+                  _row[5].markdown(f"{_sb['credits']:.1f}")
+
+            # === HELPER: Render items grouped by semester ===
+            def _render_semester_grouped(items, render_fn):
+              """Groups items by semester and renders with sub-headers."""
+              from itertools import groupby
+              for sem_num, group in groupby(items, key=lambda x: x.get('semester', 0)):
+                group_list = list(group)
+                if sem_num > 0:
+                  st.markdown(f"**━━ Semester {_semester_label(sem_num)} ━━**")
+                else:
+                  st.markdown("**━━ Other ━━**")
+                for item in group_list:
+                  render_fn(item)
+
             # --- Expanders for Retakes and Improvements ---
             if adv_proj['pending_retakes']:
               with st.expander(f"{len(adv_proj['pending_retakes'])} Subject(s) Still Failing"):
-                for pr in adv_proj['pending_retakes']:
+                def _render_retake(pr):
                   cc0, cc1, cc2 = st.columns([0.4, 3, 1])
                   with cc0:
                     will_pass_key = f"chk_{profile_name}_{reg}_{pr['code']}"
@@ -1541,10 +1607,11 @@ with tabs[5]:
                       st.number_input("Target GP", min_value=2.00, max_value=4.00, value=overrides.get(pr['code'], 2.00), step=0.25, key=key, label_visibility="collapsed")
                     else:
                       st.caption("\u2014")
+                _render_semester_grouped(adv_proj['pending_retakes'], _render_retake)
             
             if adv_proj['improvement_candidates']:
               with st.expander(f"{len(adv_proj['improvement_candidates'])} Improvement Candidates"):
-                for ic in adv_proj['improvement_candidates']:
+                def _render_improvement(ic):
                   cc1, cc2 = st.columns([3, 1])
                   with cc1:
                     name_str = f" | *{ic['name']}*" if ic.get('name') else ""
@@ -1552,12 +1619,15 @@ with tabs[5]:
                   with cc2:
                     key = f"tgt_{profile_name}_{reg}_{ic['code']}"
                     st.number_input("Target GP", min_value=ic['current_gp'], max_value=4.00, value=overrides[ic['code']], step=0.25, key=key, label_visibility="collapsed")
+                _render_semester_grouped(adv_proj['improvement_candidates'], _render_improvement)
 
             if adv_proj['already_attempted']:
               with st.expander(f"Already Attempted ({len(adv_proj['already_attempted'])})"):
-                for aa in adv_proj['already_attempted']:
+                st.caption("These courses were previously retaken/improved but GP is still \u2264 2.75. They remain as improvement candidates above.")
+                def _render_attempted(aa):
                   name_str = f" | *{aa['name']}*" if aa.get('name') else ""
-                  st.markdown(f"**{aa['code']}**{name_str} \u2014 GP: {aa['current_gp']:.2f} | {aa['reason']}")
+                  st.markdown(f"\u26a0\ufe0f **{aa['code']}**{name_str} \u2014 GP: {aa['current_gp']:.2f} | {aa['reason']}")
+                _render_semester_grouped(adv_proj['already_attempted'], _render_attempted)
 
             if adv_proj['ineligible_retake_cleared']:
               _n_retake = sum(1 for x in adv_proj['ineligible_retake_cleared'] if x.get('clear_type') !='improvement_cleared')
@@ -1569,10 +1639,20 @@ with tabs[5]:
                 _counts_parts.append(f"{_n_improv} improvement")
               _counts_str = ", ".join(_counts_parts) if _counts_parts else str(len(adv_proj['ineligible_retake_cleared']))
               with st.expander(f"Cleared (not improvable, {_counts_str})"):
-                for irc in adv_proj['ineligible_retake_cleared']:
+                def _render_cleared(irc):
                   name_str = f" | *{irc['name']}*" if irc.get('name') else ""
-                  icon = "" 
-                  st.markdown(f"**{irc['code']}**{name_str} \u2014 GP: {irc['current_gp']:.2f} | {irc['reason']}")
+                  # Green improvement badge showing delta from original
+                  _orig = irc.get('original_gp', irc['current_gp'])
+                  _delta = irc['current_gp'] - _orig
+                  if _delta > 0:
+                    badge = f' <span style="background:#22c55e;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.8em;">+{_delta:.2f} improved</span>'
+                  else:
+                    badge = ""
+                  st.markdown(
+                    f"**{irc['code']}**{name_str} \u2014 GP: {irc['current_gp']:.2f}{badge} | {irc['reason']}",
+                    unsafe_allow_html=True
+                  )
+                _render_semester_grouped(adv_proj['ineligible_retake_cleared'], _render_cleared)
 
             st.caption(f"Analyzed {deep_res['effective_grade_count']} subjects across {deep_res['semesters_found']} semester(s)")
 
@@ -1614,15 +1694,15 @@ with tabs[5]:
               p_c1, p_c2, p_c3 = st.columns(3)
               with p_c1:
                 if proj["already_met"]:
-                  st.metric("Required Avg SGPA", "Already Met",
+                  st.metric("Required Avg GPA", "Already Met",
                        delta=f"Current Adj: {proj['current_true_cgpa']:.2f}")
                 elif not proj["is_achievable"]:
-                  st.metric("Required Avg SGPA", "Impossible",
-                       delta=f"Needs {proj['required_avg_sgpa']:.2f} > 4.00",
+                  st.metric("Required Avg GPA", "Impossible",
+                       delta=f"Needs {proj['required_avg_gpa']:.2f} > 4.00",
                        delta_color="inverse")
                 else:
-                  st.metric("Required Avg SGPA",
-                       f"{proj['required_avg_sgpa']:.2f}",
+                  st.metric("Required Avg GPA",
+                       f"{proj['required_avg_gpa']:.2f}",
                        delta=f"per semester on avg")
               with p_c2:
                 st.metric("Adjusted CGPA", f"{adj_cgpa:.2f}",
@@ -1655,22 +1735,22 @@ with tabs[5]:
                   f"the target CGPA of **{target_cgpa:.2f}** cannot be reached. "
                   f"Consider adjusting the target."
                 )
-              elif proj["required_avg_sgpa"] >= 3.75:
+              elif proj["required_avg_gpa"] >= 3.75:
                 st.warning(
-                  f"**Very challenging.** Needs an average SGPA of "
-                  f"**{proj['required_avg_sgpa']:.2f}** across "
+                  f"**Very challenging.** Needs an average GPA of "
+                  f"**{proj['required_avg_gpa']:.2f}** across "
                   f"**{proj['remaining_semesters']}** remaining semester(s). "
                   f"Consistent top performance required."
                 )
-              elif proj["required_avg_sgpa"] >= 3.25:
+              elif proj["required_avg_gpa"] >= 3.25:
                 st.info(
-                  f"**Ambitious but achievable.** Needs **{proj['required_avg_sgpa']:.2f}** "
-                  f"avg SGPA over {proj['remaining_semesters']} semester(s)."
+                  f"**Ambitious but achievable.** Needs **{proj['required_avg_gpa']:.2f}** "
+                  f"avg GPA over {proj['remaining_semesters']} semester(s)."
                 )
               else:
                 st.success(
-                  f"**Well within reach.** Needs **{proj['required_avg_sgpa']:.2f}** "
-                  f"avg SGPA over {proj['remaining_semesters']} semester(s). "
+                  f"**Well within reach.** Needs **{proj['required_avg_gpa']:.2f}** "
+                  f"avg GPA over {proj['remaining_semesters']} semester(s). "
                   f"Stay consistent!"
                 )
 
@@ -1679,7 +1759,7 @@ with tabs[5]:
               st.markdown("##### Graduation CGPA Simulator")
               st.caption(
                 "Input your expected performance for each remaining semester. "
-                "Use **Summary** mode for a quick SGPA estimate, or expand "
+                "Use **Summary** mode for a quick GPA estimate, or expand "
                 "**Detailed** mode to set per-course grades. You can mix both."
               )
 
@@ -1691,18 +1771,27 @@ with tabs[5]:
 
                 _mode_key = f"sim_mode_{profile_name}_{reg}_{_sem_n}"
                 _use_detailed = st.session_state.get(_mode_key, False)
+                
+                _include_key = f"sim_include_{profile_name}_{reg}_{_sem_n}"
 
                 with st.container(border=True):
-                  _hdr_c1, _hdr_c2, _hdr_c3 = st.columns([2, 1, 1])
+                  _hdr_c0, _hdr_c1, _hdr_c2, _hdr_c3 = st.columns([0.3, 2.5, 1.2, 1.2])
+                  with _hdr_c0:
+                    _include = st.checkbox("Incl", value=True, key=_include_key, label_visibility="collapsed", help="Include this semester in projection")
                   with _hdr_c1:
                     st.markdown(f"**Semester {_sem_n}** ({_sem_cr:.1f} cr)")
                   with _hdr_c2:
                     st.toggle(
                       "Detailed", value=_use_detailed, key=_mode_key,
-                      help="Toggle to enter per-course grades"
+                      help="Toggle to enter per-course grades",
+                      disabled=not _include
                     )
                   # Re-read after widget render
                   _use_detailed = st.session_state.get(_mode_key, False)
+
+                  if not _include:
+                    st.caption("Semester excluded from projection calculation.")
+                    continue
 
                   if _use_detailed:
                     # --- Detailed per-course input ---
@@ -1739,37 +1828,37 @@ with tabs[5]:
                           _det_points += _gp_val * _c['credit']
                           _det_credits += _c['credit']
 
-                      # Show calculated SGPA for this semester
+                      # Show calculated GPA for this semester
                       if _det_credits > 0:
-                        _calc_sgpa = round(_det_points / _det_credits, 2)
+                        _calc_gpa = round(_det_points / _det_credits, 2)
                         st.success(
-                          f"Calculated SGPA: **{_calc_sgpa:.2f}** "
+                          f"Calculated GPA: **{_calc_gpa:.2f}** "
                           f"({_det_credits:.1f} / {_sem_cr:.1f} cr filled)"
                         )
                       else:
-                        st.caption("Enter course GPs above to calculate SGPA.")
+                        st.caption("Enter course GPs above to calculate GPA.")
 
                     _sim_semester_inputs.append({
                      'semester': _sem_n,
                      'mode':'detailed',
-                     'sgpa': None,
+                     'gpa': None,
                      'course_grades': _course_grades,
                     })
                   else:
-                    # --- Summary SGPA input ---
+                    # --- Summary GPA input ---
                     with _hdr_c3:
-                      _sgpa_key = f"sim_sgpa_{profile_name}_{reg}_{sess_id}_{_sem_n}"
-                      _sgpa_val = st.number_input(
-                        "Expected SGPA", min_value=0.00, max_value=4.00,
+                      _gpa_key = f"sim_gpa_{profile_name}_{reg}_{sess_id}_{_sem_n}"
+                      _gpa_val = st.number_input(
+                        "Expected GPA", min_value=0.00, max_value=4.00,
                         value=3.00, step=0.05,
-                        key=_sgpa_key,
+                        key=_gpa_key,
                         label_visibility="collapsed"
                       )
 
                     _sim_semester_inputs.append({
                      'semester': _sem_n,
                      'mode':'summary',
-                     'sgpa': _sgpa_val,
+                     'gpa': _gpa_val,
                      'course_grades': None,
                     })
 
@@ -1808,7 +1897,7 @@ with tabs[5]:
               # Per-semester breakdown table
               with st.expander("Per-Semester Breakdown"):
                 _bd_df = pd.DataFrame(_sim_result['per_semester_detail'])
-                _bd_df.columns = ['Semester','SGPA','Credits','Quality Points']
+                _bd_df.columns = ['Semester','GPA','Credits','Quality Points']
                 st.dataframe(_bd_df, hide_index=True, width='stretch')
 
               # Graduation status message
