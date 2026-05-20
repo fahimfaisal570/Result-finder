@@ -179,11 +179,11 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
     insights['failed_count'] = archetypes['Detailed_Status'].str.contains(r"Non-Promoted \(Failed\)", case=False).sum()
 
     # Collect student reg_no + name lists for each alert category
-    arc_with_info = archetypes.merge(df_main[['reg_no','name']], left_index=True, right_on='reg_no', how='left').set_index('reg_no')
+    arc_with_info = archetypes.merge(df_main[['reg_no','name','sess_id']], left_index=True, right_on='reg_no', how='left').set_index('reg_no')
     def _student_list(mask_series):
       regs = archetypes[mask_series].index.tolist()
-      rows = arc_with_info.loc[arc_with_info.index.isin(regs), ['name','Target_GPA']].reset_index()
-      return [(r['reg_no'], r['name'], r['Target_GPA']) for _, r in rows.iterrows()]
+      rows = arc_with_info.loc[arc_with_info.index.isin(regs), ['name','Target_GPA','sess_id']].reset_index()
+      return [(r['reg_no'], r['name'], r['Target_GPA'], r['sess_id']) for _, r in rows.iterrows()]
     
     insights['readd_students']  = _student_list(archetypes['Detailed_Status'].str.contains("Readd", case=False))
     insights['failed_students']  = _student_list(archetypes['Detailed_Status'].str.contains(r"Non-Promoted \(Failed\)", case=False))
@@ -759,7 +759,7 @@ if show_strategic_brief:
       r_ct = insights.get('promo_risk_count', 0)
       
       def _render_student_list(student_data):
-        for reg, name, target in student_data:
+        for reg, name, target, sess_id in student_data:
           # Hide target after even semesters unless it's impossible (>4.0)
           show_target = not is_even_sem or target > 4.0
           
