@@ -873,7 +873,7 @@ def get_semester_from_code(code: str, dept: str) -> int:
     if not num_str or not num_str[0].isdigit():
         return 0
 
-    if dept == "Civil":
+    if dept.strip().lower() == "civil":
         # Civil: 3-digit codes like CE-101 → first digit = semester
         try:
             return int(num_str[0])
@@ -914,7 +914,15 @@ def get_semester_total_credits(dept: str, semester_num: int) -> float:
         }
     }
     
-    dept_map = STANDARD_CREDITS.get(dept, STANDARD_CREDITS["CSE"])
+    # Normalize dept
+    d_clean = str(dept).strip().upper()
+    dept_key = "CSE"
+    if "CIVIL" in d_clean:
+        dept_key = "Civil"
+    elif "EEE" in d_clean:
+        dept_key = "EEE"
+        
+    dept_map = STANDARD_CREDITS.get(dept_key, STANDARD_CREDITS["CSE"])
     return dept_map.get(semester_num, 0.0)
 
 
@@ -1151,7 +1159,7 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
     # A student's current progression is dictated by their MOST RECENT main exam.
     # Any main exams from older batches that are for a higher semester are voided.
     def _get_abs_sem(rec):
-        dept = profile_name.split()[0] if profile_name else 'CSE'
+        dept = get_dept_from_profile(profile_name)
         for subj in rec.get('Subjects', []):
             code = str(subj.get('code', '')).strip()
             s = get_semester_from_code(code, dept)
