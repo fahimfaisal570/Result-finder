@@ -1082,7 +1082,7 @@ def compute_graduation_cgpa_from_inputs(
         per_semester_detail.append({
             'semester': sem_num,
             'gpa': round(calculated_gpa, 2),
-            'credits': round(effective_credits, 1),
+            'credits': round(effective_credits, 2),
             'points': round(sem_points, 2),
         })
 
@@ -1093,9 +1093,9 @@ def compute_graduation_cgpa_from_inputs(
     return {
         'graduation_cgpa': graduation_cgpa,
         'total_new_points': round(total_new_points, 2),
-        'total_new_credits': round(total_new_credits, 1),
+        'total_new_credits': round(total_new_credits, 2),
         'per_semester_detail': per_semester_detail,
-        'grand_total_credits': round(grand_total_credits, 1),
+        'grand_total_credits': round(grand_total_credits, 2),
         'grand_total_points': round(grand_total_points, 2),
     }
 
@@ -1648,7 +1648,7 @@ def compute_per_semester_breakdown(
             'computed_cgpa': cumulative_cgpa,
             'official_gpa': official.get('gpa'),
             'official_cgpa': official.get('cgpa'),
-            'credits': round(sem_credits, 1),
+            'credits': round(sem_credits, 2),
             'points': round(sem_points, 2),
             'course_count': len(courses),
         })

@@ -570,12 +570,12 @@ def _render_deep_result(result, reg, name="", sess_id="AUTO"):
         st.metric("Precise Target GPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
       else:
         st.metric("Precise Target GPA", f"{target_val:.2f}",
-             delta=f"Next sem ({result['next_sem_credits']:.1f} cr)")
+             delta=f"Next sem ({result['next_sem_credits']:.2f} cr)")
     else:
       st.metric("Target GPA", "N/A", delta="Even sem / computed")
   with cols[2]:
     st.metric("Pending Retakes", f"{result['pending_retake_count']}",
-         delta=f"{result['total_credits']:.1f} cr completed")
+         delta=f"{result['total_credits']:.2f} cr completed")
 
   # --- Pending retakes detail ---
   if result['pending_retakes']:
@@ -583,7 +583,7 @@ def _render_deep_result(result, reg, name="", sess_id="AUTO"):
       for pr in result['pending_retakes']:
         gp_display = f"{pr['gp']:.2f}" if pr['gp'] > 0 else "F"
         badge = "—" if pr['source'] =='retake_improved' else "—"
-        st.markdown(f"{badge} **{pr['code']}** — GP: {gp_display} ({pr['credit']} cr)")
+        st.markdown(f"{badge} **{pr['code']}** — GP: {gp_display} ({pr['credit']:.2f} cr)")
 
   st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp; Analyzed {result['effective_grade_count']} subjects across {result['semesters_found']} semester(s)")
 
@@ -694,19 +694,19 @@ def _render_deep_result(result, reg, name="", context_suffix=""):
              delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
       else:
         st.metric("Precise Target GPA", f"{target_val:.2f}",
-             delta=f"Next sem ({result['next_sem_credits']:.1f} cr)")
+             delta=f"Next sem ({result['next_sem_credits']:.2f} cr)")
     else:
       st.metric("Target GPA", "N/A", delta="Even sem / computed")
   with cols[2]:
     st.metric("Pending Retakes", f"{result['pending_retake_count']}",
-         delta=f"{result['total_credits']:.1f} cr completed")
+         delta=f"{result['total_credits']:.2f} cr completed")
 
   if result["pending_retakes"]:
     with st.expander(f"\U0001f4cb {result['pending_retake_count']} Subject(s) Still Failing"):
       for pr in result["pending_retakes"]:
         gp_display = f"{pr['gp']:.2f}" if pr["gp"] > 0 else "F"
         badge = "\U0001f504" if pr["source"] == "retake_improved" else "\u274c"
-        st.markdown(f"{badge} **{pr['code']}** \u2014 GP: {gp_display} ({pr['credit']} cr)")
+        st.markdown(f"{badge} **{pr['code']}** \u2014 GP: {gp_display} ({pr['credit']:.2f} cr)")
 
   st.caption(f"\u00a0\u00a0\u00a0\u00a0\U0001f4ca Analyzed {result['effective_grade_count']} subjects across {result['semesters_found']} semester(s)")
 
@@ -1494,11 +1494,11 @@ with tabs[5]:
                 if target_val > 4.0:
                   st.metric("Precise Target GPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
                 else:
-                  st.metric("Precise Target GPA", f"{target_val:.2f}", delta=f"Next sem ({deep_res['next_sem_credits']:.1f} cr)")
+                  st.metric("Precise Target GPA", f"{target_val:.2f}", delta=f"Next sem ({deep_res['next_sem_credits']:.2f} cr)")
               else:
                 st.metric("Target GPA", "N/A", delta="Even sem / computed")
             with cols[2]:
-              st.metric("Pending Retakes", f"{deep_res['pending_retake_count']}", delta=f"{deep_res['total_credits']:.1f} cr completed")
+              st.metric("Pending Retakes", f"{deep_res['pending_retake_count']}", delta=f"{deep_res['total_credits']:.2f} cr completed")
 
             # --- Collect Overrides from session_state ---
             overrides = {}
@@ -1561,7 +1561,13 @@ with tabs[5]:
                   _o_gpa = _sb.get('official_gpa')
                   _row[1].markdown(f"{_o_gpa:.2f}" if _o_gpa is not None else "—")
                   # Computed GPA (with retake improvements)
-                  _row[2].markdown(f"{_sb['computed_gpa']:.2f}")
+                  _gpa_diff = ""
+                  if _o_gpa is not None and _o_gpa > 0:
+                    _delta_g = _sb['computed_gpa'] - _o_gpa
+                    if abs(_delta_g) >= 0.01:
+                      _color = "green" if _delta_g > 0 else "red"
+                      _gpa_diff = f" :{_color}[({_delta_g:+.2f})]"
+                  _row[2].markdown(f"{_sb['computed_gpa']:.2f}{_gpa_diff}")
                   # Official CGPA
                   _o_cgpa = _sb.get('official_cgpa')
                   _row[3].markdown(f"{_o_cgpa:.2f}" if _o_cgpa is not None else "—")
@@ -1573,7 +1579,7 @@ with tabs[5]:
                       _color = "green" if _delta > 0 else "red"
                       _adj_diff = f" :{_color}[({_delta:+.2f})]"
                   _row[4].markdown(f"{_sb['computed_cgpa']:.2f}{_adj_diff}")
-                  _row[5].markdown(f"{_sb['credits']:.1f}")
+                  _row[5].markdown(f"{_sb['credits']:.2f}")
 
             # === HELPER: Render items grouped by semester ===
             def _render_semester_grouped(items, render_fn):
@@ -1600,7 +1606,7 @@ with tabs[5]:
                     gp_display = f"{pr['current_gp']:.2f}" if pr['current_gp'] > 0 else "F"
                     status_icon = "\u2705" if will_pass else "\u274c"
                     name_str = f" | *{pr['name']}*" if pr.get('name') else ""
-                    st.markdown(f"{status_icon} **{pr['code']}**{name_str} \u2014 GP: {gp_display} ({pr['credit']} cr)")
+                    st.markdown(f"{status_icon} **{pr['code']}**{name_str} \u2014 GP: {gp_display} ({pr['credit']:.2f} cr)")
                   with cc2:
                     if will_pass:
                       key = f"tgt_{profile_name}_{reg}_{pr['code']}"
@@ -1615,7 +1621,7 @@ with tabs[5]:
                   cc1, cc2 = st.columns([3, 1])
                   with cc1:
                     name_str = f" | *{ic['name']}*" if ic.get('name') else ""
-                    st.markdown(f"**{ic['code']}**{name_str} \u2014 GP: {ic['current_gp']:.2f} ({ic['credit']} cr)")
+                    st.markdown(f"**{ic['code']}**{name_str} \u2014 GP: {ic['current_gp']:.2f} ({ic['credit']:.2f} cr)")
                   with cc2:
                     key = f"tgt_{profile_name}_{reg}_{ic['code']}"
                     st.number_input("Target GP", min_value=ic['current_gp'], max_value=4.00, value=overrides[ic['code']], step=0.25, key=key, label_visibility="collapsed")
@@ -1709,7 +1715,7 @@ with tabs[5]:
                      delta=f"+{cgpa_gain:.2f} from targets" if cgpa_gain > 0 else None)
               with p_c3:
                 st.metric("Remaining Semesters", proj["remaining_semesters"],
-                     delta=f"{proj['remaining_credits']:.1f} credits left")
+                     delta=f"{proj['remaining_credits']:.2f} credits left")
 
               # Per-semester breakdown
               if proj["remaining_credits_breakdown"]:
@@ -1718,7 +1724,7 @@ with tabs[5]:
                   for ci, sem_info in enumerate(proj["remaining_credits_breakdown"]):
                     bd_cols[ci].metric(
                       f"Sem {sem_info['semester']}",
-                      f"{sem_info['credits']:.1f} cr"
+                      f"{sem_info['credits']:.2f} cr"
                     )
 
               # Status message
@@ -1779,7 +1785,7 @@ with tabs[5]:
                   with _hdr_c0:
                     _include = st.checkbox("Incl", value=True, key=_include_key, label_visibility="collapsed", help="Include this semester in projection")
                   with _hdr_c1:
-                    st.markdown(f"**Semester {_sem_n}** ({_sem_cr:.1f} cr)")
+                    st.markdown(f"**Semester {_sem_n}** ({_sem_cr:.2f} cr)")
                   with _hdr_c2:
                     st.toggle(
                       "Detailed", value=_use_detailed, key=_mode_key,
@@ -1808,9 +1814,9 @@ with tabs[5]:
                         with _cg_c1:
                           _c_label = _c.get('label', _c['code'])
                           if _c.get('name'):
-                            st.markdown(f"`{_c_label}` | *{_c['name']}* \u2014 {_c['credit']} cr")
+                            st.markdown(f"`{_c_label}` | *{_c['name']}* \u2014 {_c['credit']:.2f} cr")
                           else:
-                            st.markdown(f"`{_c_label}` \u2014 {_c['credit']} cr")
+                            st.markdown(f"`{_c_label}` \u2014 {_c['credit']:.2f} cr")
                         with _cg_c2:
                           _gp_key = f"sim_gp_{profile_name}_{reg}_{sess_id}_{_sem_n}_{_c['code']}"
                           _gp_val = st.number_input(
@@ -1833,7 +1839,7 @@ with tabs[5]:
                         _calc_gpa = round(_det_points / _det_credits, 2)
                         st.success(
                           f"Calculated GPA: **{_calc_gpa:.2f}** "
-                          f"({_det_credits:.1f} / {_sem_cr:.1f} cr filled)"
+                          f"({_det_credits:.2f} / {_sem_cr:.2f} cr filled)"
                         )
                       else:
                         st.caption("Enter course GPs above to calculate GPA.")
@@ -1885,12 +1891,12 @@ with tabs[5]:
               with _sim_c2:
                 st.metric(
                   "Total Credits (All 8 Sems)",
-                  f"{_sim_result['grand_total_credits']:.1f} cr"
+                  f"{_sim_result['grand_total_credits']:.2f} cr"
                 )
               with _sim_c3:
                 st.metric(
                   "New Credits Projected",
-                  f"{_sim_result['total_new_credits']:.1f} cr",
+                  f"{_sim_result['total_new_credits']:.2f} cr",
                   delta=f"from {len(_sim_semester_inputs)} semester(s)"
                 )
 
