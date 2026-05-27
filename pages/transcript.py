@@ -155,9 +155,8 @@ except Exception as e:
     st.error(f"CLI HTML generation failed: {e}")
     st.stop()
 
-# --- Render inline (Iframe with dynamic height to prevent cut-off) ---
-calc_height = 600 + (len(history) * 300)
-st.components.v1.html(html_out, height=calc_height, scrolling=True)
+# --- Render inline report ---
+st.html(html_out)
 
 # --- Download Button ---
 st.download_button(

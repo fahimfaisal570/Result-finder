@@ -210,8 +210,7 @@ else:
         st.stop()
 
     html_out = cs.generate_html_report(results, exam_name, pro_id=pro_id, sess_id=sess_id)
-    calc_height = 800 + (len(results) * 60)
-    st.components.v1.html(html_out, height=calc_height, scrolling=True)
+    st.html(html_out)
 
     if results:
         st.write("---")
