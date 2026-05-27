@@ -25,3 +25,13 @@ All tasks derived from [Code Rabbit Review Report](file:///c:/Users/Ucc/Download
 - [x] Wave 4: Final Verification Gate
   - [x] Task 4.1: Run full test suite and confirm 13/13 pass
   - [x] Task 4.2: Update review report with resolution status
+
+- [x] Wave 5: Database Query Optimization (Indices & Concurrency)
+  - [x] Task 5.1: Configure timeouts and busy retry parameters in `get_connection()`
+  - [x] Task 5.2: Create compound database lookup indices dynamically in `init_db()` and all migrations
+  - [x] Task 5.3: Run unit tests to verify index creation and connection safety
+
+- [x] Wave 6: Scraper & Regex Robustness (Pydroid 3 Compatible)
+  - [x] Task 6.1: Define robust, compiled, case-insensitive regex patterns for student metadata in `cli_scraper.py`
+  - [x] Task 6.2: Implement randomized exponential backoff retry delays inside the scraper request loop
+  - [x] Task 6.3: Run automated test suite to confirm zero scraper regressions
