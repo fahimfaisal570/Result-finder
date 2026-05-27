@@ -368,7 +368,7 @@ def run_batch_scan_engine(tasks, pro_id, exam_id="0", all_sessions=None, progres
     t_args = (task_queue, pro_id, exam_id, all_results, results_lock, print_lock, len(tasks), completed_tasks, target_college, all_sessions, wrapped_callback)
     threads = []
     for _ in range(worker_count):
-        time.sleep(random.uniform(0.03, 0.09))  # Jitter L1: was (0.05, 0.15)
+        time.sleep(random.uniform(0.02, 0.05))  # Jitter L2: was (0.03, 0.09)
         t = threading.Thread(target=worker_thread, args=t_args)
         t.daemon = True; t.start(); threads.append(t)
         
@@ -922,7 +922,7 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
         except queue.Empty: break
         
         # Mandatory Human-like initial delay (Jitter) - Synced with CLI for performance
-        time.sleep(random.uniform(0.06, 0.25))  # Jitter L1: was (0.1, 0.4)
+        time.sleep(random.uniform(0.04, 0.15))  # Jitter L2: was (0.06, 0.25)
         
         # Flex-tasks: (reg, sess) or (reg, sess, exam)
         if len(item) == 3:
@@ -939,7 +939,7 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
         
         for tsid in sessions_to_try:
             # Secondary jitter for session discovery - Synced with CLI for performance
-            time.sleep(random.uniform(0.03, 0.09))  # Jitter L1: was (0.05, 0.15)
+            time.sleep(random.uniform(0.02, 0.05))  # Jitter L2: was (0.03, 0.09)
             
             if progress_callback:
                 try: 
@@ -948,7 +948,7 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
                 except: pass
             retries = 0
             while True:
-                time.sleep(random.uniform(0.03, 0.09))  # Jitter L1: was (0.05, 0.15)
+                time.sleep(random.uniform(0.02, 0.05))  # Jitter L2: was (0.03, 0.09)
                 res, is_any = fetch_student_result(reg_no, pro_id, tsid, exam_id, target_college)
                 if res == "NETWORK_ERROR":
                     retries += 1
