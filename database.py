@@ -88,11 +88,40 @@ def get_connection():
     Returns a local SQLite database connection wrapped to guarantee closure upon context manager exit.
     (Turso Cloud Mode is currently disabled).
     """
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return ClosedOnExitConnection(conn)
 
+
+
+def ensure_database_indices(conn):
+    """
+    Creates optimized compound indices on major query and lookup keys to eliminate full table scans.
+    """
+    def column_exists(table_name, column_name):
+        try:
+            cur = conn.execute(f"PRAGMA table_info({table_name})")
+            columns = [row[1] for row in cur.fetchall()]
+            return column_name in columns
+        except Exception:
+            return False
+
+    # Check if subject_grades exists and contains sess_id column
+    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='subject_grades'").fetchone()
+    if res and column_exists('subject_grades', 'sess_id'):
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_subject_grades_lookup ON subject_grades(profile_name, reg_no, sess_id)")
+    
+    # Check if exam_results exists and contains sess_id column
+    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='exam_results'").fetchone()
+    if res and column_exists('exam_results', 'sess_id'):
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_results_lookup ON exam_results(profile_name, reg_no, sess_id)")
+
+    # Check if students exists and contains sess_id column
+    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='students'").fetchone()
+    if res and column_exists('students', 'sess_id'):
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_students_lookup ON students(profile_name, reg_no, sess_id)")
 
 
 def init_db():
@@ -136,6 +165,8 @@ def init_db():
                 cached_at REAL NOT NULL
             );
         """)
+        conn.commit()
+        ensure_database_indices(conn)
         conn.commit()
 
 
@@ -354,6 +385,7 @@ def migrate_schema_v4():
             conn.execute("ALTER TABLE subject_grades_v4 RENAME TO subject_grades")
 
         conn.execute("PRAGMA foreign_keys = ON")
+        ensure_database_indices(conn)
         conn.commit()
         logger.info("Schema v4 migration complete.")
 
