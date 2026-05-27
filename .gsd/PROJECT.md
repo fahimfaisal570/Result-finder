@@ -1,12 +1,12 @@
-# Result Finder — Code Quality Remediation
+# Result Finder — Project Specifications
 
-*Streamlit-based academic result analytics dashboard that scrapes and analyzes university exam results (DUCMC portal). The focus of this remediation is fixing all Critical, Major, and Minor issues identified by the Code Rabbit senior code review.*
+*Streamlit-based academic result analytics dashboard that scrapes and analyzes university exam results (DUCMC portal) from Bangladesh. Modernized as a web application on the `v2` branch, discarding mobile-only limitations.*
 
 ## Core Tech Stack
 - **Frontend:** Streamlit (Python web framework)
-- **Backend:** Python 3.12 (CLI scraper, database layer)
-- **Database:** SQLite with WAL mode
-- **Networking:** Raw `http.client` keep-alive connection pool
+- **Backend:** Python 3 (CLI scraper, database layer)
+- **Database:** SQLite with WAL mode, robust 30s connection timeout and busy retries
+- **Networking:** Standard `requests.Session` thread-safe connection pooling
 - **Pages:** `app.py` (main), `pages/results.py`, `pages/analytics.py`, `pages/transcript.py`
 
 ## Development Conventions
@@ -17,10 +17,10 @@
 - Unit tests in `tests/test_database.py` and `tests/test_full_system.py`
 
 ## Key Files
-- `database.py` — SQLite layer (2226 lines)
-- `cli_scraper.py` — HTTP scraper engine (1911 lines)
-- `app.py` — Main Streamlit dashboard (367 lines)
-- `pages/analytics.py` — Analytics dashboard (1934 lines)
-- `pages/results.py` — Results page (260 lines)
-- `pages/transcript.py` — Transcript page (171 lines)
-- `ui_components.py` — Shared CSS/JS injection (311 lines)
+- `database.py` — SQLite layer with compound query indices
+- `cli_scraper.py` — Scraper engine with pre-compiled regex, exponential backoff, and modern requests pooling
+- `app.py` — Main Streamlit dashboard
+- `pages/analytics.py` — Analytics dashboard
+- `pages/results.py` — Results page
+- `pages/transcript.py` — Transcript page
+- `ui_components.py` — Shared CSS/JS injection

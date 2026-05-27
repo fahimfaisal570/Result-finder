@@ -10,27 +10,17 @@ Instructions for Pydroid 3:
 5. The HTML report will automatically open in your default browser.
 """
 
-from __future__ import print_function
 import os
 import sys
 import time
 import re
-import ssl
 import subprocess
 import collections
 import random
-
-# --- Python 2/3 Compatibility Shims ---
-if sys.version_info[0] < 3:
-    import urllib2 as urllib_req
-    import urllib as urllib_parse
-    import Queue as queue
-    input_func = raw_input
-else:
-    import urllib.request as urllib_req
-    import urllib.parse as urllib_parse
-    import queue
-    input_func = input
+import urllib.request as urllib_req
+import urllib.parse as urllib_parse
+import queue
+input_func = input
 import json
 import database as db
 try:
@@ -77,10 +67,6 @@ SESSION_UA = random.choice(USER_AGENTS)
 ORIGINAL_DIR = os.getcwd()
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) or ORIGINAL_DIR
 
-try:
-    ssl_context = ssl._create_unverified_context()
-except AttributeError:
-    ssl_context = None
 
 import requests
 from requests.adapters import HTTPAdapter

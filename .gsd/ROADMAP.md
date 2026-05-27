@@ -1,11 +1,11 @@
-# Roadmap — Code Quality Remediation
+# Roadmap — Code Quality & Scraper Modernization
 
 ## Source
 All tasks derived from [Code Rabbit Review Report](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/.coderabbit/review_report.md)
 
 ---
 
-- [x] Wave 0: Critical Hotfixes (Already Applied)
+- [x] Wave 0: Critical Hotfixes
   - [x] Task 0.1: Fix SQLite connection leak — `ClosedOnExitConnection` wrapper in `database.py`
   - [x] Task 0.2: Fix `migrate_schema_v2` crash — remove `sess_id` from GROUP BY
   - [x] Task 0.3: Fix HTTP pool broken connection accumulation — `broken` flag in `KeepAlivePool`
@@ -31,7 +31,24 @@ All tasks derived from [Code Rabbit Review Report](file:///c:/Users/Ucc/Download
   - [x] Task 5.2: Create compound database lookup indices dynamically in `init_db()` and all migrations
   - [x] Task 5.3: Run unit tests to verify index creation and connection safety
 
-- [x] Wave 6: Scraper & Regex Robustness (Pydroid 3 Compatible)
+- [x] Wave 6: Scraper & Regex Robustness
   - [x] Task 6.1: Define robust, compiled, case-insensitive regex patterns for student metadata in `cli_scraper.py`
   - [x] Task 6.2: Implement randomized exponential backoff retry delays inside the scraper request loop
   - [x] Task 6.3: Run automated test suite to confirm zero scraper regressions
+
+- [x] Wave 7: Requests.Session Pool Migration (Modernized Webapp Edition)
+  - [x] Task 7.1: Add `import requests` and setup global session with thread-safe `HTTPAdapter` pool
+  - [x] Task 7.2: Refactor `make_request()` to use `session.get()` and `session.post()` with explicit timeouts
+  - [x] Task 7.3: Replace custom `SESSION_COOKIES` and locking blocks with standard native cookies checks
+  - [x] Task 7.4: Add `requests` directly to `requirements.txt`
+
+- [x] Wave 8: PDF Report Formatting & Times New Roman Style Alignment
+  - [x] Task 8.1: Migrate HTML/PDF results report styling in `cli_scraper.py` to match Times New Roman format of main branch
+  - [x] Task 8.2: Implement clean page-break styling and remove anchors in results tables for official look
+  - [x] Task 8.3: Add Bangladesh timezone-aware generation metadata
+
+- [x] Wave 9: Obsolete Code & Backup Cleanups
+  - [x] Task 9.1: Clean up redundant Python 2 compatibility shims and conditional checks in `cli_scraper.py`
+  - [x] Task 9.2: Delete residual `cli_scraper.py.bak` from the repository root
+  - [x] Task 9.3: Remove unused `ssl_context` variables
+  - [x] Task 9.4: Run all verification tests and commit

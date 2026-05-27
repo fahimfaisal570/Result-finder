@@ -7,13 +7,12 @@
 - None
 
 ## Decided Architectures
-- Using `ClosedOnExitConnection` proxy pattern (not `contextmanager`) for DB connection lifecycle
-- HTTP pool uses `broken` flag pattern for connection health tracking
-- Admin credential will move to `ADMIN_PASSWORD_HASH` env var with `hashlib.sha256`
-- Keep zero-dependency scraper architecture for maximum portability (Android Pydroid 3, standard CI)
+- Exclusively standardise on Python 3 features (remove Python 2.x shims and conditional branches).
+- Clean up unused variables (`ssl_context`) that were left after the KeepAlivePool socket deletion.
+- Rely strictly on Git for version history rather than root backup files (`cli_scraper.py.bak`).
 
-## Next Immediate Task
-- None (Project fully finalized, optimized, and pushed online)
+## Next Immediate Tasks
+- None (All Waves and cleanups finalized, project pristine)
 
 ## Completed Waves
 - Wave 0: All 3 Critical/Major hotfixes applied and verified (13/13 tests pass)
@@ -23,3 +22,6 @@
 - Wave 4: Final Verification Gate completed (13/13 tests pass)
 - Wave 5: Database Query Optimization completed (13/13 tests pass)
 - Wave 6: Scraper & Regex Robustness completed (13/13 tests pass)
+- Wave 7: Requests.Session Pool Migration completed (13/13 tests pass)
+- Wave 8: PDF Report Formatting & Style Alignment completed (13/13 tests pass)
+- Wave 9: Obsolete Code & Backup Cleanups completed (13/13 tests pass)
