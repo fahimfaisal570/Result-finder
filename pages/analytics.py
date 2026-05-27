@@ -1665,7 +1665,15 @@ with tabs[5]:
 
                   if _use_detailed:
                     # --- Detailed per-course input ---
-                    _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
+                    try:
+                      _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
+                    except TypeError:
+                      import importlib
+                      try:
+                        importlib.reload(db)
+                        _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
+                      except Exception:
+                        _courses = db.get_semester_courses(_dept, _sem_n)
                     _course_grades = []
                     _det_points = 0.0
                     _det_credits = 0.0
