@@ -6,11 +6,14 @@ import os
 PROGRAMS = ["12", "13", "14"]
 KNOWN_EXAMS_FILE = "exam_monitor/known_exams.json"
 
+# Compiled regex for fast HTML option ID matching
+OPTION_ID_PAT = re.compile(r'<option[^>]+value=["\'](\d+)["\'][^>]*>')
+
 def fetch_all_ids(pid):
     url = f"https://ducmc.du.ac.bd/ajax/get_program_by_exam.php?program_id={pid}&pedata=99"
     try:
         html = urllib.request.urlopen(url).read().decode('utf-8')
-        return re.findall(r'<option[^>]+value=["\'](\d+)["\'][^>]*>', html)
+        return OPTION_ID_PAT.findall(html)
     except:
         return []
 

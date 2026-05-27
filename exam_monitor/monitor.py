@@ -24,12 +24,15 @@ PROGRAMS = {
 MONITOR_DIR = "exam_monitor"
 KNOWN_EXAMS_FILE = os.path.join(MONITOR_DIR, "known_exams.json")
 
+# Compiled regex patterns for fast HTML option parsing
+OPTION_PAT = re.compile(r'<option[^>]+value\s*=\s*["\']?([^"\'>\s]*)["\']?[^>]*>(.*?)</option>', re.DOTALL | re.IGNORECASE)
+TAG_PAT = re.compile(r'<[^>]*>')
+
 def extract_options_from_html(html):
-    pattern = r'<option[^>]+value\s*=\s*["\']?([^"\'>\s]*)["\']?[^>]*>(.*?)</option>'
-    matches = re.findall(pattern, html, re.DOTALL | re.IGNORECASE)
+    matches = OPTION_PAT.findall(html)
     results = {}
     for val, text in matches:
-        clean_text = re.sub(r'<[^>]*>', '', text).strip()
+        clean_text = TAG_PAT.sub('', text).strip()
         if val and val != "0":
             results[val] = clean_text
     return results

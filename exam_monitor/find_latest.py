@@ -7,11 +7,14 @@ PROGRAMS = {
     "14": "CSE"
 }
 
+# Compiled regex for fast HTML option matching
+OPTION_VAL_PAT = re.compile(r'<option[^>]+value=["\'](\d+)["\'][^>]*>(.*?)</option>')
+
 def get_latest(pid):
     url = f"https://ducmc.du.ac.bd/ajax/get_program_by_exam.php?program_id={pid}&pedata=99"
     try:
         html = urllib.request.urlopen(url).read().decode('utf-8')
-        matches = re.findall(r'<option[^>]+value=["\'](\d+)["\'][^>]*>(.*?)</option>', html)
+        matches = OPTION_VAL_PAT.findall(html)
         # We want Main exams for 09 batch
         for eid, name in matches:
             name_lower = name.lower()
