@@ -66,15 +66,33 @@ def get_subject_credits(subject_code: str, profile_name: str, exam_name: str = N
     # We NO LONGER default to 3.0. Returning None allows the caller
     # to detect missing mappings and fall back to portal data if needed.
     return None
+class ClosedOnExitConnection:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return self._conn.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self._conn.close()
+
 def get_connection():
     """
-    Returns a local SQLite database connection.
+    Returns a local SQLite database connection wrapped to guarantee closure upon context manager exit.
     (Turso Cloud Mode is currently disabled).
     """
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
-    return conn
+    return ClosedOnExitConnection(conn)
+
 
 
 def init_db():
@@ -164,7 +182,7 @@ def migrate_schema_v2():
             WHERE id NOT IN (
                 SELECT MIN(id)
                 FROM exam_results
-                GROUP BY profile_name, reg_no, sess_id, exam_id
+                GROUP BY profile_name, reg_no, exam_id
             )
         """)
 
@@ -635,17 +653,57 @@ def get_effective_cgpa_per_student(profile_name: str) -> list:
             "SELECT reg_no, name, sess_id FROM students WHERE profile_name=?", (profile_name,)
         )
         students = students_cur.fetchall()
+        if not students:
+            return []
+
+        # Batch Query 1: Get best grade per subject across all exams for all students in profile
+        best_cur = conn.execute("""
+            SELECT reg_no, sess_id, subject_code, MAX(grade_point) as best_gp, credit_hours
+            FROM subject_grades
+            WHERE profile_name=?
+            GROUP BY reg_no, sess_id, subject_code
+        """, (profile_name,))
+        best_rows = best_cur.fetchall()
+
+        from collections import defaultdict
+        best_grades_by_student = defaultdict(list)
+        for reg_no_r, sess_id_r, subject_code, best_gp, credit_hours in best_rows:
+            best_grades_by_student[(reg_no_r, sess_id_r)].append((subject_code, best_gp, credit_hours))
+
+        # Batch Query 2: Batch check for any grade < 2.0 (failed history) for all students in profile
+        fail_cur = conn.execute("""
+            SELECT DISTINCT reg_no, sess_id
+            FROM subject_grades
+            WHERE profile_name=? AND grade_point < 2.0
+        """, (profile_name,))
+        failed_students = {(r[0], r[1]) for r in fail_cur.fetchall()}
+
+        # Batch Query 3: Latest raw CGPA and status from exam_results for all students in profile
+        raw_cur = conn.execute("""
+            SELECT 
+                er.reg_no,
+                er.sess_id,
+                er.cgpa,
+                er.result_status
+            FROM exam_results er
+            INNER JOIN (
+                SELECT reg_no, sess_id, MAX(CAST(exam_id AS INTEGER)) as max_eid
+                FROM exam_results
+                WHERE profile_name = ?
+                GROUP BY reg_no, sess_id
+            ) latest ON er.reg_no = latest.reg_no 
+                AND er.sess_id = latest.sess_id 
+                AND CAST(er.exam_id AS INTEGER) = latest.max_eid
+            WHERE er.profile_name = ?
+        """, (profile_name, profile_name))
+        raw_rows = raw_cur.fetchall()
+        raw_by_student = {}
+        for r_reg, r_sess, r_cgpa, r_status in raw_rows:
+            raw_by_student[(r_reg, r_sess)] = (r_cgpa, r_status)
 
         for reg_no, name, sess_id in students:
-            # Get best grade per subject across all exams for this student
-            best_cur = conn.execute("""
-                SELECT subject_code, MAX(grade_point) as best_gp, credit_hours
-                FROM subject_grades
-                WHERE profile_name=? AND reg_no=? AND sess_id=?
-                GROUP BY subject_code
-            """, (profile_name, reg_no, sess_id))
-            best_grades = best_cur.fetchall()
-
+            student_key = (reg_no, sess_id)
+            best_grades = best_grades_by_student.get(student_key)
             if not best_grades:
                 continue
 
@@ -657,28 +715,19 @@ def get_effective_cgpa_per_student(profile_name: str) -> list:
             # Calculate Improvement/Retake counts based on defined thresholds
             # Improvement: 2.0 <= GP <= 2.75
             # Retake: GP < 2.0 (Fail)
-            improvement_count = sum(1 for row in best_grades if 2.0 <= row[1] <= 2.75)
-            retake_count = sum(1 for row in best_grades if row[1] < 2.0)
+            improvement_count = sum(1 for row in best_grades if 2.0 <= (row[1] or 0.0) <= 2.75)
+            retake_count = sum(1 for row in best_grades if (row[1] or 0.0) < 2.0)
 
             # First-Chance Failure Detection: 
             # Did they have ANY grade < 2.0 in any attempt for this profile?
-            fail_check_cur = conn.execute("""
-                SELECT COUNT(*) FROM subject_grades 
-                WHERE profile_name=? AND reg_no=? AND sess_id=? AND grade_point < 2.0
-            """, (profile_name, reg_no, sess_id))
-            has_ever_failed = fail_check_cur.fetchone()[0] > 0
+            has_ever_failed = student_key in failed_students
 
             # Latest raw CGPA from exam_results for comparison
-            raw_cur = conn.execute("""
-                SELECT cgpa, result_status FROM exam_results
-                WHERE profile_name=? AND reg_no=? AND sess_id=?
-                ORDER BY exam_id DESC LIMIT 1
-            """, (profile_name, reg_no, sess_id))
-            raw_row = raw_cur.fetchone()
-            raw_cgpa = round(raw_row[0], 2) if raw_row else 0.0
+            raw_info = raw_by_student.get(student_key)
+            raw_cgpa = round(raw_info[0], 2) if raw_info else 0.0
             
             # Robust mapping for Pass/Fail detection
-            db_status = str(raw_row[1]) if raw_row else "Unknown"
+            db_status = str(raw_info[1]) if raw_info else "Unknown"
             if "Promoted" in db_status or "Passed" in db_status or "P" == db_status:
                 status = "Passed/Promoted"
             elif "Failed" in db_status or "Withheld" in db_status:
