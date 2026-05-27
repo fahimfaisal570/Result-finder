@@ -361,6 +361,11 @@ else: # Saved Profiles Mode
 with st.sidebar:
     with st.expander("Admin Access"):
         admin_pw = st.text_input("Admin Password", type="password")
-        st.session_state.is_admin = (admin_pw == "admin123")
+        import hashlib, os
+        expected_hash = os.environ.get("ADMIN_PASSWORD_HASH", 
+            "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9")  # sha256("admin123")
+        st.session_state.is_admin = (
+            hashlib.sha256(admin_pw.encode()).hexdigest() == expected_hash
+        ) if admin_pw else False
 
 ui.add_contact_section()
