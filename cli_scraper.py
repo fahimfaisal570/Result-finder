@@ -72,7 +72,6 @@ HEADERS = {
 
 # Session Globals
 SESSION_UA = random.choice(USER_AGENTS)
-SESSION_COOKIES = {}
 
 # Robust path resolution for Android persistence
 ORIGINAL_DIR = os.getcwd()
@@ -83,38 +82,13 @@ try:
 except AttributeError:
     ssl_context = None
 
-# --- HTTP Keep-Alive Connection Pool ---
-if sys.version_info[0] < 3: import httplib as http_client
-else: import http.client as http_client
+import requests
+from requests.adapters import HTTPAdapter
 
-class KeepAlivePool:
-    def __init__(self, host, pool_size=100):
-        self.host = host
-        self.pool = queue.Queue(maxsize=pool_size)
-        self.pool_size = pool_size
-        self.lock = threading.Lock()
-        self.created = 0
-    def get_connection(self):
-        try: return self.pool.get_nowait()
-        except queue.Empty:
-            with self.lock:
-                if self.created < self.pool_size:
-                    self.created += 1
-                    kwargs = {}
-                    if ssl_context: kwargs['context'] = ssl_context
-                    return http_client.HTTPSConnection(self.host, timeout=15, **kwargs)
-            return self.pool.get(block=True)
-    def return_connection(self, conn, broken=False):
-        if broken:
-            conn.close()
-            with self.lock:
-                self.created -= 1
-        else:
-            try: self.pool.put_nowait(conn)
-            except queue.Full: conn.close()
-
-# Global connection pool for the target domain
-http_pool = KeepAlivePool("ducmc.du.ac.bd", pool_size=100)
+session = requests.Session()
+adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=3)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
 
 global_backoff_until = 0
 
@@ -134,19 +108,12 @@ PAT_SUBJECT_GP = re.compile(r'^[\d\.]+$')
 PAT_SUBJECT_GRADE = re.compile(r'^[A-D][\+\-]?$|^\bF\b$|^\bI\b$|^\bW\b$', re.I)
 
 _stealth_lock = None
-_cookie_lock = None
 
 def get_stealth_lock():
     global _stealth_lock
     if _stealth_lock is None:
         _stealth_lock = threading.Lock()
     return _stealth_lock
-
-def get_cookie_lock():
-    global _cookie_lock
-    if _cookie_lock is None:
-        _cookie_lock = threading.Lock()
-    return _cookie_lock
 
 
 class BatchManager:
@@ -227,60 +194,26 @@ batch_manager = BatchManager()
 
 
 def make_request(url, data=None, headers=None, retries=4):
-    """Makes HTTP requests with full session awareness (Cookies + Pinned UA)."""
+    """Makes HTTP requests with full session awareness using requests.Session."""
     req_headers = HEADERS.copy()
     req_headers['User-Agent'] = SESSION_UA
     
-    with get_cookie_lock():
-        if SESSION_COOKIES:
-            cookie_str = "; ".join(["{0}={1}".format(k, v) for k, v in SESSION_COOKIES.items()])
-            req_headers['Cookie'] = cookie_str
-            
-    if headers: req_headers.update(headers)
-    
-    encoded_data = None
-    method = "GET"
-    if data:
-        method = "POST"
-        encoded_data = urllib_parse.urlencode(data)
-        if type(encoded_data) is str: encoded_data = encoded_data.encode('utf-8')
-        req_headers['Content-Type'] = 'application/x-www-form-urlencoded'
-    
-    parsed_url = urllib_parse.urlparse(url)
-    path = parsed_url.path
-    if parsed_url.query: path += "?" + parsed_url.query
+    if headers: 
+        req_headers.update(headers)
         
     for attempt in range(retries):
-        conn = http_pool.get_connection()
-        broken = False
         try:
-            # Added explicit 15s timeout to prevent 'stuck' threads
-            conn.timeout = 15
-            conn.request(method, path, body=encoded_data, headers=req_headers)
-            response = conn.getresponse()
-            
-            # Extract cookies if present
-            set_cookie = response.getheader('Set-Cookie')
-            if set_cookie:
-                with get_cookie_lock():
-                    parts = set_cookie.split(';')[0].split('=')
-                    if len(parts) >= 2:
-                        SESSION_COOKIES[parts[0].strip()] = parts[1].strip()
-            
-            if response.status in (200, 301, 302):
-                out = response.read().decode('utf-8', 'ignore')
-                if response.getheader('Connection', '').lower() == 'close': conn.close()
-                return out
+            if data:
+                response = session.post(url, data=data, headers=req_headers, timeout=15)
             else:
-                conn.close()
+                response = session.get(url, headers=req_headers, timeout=15)
+                
+            if response.status_code in (200, 301, 302):
+                return response.text
         except Exception:
-            conn.close()
-            broken = True
-        finally:
-            http_pool.return_connection(conn, broken=broken)
-                 
+            pass
+            
         if attempt < retries - 1:
-            import random
             sleep_time = (2 ** attempt) + random.uniform(0.1, 0.5)
             time.sleep(sleep_time)
             
@@ -318,7 +251,7 @@ def fetch_programs_and_sessions():
     """Fetches sessions and programs, ensuring a valid session cookie exists."""
     # Always ensure a session handshake (visit BASE_URL) if cookies are missing.
     # This prevents the portal from blocking session-less AJAX requests after a few attempts.
-    if not SESSION_COOKIES:
+    if not session.cookies:
         make_request(BASE_URL)
 
     cached = db.get_meta_cache("portal_meta", ttl_seconds=86400)
