@@ -477,15 +477,9 @@ def _run_deep_analysis(reg_no, stu_name, sess_id):
 
   _sess_id = sess_id
 
-  # Fetch portal data - retry up to 3 times on empty response
+  # Fetch portal data
   _programs, _sessions = cs.fetch_programs_and_sessions()
-  _all_exams = {}
-  for _attempt in range(3):
-    _all_exams = cs.fetch_exams(_pro_id) if _pro_id else {}
-    if _all_exams:
-      break
-    import time as _time
-    _time.sleep(2)
+  _all_exams = cs.fetch_exams(_pro_id) if _pro_id else {}
   if not _all_exams:
     return None
 
@@ -509,20 +503,14 @@ def _run_deep_analysis(reg_no, stu_name, sess_id):
 
   _tasks = [(int(reg_no), _sess_id, _eid) for _eid in _filtered_eids]
 
-  # Run scan - retry up to 3 times on empty/failed response
-  _history = []
-  for _scan_attempt in range(3):
-    _history = cs.run_batch_scan_engine(
-      tasks=_tasks,
-      pro_id=_pro_id,
-      exam_id="0",
-      all_sessions=_sessions,
-      num_threads=15
-    )
-    if _history:
-      break
-    import time as _time
-    _time.sleep(3)
+  # Run scan
+  _history = cs.run_batch_scan_engine(
+    tasks=_tasks,
+    pro_id=_pro_id,
+    exam_id="0",
+    all_sessions=_sessions,
+    num_threads=15
+  )
 
   if not _history:
     return None

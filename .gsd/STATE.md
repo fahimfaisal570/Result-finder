@@ -10,6 +10,7 @@
 - Exclusively standardise on Python 3 features (remove Python 2.x shims and conditional branches).
 - Clean up unused variables (`ssl_context`) that were left after the KeepAlivePool socket deletion.
 - Rely strictly on Git for version history rather than root backup files (`cli_scraper.py.bak`).
+- Avoid multi-tiered retries (HTTPAdapter vs custom exponential backoff logic) to prevent network resource contention.
 
 ## Next Immediate Tasks
 - None (All Waves and cleanups finalized, project pristine)
@@ -25,3 +26,4 @@
 - Wave 7: Requests.Session Pool Migration completed (13/13 tests pass)
 - Wave 8: PDF Report Formatting & Style Alignment completed (13/13 tests pass)
 - Wave 9: Obsolete Code & Backup Cleanups completed (13/13 tests pass)
+- Wave 10: Deep Analysis Performance Optimization completed (13/13 tests pass, caching rolled back)

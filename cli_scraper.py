@@ -72,7 +72,7 @@ import requests
 from requests.adapters import HTTPAdapter
 
 session = requests.Session()
-adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=3)
+adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=0)
 session.mount("https://", adapter)
 session.mount("http://", adapter)
 
