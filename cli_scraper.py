@@ -104,16 +104,34 @@ class KeepAlivePool:
                     if ssl_context: kwargs['context'] = ssl_context
                     return http_client.HTTPSConnection(self.host, timeout=15, **kwargs)
             return self.pool.get(block=True)
-    def return_connection(self, conn):
-        try: self.pool.put_nowait(conn)
-        except queue.Full: conn.close()
+    def return_connection(self, conn, broken=False):
+        if broken:
+            conn.close()
+            with self.lock:
+                self.created -= 1
+        else:
+            try: self.pool.put_nowait(conn)
+            except queue.Full: conn.close()
 
 # Global connection pool for the target domain
 http_pool = KeepAlivePool("ducmc.du.ac.bd", pool_size=100)
 
-# Stealth & Efficiency Globals
-last_successful_session = None
 global_backoff_until = 0
+
+# Compiled regular expressions for robust, zero-dependency HTML parsing
+PAT_PUB_DATE_1 = re.compile(r"Publication\s*Date.*?(\d{2}-\d{2}-\d{4})", re.I | re.S)
+PAT_PUB_DATE_2 = re.compile(r"Date\s*of\s*Publication.*?(\d{2}-\d{2}-\d{4})", re.I | re.S)
+PAT_STUDENT_NAME = re.compile(r"(?:Student\'?s?\s*)?\bName\b(?!.*College).*?<td[^>]*>\s*(.*?)\s*</td>", re.I | re.S)
+PAT_STUDENT_NAME_FB = re.compile(r"(?:Student\'?s?\s+)?Name\s*[:\-]?\s*<[^>]+>\s*([^<]+)", re.I)
+PAT_GPA_CGPA = re.compile(r'(?:C\.?G\.?P\.?A\.?|G\.?P\.?A\.?|S\.?G\.?P\.?A\.?|Y\.?G\.?P\.?A\.?)[^\d]*([\d\.]+)', re.I)
+PAT_OVERALL_RESULT = re.compile(r'(?:Overall\s+)?Result[^\w]*<td[^>]*>(.*?)</td>', re.I | re.S)
+PAT_STATUS_MATCH = re.compile(r'\b(Promoted|Passed|Failed|Withheld|Not Promoted)\b', re.I)
+PAT_TABLE_ROWS = re.compile(r'<tr[^>]*>(.*?)</tr>', re.I | re.S)
+PAT_TABLE_CELLS = re.compile(r'<(?:td|th)[^>]*>(.*?)</(?:td|th)>', re.I | re.S)
+PAT_TAGS = re.compile(r'<[^>]*>')
+PAT_SUBJECT_CODE = re.compile(r'^[A-Z]{2,6}[\-\s]*\d{3,4}[\*]*$', re.I)
+PAT_SUBJECT_GP = re.compile(r'^[\d\.]+$')
+PAT_SUBJECT_GRADE = re.compile(r'^[A-D][\+\-]?$|^\bF\b$|^\bI\b$|^\bW\b$', re.I)
 
 _stealth_lock = None
 _cookie_lock = None
@@ -234,6 +252,7 @@ def make_request(url, data=None, headers=None, retries=4):
         
     for attempt in range(retries):
         conn = http_pool.get_connection()
+        broken = False
         try:
             # Added explicit 15s timeout to prevent 'stuck' threads
             conn.timeout = 15
@@ -256,10 +275,14 @@ def make_request(url, data=None, headers=None, retries=4):
                 conn.close()
         except Exception:
             conn.close()
+            broken = True
         finally:
-            http_pool.return_connection(conn)
+            http_pool.return_connection(conn, broken=broken)
                  
-        time.sleep(min(5.0, 1.0 + attempt)) # Light backoff
+        if attempt < retries - 1:
+            import random
+            sleep_time = (2 ** attempt) + random.uniform(0.1, 0.5)
+            time.sleep(sleep_time)
             
     return None
 
@@ -466,65 +489,59 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
     info = {'Registration No': reg_no, 'Name': 'Unknown', 'Overall Result': '-', 'GPA': '-', 'CGPA': '-', 'Pub Date': '-'}
     
     # Resilient Publication Date Extraction
-    # Matches "Result Publication Date" or "Publication Date" followed by any characters until a date DD-MM-YYYY
-    # Added non-greedy match for tags and flexible labels
-    for pattern in [r"Publication\s*Date.*?(\d{2}-\d{2}-\d{4})", r"Date\s*of\s*Publication.*?(\d{2}-\d{2}-\d{4})"]:
-        pub_match = re.search(pattern, html, re.I | re.S)
-        if pub_match:
-            info['Pub Date'] = pub_match.group(1)
-            break
+    pub_match = PAT_PUB_DATE_1.search(html) or PAT_PUB_DATE_2.search(html)
+    if pub_match:
+        info['Pub Date'] = pub_match.group(1)
     
     # Resilient Name Matching
-    name_match = re.search(r"(?:Student\'?s?\s*)?\bName\b(?!.*College).*?<td[^>]*>\s*(.*?)\s*</td>", html, re.DOTALL | re.IGNORECASE)
+    name_match = PAT_STUDENT_NAME.search(html)
     if name_match:
-        info['Name'] = re.sub(r'<[^>]*>', '', name_match.group(1)).strip()
+        info['Name'] = PAT_TAGS.sub('', name_match.group(1)).strip()
     else:
-        name_fb = re.search(r"(?:Student\'?s?\s+)?Name\s*[:\-]?\s*<[^>]+>\s*([^<]+)", html, re.IGNORECASE)
-        if name_fb: info['Name'] = re.sub(r'<[^>]*>', '', name_fb.group(1)).strip()
-        else: return "PARSING_ERROR (Name Not Found)", False
+        name_fb = PAT_STUDENT_NAME_FB.search(html)
+        if name_fb:
+            info['Name'] = PAT_TAGS.sub('', name_fb.group(1)).strip()
+        else:
+            return "PARSING_ERROR (Name Not Found)", False
         
     # Flexible GPA/CGPA Extraction
-    pattern = r'(?:C\.?G\.?P\.?A\.?|G\.?P\.?A\.?|S\.?G\.?P\.?A\.?|Y\.?G\.?P\.?A\.?)[^\d]*([\d\.]+)'
-    gp_m = re.findall(pattern, html, re.I)
+    gp_m = PAT_GPA_CGPA.findall(html)
     if gp_m:
-        if len(gp_m) == 1: info['GPA'] = gp_m[0]
-        else: info['GPA'] = gp_m[0]; info['CGPA'] = gp_m[1]
+        if len(gp_m) == 1:
+            info['GPA'] = gp_m[0]
+        else:
+            info['GPA'] = gp_m[0]
+            info['CGPA'] = gp_m[1]
     
     # Overall Result
-    res_explicit = re.search(r'(?:Overall\s+)?Result[^\w]*<td[^>]*>(.*?)</td>', html, re.DOTALL | re.IGNORECASE)
+    res_explicit = PAT_OVERALL_RESULT.search(html)
     if res_explicit:
-        info['Overall Result'] = re.sub(r'<[^>]*>', '', res_explicit.group(1)).strip()
+        info['Overall Result'] = PAT_TAGS.sub('', res_explicit.group(1)).strip()
     else:
-        status_match = re.search(r'\b(Promoted|Passed|Failed|Withheld|Not Promoted)\b', html, re.IGNORECASE)
+        status_match = PAT_STATUS_MATCH.search(html)
         if status_match:
             info['Overall Result'] = status_match.group(1).strip()
             
-    # Robust Subject Extraction Logic (Fixed for EEE/Civil/CSE structural differences)
+    # Robust Subject Extraction Logic
     subjects = []
-    # 1. Find all table rows that could contain results (ignoring attributes like class/id)
-    rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL | re.IGNORECASE)
+    rows = PAT_TABLE_ROWS.findall(html)
     
     for row_content in rows:
-        # 2. Extract content of all cells (th or td) in this row
-        cells = re.findall(r'<(?:td|th)[^>]*>(.*?)</(?:td|th)>', row_content, re.DOTALL | re.IGNORECASE)
-        cells = [re.sub(r'<[^>]*>', '', c).strip() for c in cells] # Strip tags & whitespace
+        cells = PAT_TABLE_CELLS.findall(row_content)
+        cells = [PAT_TAGS.sub('', c).strip() for c in cells]
         
-        if len(cells) < 3: # Need at least Code, Grade, GP
+        if len(cells) < 3:
             continue
             
-        # 3. Dynamic Column Mapping heuristic
-        # A code usually looks like [A-Z]{2,5} [0-9]{3,4}
-        # A GP usually looks like a float or '-' or '0'
         code = None
         for c in cells:
-            if re.match(r'^[A-Z]{2,6}[\-\s]*\d{3,4}[\*]*$', c, re.I):
+            if PAT_SUBJECT_CODE.match(c):
                 code = c
                 break
         
         if not code:
             continue
             
-        # 4. Extract Grade and GP (Restricted to cells AFTER the code to avoid Serial No confusion)
         gp_val = "0.00"
         grade_val = "-"
         
@@ -532,36 +549,30 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
             code_idx = cells.index(code)
             search_area = cells[code_idx+1:]
         except:
-            search_area = cells # Fallback if indexing fails
+            search_area = cells
             
-        # Find GP: usually the last numeric-ish cell in the search area
         for c in reversed(search_area):
-            # Check for float characters or '-'
-            if re.match(r'^[\d\.]+$', c) or c == '-' or c.lower() in ['f', 'w', 'wh']:
+            if PAT_SUBJECT_GP.match(c) or c == '-' or c.lower() in ['f', 'w', 'wh']:
                 try:
-                    # Cap at 4.0 to prevent Marks columns from inflating GPA
                     gp_val = str(round(min(float(c), 4.0), 2))
                 except (ValueError, TypeError):
                     gp_val = "0.00"
                 break
         
-        # Find Grade: A single/double letter (A, B+, F) in the search area
         for c in search_area:
-            if re.match(r'^[A-D][\+\-]?$|^\bF\b$|^\bI\b$|^\bW\b$', c, re.I):
+            if PAT_SUBJECT_GRADE.match(c):
                 grade_val = c
                 break
                 
-        # Subject Name: Usually the longest cell or the one after the code
         subj_name = "Unknown"
         if len(cells) >= 3:
             try:
                 code_idx = cells.index(code)
-                # Candidates: cells that aren't the code, grade, or gp
                 candidates = [c for i, c in enumerate(cells) if i != code_idx and len(c) > 3 and not re.match(r'^[\d\.\-]+$', c)]
                 if candidates:
-                    # Pick the longest one as it's most likely the descriptive subject name
                     subj_name = max(candidates, key=len)
-            except: pass
+            except:
+                pass
 
         subjects.append({
             'code': code.strip().upper().replace(' ', '-'),
