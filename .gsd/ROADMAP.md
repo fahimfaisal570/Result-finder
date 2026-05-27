@@ -22,6 +22,6 @@ All tasks derived from [Code Rabbit Review Report](file:///c:/Users/Ucc/Download
   - [x] Task 3.2: Remove duplicate `ui.add_contact_section()` call in `pages/results.py`
   - [x] Task 3.3: Organize utility/inspection scripts into `scripts/` folder
 
-- [ ] Wave 4: Final Verification Gate
-  - [ ] Task 4.1: Run full test suite and confirm 13/13 pass
-  - [ ] Task 4.2: Update review report with resolution status
+- [x] Wave 4: Final Verification Gate
+  - [x] Task 4.1: Run full test suite and confirm 13/13 pass
+  - [x] Task 4.2: Update review report with resolution status
