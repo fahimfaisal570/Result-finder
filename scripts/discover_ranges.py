@@ -1,0 +1,42 @@
+import sys
+sys.path.insert(0, '.')
+import cli_scraper as cs
+import re
+import time
+
+def get_check_digit(year_str, suffix_str):
+    total_sum = sum(int(d) for d in year_str + suffix_str)
+    return (10 - (total_sum % 10)) % 10
+
+def generate_reg(year, suffix):
+    year_str = str(year)
+    suffix_str = str(suffix).zfill(5)
+    c = get_check_digit(year_str, suffix_str)
+    return f"{year_str}{c}{suffix_str}"
+
+# We will probe CSE 11 (pro_id='14', sess_id='24', exam_id='1375')
+# We will step through suffixes from 51000 to 54000 in steps of 50
+print("Probing the suffix space for CSE 11 (Session 2023-24)...")
+active_colleges = {}
+
+for suffix in range(51000, 54000, 50):
+    reg = generate_reg(2023, suffix)
+    print(f"Probing Suffix {suffix} (Reg: {reg})...")
+    data = {'pro_id': '14', 'sess_id': '24', 'exam_id': '1375', 'gdata': '99', 'reg_no': reg}
+    html = cs.make_request(cs.AJAX_URL, data=data)
+    
+    if html and "Student's Name" in html:
+        col_m = re.search(r'<th>College\s*Name</th>\s*<td[^>]*>(.*?)</td>', html, re.I | re.S)
+        name_m = re.search(r"<th>Student'?s?\s*Name</th>\s*<td[^>]*>(.*?)</td>", html, re.I | re.S)
+        college = re.sub(r'<[^>]*>', '', col_m.group(1)).strip() if col_m else "Unknown"
+        name = re.sub(r'<[^>]*>', '', name_m.group(1)).strip() if name_m else "Unknown"
+        print(f"  >>> FOUND! Suffix: {suffix} | Reg: {reg} | College: {college} | Name: {name}")
+        active_colleges[college] = suffix
+    else:
+        print("  Not found.")
+    time.sleep(0.3)
+
+print("\nDiscovery completed!")
+print("Active college entry points:")
+for col, suff in active_colleges.items():
+    print(f"  {col}: Suffix around {suff}")

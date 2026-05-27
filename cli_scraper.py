@@ -104,9 +104,14 @@ class KeepAlivePool:
                     if ssl_context: kwargs['context'] = ssl_context
                     return http_client.HTTPSConnection(self.host, timeout=15, **kwargs)
             return self.pool.get(block=True)
-    def return_connection(self, conn):
-        try: self.pool.put_nowait(conn)
-        except queue.Full: conn.close()
+    def return_connection(self, conn, broken=False):
+        if broken:
+            conn.close()
+            with self.lock:
+                self.created -= 1
+        else:
+            try: self.pool.put_nowait(conn)
+            except queue.Full: conn.close()
 
 # Global connection pool for the target domain
 http_pool = KeepAlivePool("ducmc.du.ac.bd", pool_size=100)
@@ -234,6 +239,7 @@ def make_request(url, data=None, headers=None, retries=4):
         
     for attempt in range(retries):
         conn = http_pool.get_connection()
+        broken = False
         try:
             # Added explicit 15s timeout to prevent 'stuck' threads
             conn.timeout = 15
@@ -256,8 +262,9 @@ def make_request(url, data=None, headers=None, retries=4):
                 conn.close()
         except Exception:
             conn.close()
+            broken = True
         finally:
-            http_pool.return_connection(conn)
+            http_pool.return_connection(conn, broken=broken)
                  
         time.sleep(min(5.0, 1.0 + attempt)) # Light backoff
             
