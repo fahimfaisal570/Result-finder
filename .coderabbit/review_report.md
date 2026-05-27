@@ -29,8 +29,10 @@
 ### 🟡 Major (0 Open)
 
 #### 1. Multi-Jitter Accumulation in Scraper Worker Threads
-*   **Status**: ⛔ **Declined (By Design)**
-*   **Reason**: Retained all original delays (`0.1-0.4s` initial jitter and `0.05-0.15s` secondary/tertiary jitters) to preserve the established safety thresholds and prevent any risk of IP bans from the university portal.
+*   **Status**: ✅ **Resolved (Optimized)**
+*   **Remediation**: Slashed synthetic human-like delay parameters across 4 points in `cli_scraper.py` (L371, L925, L942, L951) through three incremental stages.
+*   **Final Level**: Level 3 (Aggressive ~85% reduction: `0.01-0.02s` thread startup, `0.02-0.07s` initial jitter, `0.01-0.02s` secondary jitters).
+*   **Result**: Tested extensively on mobile data with no IP bans. Scan performance is incredibly fast.
 
 #### 2. Redundant Outer Retry Loops in Dashboard Analytics Page
 *   **Status**: ✅ **Resolved**
@@ -50,5 +52,6 @@
 ### 🔵 Style/Info (0 Open)
 
 #### 1. Excessive Thread Startup Stagger Delay
-*   **Status**: ⛔ **Declined (By Design)**
-*   **Reason**: Stagger delay retained at the original baseline value to ensure connection handshakes are spread out safely.
+*   **Status**: ✅ **Resolved**
+*   **Remediation**: Reduced startup stagger to `0.01-0.02s` alongside the other jitters, allowing threads to spawn almost instantaneously.
+
