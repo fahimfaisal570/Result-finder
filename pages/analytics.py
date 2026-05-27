@@ -1369,7 +1369,7 @@ with tabs[5]:
             # For pending retakes — honor checkbox
             for pr in adv_proj['pending_retakes']:
               chk_key = f"chk_{profile_name}_{reg}_{pr['code']}"
-              will_pass = st.session_state.get(chk_key, True) # default: checked
+              will_pass = st.session_state.get(chk_key, False) # default: unchecked
               
               if will_pass:
                 tgt_key = f"tgt_{profile_name}_{reg}_{pr['code']}"
@@ -1465,7 +1465,7 @@ with tabs[5]:
                   cc0, cc1, cc2 = st.columns([0.4, 3, 1])
                   with cc0:
                     will_pass_key = f"chk_{profile_name}_{reg}_{pr['code']}"
-                    will_pass = st.checkbox("Pass", value=True, key=will_pass_key, label_visibility="collapsed")
+                    will_pass = st.checkbox("Pass", value=False, key=will_pass_key, label_visibility="collapsed")
                   with cc1:
                     gp_display = f"{pr['current_gp']:.2f}" if pr['current_gp'] > 0 else "F"
                     status_icon = "\u2705" if will_pass else "\u274c"
