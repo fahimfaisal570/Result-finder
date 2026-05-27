@@ -1,8 +1,9 @@
 import os
 import json
+import tempfile
 import cli_scraper as cs
 import database as db
-SYNC_FILE = "/tmp/v2_sync_tasks.json"  # CI-only path (GitHub Actions Linux runner)
+SYNC_FILE = os.path.join(tempfile.gettempdir(), "v2_sync_tasks.json")  # Cross-platform temp path
 
 def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_results):
     """
@@ -149,99 +150,101 @@ def main():
         return
 
     try:
-        with open(SYNC_FILE, "r") as f:
-            tasks_list = json.load(f)
-    except Exception as e:
-        print(f"Failed to load {SYNC_FILE}: {e}")
-        return
+        try:
+            with open(SYNC_FILE, "r") as f:
+                tasks_list = json.load(f)
+        except Exception as e:
+            print(f"Failed to load {SYNC_FILE}: {e}")
+            return
 
-    if not tasks_list:
-        print("No tasks in sync file.")
-        return
+        if not tasks_list:
+            print("No tasks in sync file.")
+            return
 
-    print(f"Found {len(tasks_list)} sync task(s). Starting sync to database...")
+        print(f"Found {len(tasks_list)} sync task(s). Starting sync to database...")
 
-    profiles = db.get_profiles()
-    
-    for task in tasks_list:
-        pro_id = task.get("pro_id")
-        exam_id = task.get("exam_id")
-        exam_name = task.get("exam_name")
-        profile_name = task.get("profile_name")
+        profiles = db.get_profiles()
         
-        print(f"\n--- Syncing {exam_name} for Profile: {profile_name} ---")
-        
-        if profile_name not in profiles:
-            print(f"Error: Profile '{profile_name}' not found in database. Skipping.")
-            continue
+        for task in tasks_list:
+            pro_id = task.get("pro_id")
+            exam_id = task.get("exam_id")
+            exam_name = task.get("exam_name")
+            profile_name = task.get("profile_name")
             
-        p_data = profiles[profile_name]
-        regs_raw = p_data.get("regs", [])
-        if not regs_raw:
-            print(f"Error: Profile '{profile_name}' has no registered students. Skipping.")
-            continue
+            print(f"\n--- Syncing {exam_name} for Profile: {profile_name} ---")
             
-        sess_id = p_data.get("sess_id")
-        scan_tasks = []
-        for item in regs_raw:
-            if isinstance(item, list):
-                scan_tasks.append((int(item[0]), str(item[1]), str(exam_id)))
-            else:
-                scan_tasks.append((int(item), str(sess_id), str(exam_id)))
+            if profile_name not in profiles:
+                print(f"Error: Profile '{profile_name}' not found in database. Skipping.")
+                continue
                 
-        print(f"Fetching results for {len(scan_tasks)} students...")
-        
-        results = cs.run_batch_scan_engine(
-            tasks=scan_tasks,
-            pro_id=pro_id,
-            exam_id=exam_id,
-            target_college="all",
-            num_threads=10
-        )
-        
-        if not results:
-            print(f"No valid results downloaded for {exam_name}.")
-            continue
-            
-        print(f"Downloaded {len(results)} records. Saving to analytics database...")
-        db.save_exam_analytics_only(profile_name, exam_id, exam_name, results)
-        print("Save complete.")
-
-        # --- Readd Detection Phase ---
-        readd_info = detect_and_add_readds(
-            profile_name, pro_id, exam_id, exam_name, results
-        )
-        if readd_info:
-            print(f"\n  [Readd Summary] for {profile_name}:")
-            for ri in readd_info:
-                print(f"     + {ri['name']} ({ri['reg_no']}) <- {ri['source_profile']}")
-            
-            # Save to notifications JSON for the analytics dashboard
-            notify_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "readd_notifications.json")
-            try:
-                if os.path.exists(notify_file):
-                    with open(notify_file, "r") as nf:
-                        notif_data = json.load(nf)
+            p_data = profiles[profile_name]
+            regs_raw = p_data.get("regs", [])
+            if not regs_raw:
+                print(f"Error: Profile '{profile_name}' has no registered students. Skipping.")
+                continue
+                
+            sess_id = p_data.get("sess_id")
+            scan_tasks = []
+            for item in regs_raw:
+                if isinstance(item, list):
+                    scan_tasks.append((int(item[0]), str(item[1]), str(exam_id)))
                 else:
-                    notif_data = {}
+                    scan_tasks.append((int(item), str(sess_id), str(exam_id)))
+                    
+            print(f"Fetching results for {len(scan_tasks)} students...")
+            
+            results = cs.run_batch_scan_engine(
+                tasks=scan_tasks,
+                pro_id=pro_id,
+                exam_id=exam_id,
+                target_college="all",
+                num_threads=10
+            )
+            
+            if not results:
+                print(f"No valid results downloaded for {exam_name}.")
+                continue
                 
-                key = f"{profile_name}_{exam_id}"
-                if key not in notif_data:
-                    notif_data[key] = []
-                notif_data[key].extend(readd_info)
-                
-                with open(notify_file, "w") as nf:
-                    json.dump(notif_data, nf, indent=4)
-                print(f"  [Readd] Saved notification data for dashboard.")
-            except Exception as e:
-                print(f"  [Readd] Failed to save notification: {e}")
+            print(f"Downloaded {len(results)} records. Saving to analytics database...")
+            db.save_exam_analytics_only(profile_name, exam_id, exam_name, results)
+            print("Save complete.")
 
-    # Optional cleanup (the workflow may also clean this up)
-    try:
-        os.remove(SYNC_FILE)
-        print("Removed temporary sync tasks file.")
-    except Exception as e:
-        print(f"Failed to clean up sync file: {e}")
+            # --- Readd Detection Phase ---
+            readd_info = detect_and_add_readds(
+                profile_name, pro_id, exam_id, exam_name, results
+            )
+            if readd_info:
+                print(f"\n  [Readd Summary] for {profile_name}:")
+                for ri in readd_info:
+                    print(f"     + {ri['name']} ({ri['reg_no']}) <- {ri['source_profile']}")
+                
+                # Save to notifications JSON for the analytics dashboard
+                notify_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "readd_notifications.json")
+                try:
+                    if os.path.exists(notify_file):
+                        with open(notify_file, "r") as nf:
+                            notif_data = json.load(nf)
+                    else:
+                        notif_data = {}
+                    
+                    key = f"{profile_name}_{exam_id}"
+                    if key not in notif_data:
+                        notif_data[key] = []
+                    notif_data[key].extend(readd_info)
+                    
+                    with open(notify_file, "w") as nf:
+                        json.dump(notif_data, nf, indent=4)
+                    print(f"  [Readd] Saved notification data for dashboard.")
+                except Exception as e:
+                    print(f"  [Readd] Failed to save notification: {e}")
+    finally:
+        # Optional cleanup (the workflow may also clean this up)
+        try:
+            if os.path.exists(SYNC_FILE):
+                os.remove(SYNC_FILE)
+                print("Removed temporary sync tasks file.")
+        except Exception as e:
+            print(f"Failed to clean up sync file: {e}")
 
 if __name__ == "__main__":
     main()
