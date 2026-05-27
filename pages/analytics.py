@@ -1747,7 +1747,7 @@ with tabs[5]:
                             _gp_val = st.select_slider(
                               "GP",
                               options=_VALID_FUTURE_GPA_OPTIONS,
-                              value=0.00,
+                              value=3.25,
                               format_func=lambda x: "F" if x == 0.00 else f"{x:.2f}",
                               key=_gp_key,
                               label_visibility="collapsed"
