@@ -1039,16 +1039,25 @@ _CSE_ELECTIVE_SEMESTERS = {
     },
 }
 
-def get_semester_courses(dept: str, semester_num: int) -> list[dict]:
+def get_semester_courses(dept: str, semester_num: int, include_all_electives: bool = False) -> list[dict]:
     """
     Returns a clean course list for a semester.
     Each entry: {'code': str, 'credit': float, 'is_elective': bool, 'label': str, 'name': str}
 
     For CSE sems 7 & 8: returns confirmed core courses + 3 named elective slots
-    (2 theory × 3.0 cr + 1 lab × 1.5 cr) instead of all 30+ elective variants.
+    (2 theory × 3.0 cr + 1 lab × 1.5 cr) instead of all 30+ elective variants when include_all_electives is False.
+    If include_all_electives is True, returns all actual elective options.
     For all other sems: derives courses from credit_mapping.json directly
     (those semesters have exact 1:1 mappings — no over-count issue).
     """
+    # Normalize department key
+    dept_clean = str(dept).strip().upper()
+    dept_key = "CSE"
+    if "CIVIL" in dept_clean:
+        dept_key = "Civil"
+    elif "EEE" in dept_clean:
+        dept_key = "EEE"
+
     # Fetch names mapping from database (department-aware and frequency-based)
     code_to_name = {
         'CSE-4203': 'Engineering Ethics'
@@ -1065,29 +1074,55 @@ def get_semester_courses(dept: str, semester_num: int) -> list[dict]:
                 GROUP BY subject_code, subject_name 
                 ORDER BY c ASC
             """
-            cur = conn.execute(query, (f'%{dept.lower()}%',))
+            cur = conn.execute(query, (f'%{dept_key.lower()}%',))
             for r in cur:
                 code_to_name[r[0]] = r[1]
     except Exception:
         pass
 
-    if dept == 'CSE' and semester_num in _CSE_ELECTIVE_SEMESTERS:
+    if dept_key == 'CSE' and semester_num in _CSE_ELECTIVE_SEMESTERS:
         sem_def = _CSE_ELECTIVE_SEMESTERS[semester_num]
         result = []
+        core_codes = set()
         for c in sem_def['core']:
+            core_codes.add(c['code'])
             name = code_to_name.get(c['code'], '')
             result.append({'code': c['code'], 'credit': c['credit'],
                            'is_elective': False, 'label': c['code'], 'name': name})
-        for slot in sem_def['elective_slots']:
-            result.append({'code': slot['code'], 'credit': slot['credit'],
-                           'is_elective': True, 'label': slot['label'], 'name': ''})
+        
+        if include_all_electives:
+            dept_map = _credit_map.get('CSE', {})
+            for code, credit in dept_map.items():
+                if get_semester_from_code(code, 'CSE') == semester_num:
+                    if code not in core_codes:
+                        name = code_to_name.get(code, '')
+                        result.append({'code': code, 'credit': credit,
+                                       'is_elective': True, 'label': code, 'name': name})
+        else:
+            for slot in sem_def['elective_slots']:
+                result.append({'code': slot['code'], 'credit': slot['credit'],
+                               'is_elective': True, 'label': slot['label'], 'name': ''})
+        
+        result.sort(key=lambda c: (c['is_elective'], c['code']))
+        return result
+
+    # For Civil 8th semester, if include_all_electives is True, treat all as electives
+    if dept_key == 'Civil' and semester_num == 8 and include_all_electives:
+        dept_map = _credit_map.get('Civil', {})
+        result = []
+        for code, credit in dept_map.items():
+            if get_semester_from_code(code, 'Civil') == semester_num:
+                name = code_to_name.get(code, '')
+                result.append({'code': code, 'credit': credit,
+                               'is_elective': True, 'label': code, 'name': name})
+        result.sort(key=lambda c: c['code'])
         return result
 
     # For semesters 1-6 (and EEE/Civil): derive directly — no elective over-count
-    dept_map = _credit_map.get(dept, {})
+    dept_map = _credit_map.get(dept_key, {})
     courses = []
     for code, credit in dept_map.items():
-        if get_semester_from_code(code, dept) == semester_num:
+        if get_semester_from_code(code, dept_key) == semester_num:
             name = code_to_name.get(code, '')
             courses.append({'code': code, 'credit': credit,
                             'is_elective': False, 'label': code, 'name': name})
@@ -1137,9 +1172,10 @@ def compute_graduation_cgpa_from_inputs(
             course_points = 0.0
             course_credits = 0.0
             for cg in sem_input['course_grades']:
-                if cg.get('gp', 0) > 0 or cg.get('credit', 0) > 0:
-                    course_points += cg['gp'] * cg['credit']
-                    course_credits += cg['credit']
+                credit = cg.get('credit', 0)
+                if credit > 0:
+                    course_points += cg.get('gp', 0.0) * credit
+                    course_credits += credit
 
             if course_credits > 0:
                 calculated_gpa = round(course_points / course_credits, 2)

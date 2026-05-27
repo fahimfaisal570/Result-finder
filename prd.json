@@ -1,0 +1,49 @@
+{
+  "project": "Result-finder",
+  "branchName": "v2",
+  "description": "GPA Projection simulator enhancements including fail-aware grade inputs, checkbox elective selection with hard caps, and accurate GP=0.00 calculations.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Fail-Aware Grade Inputs",
+      "description": "As a student using the GPA Projection simulator in detailed mode, I want to select future semester course grades using a slider that only allows 0.00 (Fail) and grades >= 2.00 to 4.00, so that my projections reflect valid academic grades.",
+      "acceptanceCriteria": [
+        "Replacing the detailed mode number_input with a select_slider in analytics.py.",
+        "Slider options: [0.00, 2.00, 2.25, 2.50, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00].",
+        "Display 0.00 formatted as 'F' and other values as floating points with 2 decimal places.",
+        "Summary mode remains untouched."
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Replaced number_input with select_slider. Standardized valid GPA points to [0.00, 2.00, 2.25, ..., 4.00]. Formatted 0.00 as 'F'."
+    },
+    {
+      "id": "US-002",
+      "title": "Checkbox Course Selection & Hard Cap",
+      "description": "As a student in final semesters (CSE 7th & 8th, Civil 8th) where there are too many electives, I want to select which electives I am actually taking via checkboxes and have a hard cap limit that prevents selecting more credits than the semester limit, so that my projection is accurate.",
+      "acceptanceCriteria": [
+        "database.py get_semester_courses() has an include_all_electives flag returning all actual electives.",
+        "Identify CSE 7/8 and Civil 8 semesters as having checkbox-gated electives.",
+        "Retrieve the semester's credit cap (e.g. 17.5 for CSE 8th, 17.5 for Civil 8th).",
+        "Render electives with checkboxes (unchecked by default). Core courses are automatically checked/included.",
+        "Disabling unchecked checkboxes when total selected credits equal the semester credit limit (hard cap).",
+        "Completely exclude unchecked electives from the GPA/credits computation."
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Added include_all_electives parameter to get_semester_courses(). Implemented checkboxes in analytics.py with pre-pass credit sum to disable checkboxes once cap is hit."
+    },
+    {
+      "id": "US-003",
+      "title": "Correct GPA Calculation for Fails",
+      "description": "As a student, I want failed courses (GP=0.00) that are selected in my projection to still count their credits toward the semester total, so that they correctly drag down my CGPA.",
+      "acceptanceCriteria": [
+        "In database.py compute_graduation_cgpa_from_inputs, include courses if credit > 0, even if gp == 0.",
+        "Ensure live GPA calculations in analytics.py also count credits for selected courses with GP = 0.00."
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Modified compute_graduation_cgpa_from_inputs and analytics.py to always include credits of selected courses regardless of grade."
+    }
+  ]
+}

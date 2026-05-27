@@ -229,6 +229,54 @@ class TestSchemaAndAcid(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(new_exam_count, 1)
 
+    # ------------------------------------------------------------------
+    # 10. GPA Projection / get_semester_courses and fail-aware calculations
+    # ------------------------------------------------------------------
+    def test_get_semester_courses_include_all_electives(self):
+        # Test CSE 7th semester with include_all_electives=True
+        courses = database.get_semester_courses("CSE", 7, include_all_electives=True)
+        self.assertTrue(len(courses) > 10, "Electives were not fetched correctly")
+        
+        # Check if there are both core and elective courses
+        cores = [c for c in courses if not c["is_elective"]]
+        electives = [c for c in courses if c["is_elective"]]
+        self.assertEqual(len(cores), 6)
+        self.assertTrue(len(electives) > 5)
+        
+        # Test Civil 8th semester with include_all_electives=True
+        civil_courses = database.get_semester_courses("Civil", 8, include_all_electives=True)
+        self.assertTrue(len(civil_courses) > 10)
+        # All should be treated as electives
+        all_electives = all(c["is_elective"] for c in civil_courses)
+        self.assertTrue(all_electives)
+
+    def test_cgpa_calculation_includes_fail_courses(self):
+        # 1 semester in projection, mode is detailed, with 1 course passed and 1 course failed
+        inputs = [{
+            'semester': 7,
+            'mode': 'detailed',
+            'gpa': None,
+            'course_grades': [
+                {'code': 'CSE-4101', 'credit': 3.0, 'gp': 4.0},  # Passed
+                {'code': 'CSE-4102', 'credit': 3.0, 'gp': 0.0},  # Failed
+            ]
+        }]
+        
+        # Initial: CGPA 3.5, credits 100.0 (total points = 350.0)
+        # Projected semester: points = 3.0 * 4.0 + 3.0 * 0.0 = 12.0
+        # Credits added = 6.0 (both passed and failed courses counted)
+        # Total points = 362.0, total credits = 106.0
+        # Expected graduation CGPA = 362.0 / 106.0 = 3.415...
+        res = database.compute_graduation_cgpa_from_inputs(
+            adj_cgpa=3.5,
+            adj_credits=100.0,
+            remaining_semester_inputs=inputs,
+            dept="CSE"
+        )
+        self.assertAlmostEqual(res['graduation_cgpa'], 3.42, places=2)
+        self.assertEqual(res['total_new_credits'], 6.0)
+        self.assertEqual(res['total_new_points'], 12.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

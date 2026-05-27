@@ -1665,7 +1665,7 @@ with tabs[5]:
 
                   if _use_detailed:
                     # --- Detailed per-course input ---
-                    _courses = db.get_semester_courses(_dept, _sem_n)
+                    _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
                     _course_grades = []
                     _det_points = 0.0
                     _det_credits = 0.0
@@ -1673,30 +1673,86 @@ with tabs[5]:
                     if not _courses:
                       st.info(f"No course mapping found for Semester {_sem_n}.")
                     else:
+                      # Pre-pass to compute total selected credits for elective-enabled semesters
+                      _dept_clean = str(_dept).strip().upper()
+                      _is_elective_sem = False
+                      if ("CSE" in _dept_clean and _sem_n in (7, 8)) or ("CIVIL" in _dept_clean and _sem_n == 8):
+                        _is_elective_sem = True
+
+                      _total_sel_credits = 0.0
+                      _credit_cap = db.get_semester_total_credits(_dept, _sem_n)
+
+                      if _is_elective_sem:
+                        for _c in _courses:
+                          if not _c.get('is_elective', False):
+                            _total_sel_credits += _c['credit']
+                          else:
+                            _chk_key = f"sim_select_{profile_name}_{reg}_{_sem_n}_{_c['code']}"
+                            if st.session_state.get(_chk_key, False):
+                              _total_sel_credits += _c['credit']
+
+                        st.info(f"Selected Elective Credits: **{_total_sel_credits:.2f}** / **{_credit_cap:.2f}** cr")
+
                       for _c in _courses:
-                        _cg_c1, _cg_c2 = st.columns([3, 1])
+                        _is_selected = True
+                        _disable_chk = False
+                        
+                        if _is_elective_sem and _c.get('is_elective', False):
+                          _chk_key = f"sim_select_{profile_name}_{reg}_{_sem_n}_{_c['code']}"
+                          _is_checked = st.session_state.get(_chk_key, False)
+                          
+                          # Enforce the hard cap
+                          if not _is_checked:
+                            if _total_sel_credits >= _credit_cap or (_total_sel_credits + _c['credit'] > _credit_cap):
+                              _disable_chk = True
+                          
+                          _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
+                          with _cg_c0:
+                            _is_selected = st.checkbox(
+                              "Select",
+                              value=False,
+                              key=_chk_key,
+                              disabled=_disable_chk,
+                              label_visibility="collapsed"
+                            )
+                        else:
+                          _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
+                          with _cg_c0:
+                            if _is_elective_sem:
+                              st.checkbox("Core", value=True, disabled=True, key=f"sim_core_chk_{profile_name}_{reg}_{_sem_n}_{_c['code']}", label_visibility="collapsed")
+                            else:
+                              st.markdown(" ")
+                              
                         with _cg_c1:
                           _c_label = _c.get('label', _c['code'])
-                          if _c.get('name'):
-                            st.markdown(f"`{_c_label}` | *{_c['name']}* \u2014 {_c['credit']:.2f} cr")
+                          _c_name_str = f" | *{_c['name']}*" if _c.get('name') else ""
+                          if _disable_chk:
+                            st.markdown(f"<span style='color: gray;'>`{_c_label}`{_c_name_str} &mdash; {_c['credit']:.2f} cr (Cap reached)</span>", unsafe_allow_html=True)
                           else:
-                            st.markdown(f"`{_c_label}` \u2014 {_c['credit']:.2f} cr")
+                            st.markdown(f"`{_c_label}`{_c_name_str} &mdash; {_c['credit']:.2f} cr")
+                            
                         with _cg_c2:
                           _gp_key = f"sim_gp_{profile_name}_{reg}_{sess_id}_{_sem_n}_{_c['code']}"
-                          _gp_val = st.number_input(
-                            "GP", min_value=0.00, max_value=4.00,
-                            value=0.00, step=0.25,
-                            key=_gp_key,
-                            label_visibility="collapsed"
-                          )
-                        _course_grades.append({
-                         'code': _c['code'],
-                         'credit': _c['credit'],
-                         'gp': _gp_val,
-                        })
-                        if _gp_val > 0:
-                          _det_points += _gp_val * _c['credit']
-                          _det_credits += _c['credit']
+                          if _is_selected:
+                            # Restrict GP options using select_slider: 0.00 (Fail), 2.00 to 4.00
+                            _VALID_FUTURE_GPA_OPTIONS = [0.00, 2.00, 2.25, 2.50, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00]
+                            _gp_val = st.select_slider(
+                              "GP",
+                              options=_VALID_FUTURE_GPA_OPTIONS,
+                              value=0.00,
+                              format_func=lambda x: "F" if x == 0.00 else f"{x:.2f}",
+                              key=_gp_key,
+                              label_visibility="collapsed"
+                            )
+                            _course_grades.append({
+                              'code': _c['code'],
+                              'credit': _c['credit'],
+                              'gp': _gp_val,
+                            })
+                            _det_points += _gp_val * _c['credit']
+                            _det_credits += _c['credit']
+                          else:
+                            st.markdown("<span style='color: gray; font-size: 0.85rem; padding-top: 5px; display: inline-block;'>Excluded</span>", unsafe_allow_html=True)
 
                       # Show calculated GPA for this semester
                       if _det_credits > 0:

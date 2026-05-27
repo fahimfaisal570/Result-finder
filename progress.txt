@@ -1,0 +1,27 @@
+# Ralph Progress Log
+Started: Wed May 27 16:05:00 2026
+---
+## Codebase Patterns
+- Streamlit application using a multi-page setup under `pages/`.
+- UI modules and helpers defined in `ui_components.py`, analytics in `pages/analytics.py`, and DB operations in `database.py`.
+- Course data is fetched from database or loaded dynamically.
+- Graduation CGPA calculations are done in `database.py` (`compute_graduation_cgpa_from_inputs`) and previewed live in `pages/analytics.py`.
+
+## 2026-05-27 16:05 - Initialization
+- Initialized `prd.json` and `progress.txt` for tracking.
+- Set up tasks for US-001, US-002, and US-003.
+
+## 2026-05-27 16:15 - Completion of US-001, US-002, and US-003
+- Implemented `select_slider` for Detailed mode course grade inputs, restricting valid grades to `[0.00, 2.00, 2.25, ..., 4.00]` with `0.00` formatted as "F".
+- Modified `database.py`'s `get_semester_courses()` to support returning all actual electives with `include_all_electives=True`.
+- Developed checkbox-gated elective selection in `pages/analytics.py` for CSE 7/8 and Civil 8.
+- Added a pre-pass in Streamlit to dynamically sum selected credits and enforce a hard credit cap by disabling unchecked checkboxes once the cap is reached.
+- Excluded unchecked electives from the CGPA/credits calculations.
+- Corrected CGPA calculation logic in `database.py` and `pages/analytics.py` to ensure failed courses (GP=0.00) properly add their credits to the denominator.
+- Wrote extensive new unit tests in `tests/test_database.py` to cover both `include_all_electives` and accurate GP=0.00 calculations.
+- All 15 unit tests passed successfully.
+- Modified files: `database.py`, `pages/analytics.py`, `tests/test_database.py`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Using Streamlit session state and rendering a pre-pass loop allows flawless computation of dynamic attributes (like disable states based on accumulated checkboxes) before any widgets are rendered, eliminating widget initialization lag or logic ordering bugs.
+  - Ensuring the calculator evaluates selection status by `credit > 0` instead of grade values guarantees failures are properly included in the total credit calculations.
+---
