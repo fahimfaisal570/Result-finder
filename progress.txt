@@ -1,0 +1,17 @@
+# Ralph Progress Log
+Started: Wed May 27 14:09:12 2026
+---
+## Codebase Patterns
+- **Zero-Dependency Fast-Boot**: Keep `monitor.py` completely free of heavy imports (such as `jinja2`, `pdfkit`, `requests`) during its high-frequency `--check-only` cron executions to stay under 2s boots.
+- **Custom Connection Pooling**: Always route HTTP requests through the custom HTTPS keep-alive connection manager `KeepAlivePool` defined in `scraper_core/network.py` rather than opening new TLS handshakes repeatedly.
+- **Stealth timing overrides**: Apply dynamic, module-level monkeypatching to `random.uniform` when executing in automated workflow contexts to scale down safety delays and accelerate large-batch processing.
+- **Subject-Overlap Fingerprinting**: Classify re-add candidates by matching their subject registries against the 30%-frequency fingerprint of the regular batch. Exclude candidates with <50% overlap (retake/improvement ghosts).
+
+## 2026-05-27 14:09 - Deep Analysis of Main Branch
+- Completed a highly thorough structural audit of the main branch codebase across the three development skills (Code Rabbit, Get Shit Done, and Ralph Loop).
+- Mapped all functional boundaries, including Streamlit UI dashboard, high-speed KeepAlive HTTP connections, tag-agnostic results extraction parser, batch managers, and publication mailing monitors.
+- **Learnings for future iterations:**
+  - The Streamlit front-end in `app.py` is utilizing sophisticated inline CSS elevations and JavaScript mouse event dispatchers to force auto-expand behaviour on selectboxes. Maintain these selectors carefully if styling is modified.
+  - The hardcoded password `'admin123'` in `app.py` should be migrated to environment configuration to guarantee enterprise-grade security.
+  - Custom connection pool `KeepAlivePool` in `network.py` uses standard HTTPSConnection with a default 15s timeout, which is extremely robust against dead sockets.
+---

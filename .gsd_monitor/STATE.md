@@ -1,17 +1,18 @@
-# Active State — FEC Exam Publication Monitor
+# Active State — Result Finder & Publication Monitor
 
-## Current Wave
-- Wave 3: Performance Optimization (Successfully Completed)
+## Active Milestone
+- Milestone 4: Premium Dashboard UI & User Experience (Successfully Verified)
 
-## Active Files
-- None (All tasks successfully verified and deployed)
+## Active Workstream
+- Transitioning from Completed Milestone 4 (Streamlit dashboard with dynamic elevations, Outfit font, and hover-triggered selectbox dropdowns) to Milestone 5 (Advanced Security Hardening).
 
 ## Decided Architectures
-- **Monkeypatched Delay Tuning**: Dynamically rewrite `random.uniform` in memory within `auto_pdf_mailer.py` on loading. Delays `<= 1.0` seconds are scaled down to `15%` of their original value to unlock aggressive Level 3 timing without global changes to `cli_scraper.py`.
-- **Pre-Compiled Regex Matching**: Avoid in-loop compiling of XML/HTML option tags inside `monitor.py`, `find_latest.py`, and `sync_state.py`.
-- **Zero-Dependency Check-Only Boots**: Continue to bypass all external third-party imports in the main check loop of `monitor.py` to keep high-frequency cron checks lightweight.
+- **Custom HTTPS Connection Recycler**: Global thread-safe `KeepAlivePool` is instantiated at network startup. Reduces TLS handshakes during batch scanning from O(N) to O(1) per thread.
+- **Subject-Overlap Fingerprinting**: Genuine re-add students must share >= 50% of regular batch courses to prevent retake/improvement 'ghosts' from polluting semester lists.
+- **Dynamic Timing Monkeypatch**: Runtime interception of `random.uniform` in GitHub Action runs reduces safety timing jitter by 85%, accelerating automated pipeline runs.
+- **Hover-Triggered JavaScript Actions**: Injects parent-document click mouse events dynamically to achieve instantaneous dropdown expansion on hover.
 
 ## Completed Tasks
-- [x] Task 3.1: Regex patterns pre-compiled for program option lookups.
-- [x] Task 3.2: Runtime monkeypatch implemented in mailer.
-- [x] Task 3.3: Dry run verification for `monitor.py`, `find_latest.py`, and `sync_state.py`.
+- [x] Task 4.1: Custom CSS cards, stats layout, and Google Outfit font integration in `app.py`.
+- [x] Task 4.2: Dynamic mouse event dispatcher javascript injection for hover-to-open selectboxes.
+- [x] Task 4.3: Secure global admin mode panel for profile renames, deletions, and additions in streamlit.

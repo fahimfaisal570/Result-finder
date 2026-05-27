@@ -1,14 +1,23 @@
-# Roadmap — FEC Exam Publication Monitor
+# Roadmap — Result Finder & Publication Monitor
 
-- [x] **Wave 1: Fast Boot Architecture**
-  - [x] Task 1.1: Defer heavy module imports (`pdfkit`, `auto_pdf_mailer`) to allow fast check-only runs under 2 seconds.
-  - [x] Task 1.2: Set up environment outputs for GITHUB_OUTPUT to trigger down-stream heavy runners only when new exams are found.
+- [x] **Milestone 1: Fast-Boot Architecture (Zero-Dependency)**
+  - [x] Task 1.1: Defer heavy module imports in `monitor.py` to allow high-frequency cron checks to complete under 2 seconds.
+  - [x] Task 1.2: Establish clean exit code separation (e.g. exit code 0 for no changes, exit code for new publications) to coordinate GITHUB_OUTPUT chains.
 
-- [x] **Wave 2: Multi-Recipient Email Routing & Security**
-  - [x] Task 2.1: Implement department-specific head email routing via secure environment secrets.
-  - [x] Task 2.2: Implement secure app-specific Gmail password integration.
+- [x] **Milestone 2: Multi-Recipient Department Routing & Security**
+  - [x] Task 2.1: Establish secure environment-mapped head emails (`CSE_HEAD_EMAIL`, `EEE_HEAD_EMAIL`, `CIVIL_HEAD_EMAIL`).
+  - [x] Task 2.2: Implement secure SMTP app passwords bypassing default plain-text logs.
 
-- [x] **Wave 3: Performance Optimization (Current)**
-  - [x] Task 3.1: Pre-compile all option parsing regex patterns at module levels to maximize parsing speed.
-  - [x] Task 3.2: Implement dynamic runtime `random.uniform` monkeypatching in `auto_pdf_mailer.py` to reduce scraper jitter by 85% in workflow environments.
-  - [x] Task 3.3: Verify all CLI detection commands (`monitor.py`, `find_latest.py`, `sync_state.py`) execute with 100% success.
+- [x] **Milestone 3: Performance, Stealth scans & Concurrency Controls**
+  - [x] Task 3.1: Pre-compile all options extraction and option values regex patterns at module level to eliminate parse bottlenecks.
+  - [x] Task 3.2: Implement dynamic, context-specific monkeypatching of `random.uniform` inside `auto_pdf_mailer.py` to scale down timing safety jitters in CI pipelines.
+  - [x] Task 3.3: Implement the KeepAlive HTTPS connection manager to recycle TCP connections safely.
+
+- [x] **Milestone 4: Premium Dashboard UI & User Experience (Current)**
+  - [x] Task 4.1: Integrate custom Outfit Google Fonts, premium elevations, cards, and smooth micro-animations into Streamlit dashboard.
+  - [x] Task 4.2: Program dynamic mouse event triggers in JS to open selectboxes instantly on hover.
+  - [x] Task 4.3: Implement secure frontend admin settings block to handle profiles creation, deletions, and smart purges.
+
+- [ ] **Milestone 5: Advanced Security Hardening (Planned)**
+  - [ ] Task 5.1: Replace the hardcoded `admin123` credential in `app.py` with environment variable loading.
+  - [ ] Task 5.2: Set up automated sanitization of parsed student names inside Streamlit to block any potential XSS from malformed HTML.

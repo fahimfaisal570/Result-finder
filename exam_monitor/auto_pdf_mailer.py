@@ -3,10 +3,16 @@ import sys
 import json
 import smtplib
 import re
+import threading
 # import pdfkit  # Moved inside function for fast-boot optimization
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
+
+# Module-level lock to prevent concurrent corruption of shared JSON state files.
+# Both saved_profiles.json and v2_sync_tasks.json are read+written during
+# multi-department parallel workflow runs, so all writes must be serialised.
+_file_write_lock = threading.Lock()
 
 # Dynamic Scraper Jitter Monkeypatch for Workflow Performance (Wave 10 Alignment)
 import random
@@ -137,27 +143,50 @@ def send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name):
     except Exception as e:
         print(f"❌ Failed to send PDF email: {e}")
 
-def _get_senior_profiles_json(profiles, profile_name):
-    """Find senior batch profiles from saved_profiles.json (same dept, lower batch#)."""
-    parts = profile_name.lower().split()
-    if len(parts) < 2:
-        return {}
-    dept_prefix = parts[0]
+# Pre-compiled pattern: captures a department prefix (letters/dots/spaces) and a
+# trailing batch number, tolerating any common separators (space, dash, underscore).
+_PROFILE_NAME_PAT = re.compile(
+    r'^([A-Za-z][A-Za-z.\s]*)\s*[-_]?\s*(\d+)',
+    re.IGNORECASE
+)
+
+def _parse_profile_parts(name):
+    """Return (dept_prefix_str, batch_int) or (None, None) if the name cannot be parsed.
+
+    Handles all common naming formats, e.g.:
+        'CSE 15'   -> ('cse', 15)
+        'CSE-15'   -> ('cse', 15)
+        'EEE_13'   -> ('eee', 13)
+        'B.Sc CSE 15' -> ('bsccse', 15)   (dots/spaces stripped from prefix)
+    """
+    m = _PROFILE_NAME_PAT.match(name.strip())
+    if not m:
+        return None, None
+    # Normalise dept prefix: lower-case, strip dots and internal spaces
+    dept = re.sub(r'[^a-z]', '', m.group(1).lower())
     try:
-        batch_num = int(parts[1])
+        return dept, int(m.group(2))
     except ValueError:
+        return None, None
+
+
+def _get_senior_profiles_json(profiles, profile_name):
+    """Find senior batch profiles from saved_profiles.json (same dept, lower batch#).
+
+    Uses regex-based name parsing so profile names like 'CSE 15', 'CSE-15',
+    'EEE_13', or 'B.Sc CSE 15' are all matched correctly regardless of the
+    separator or prefix casing used when the profile was created.
+    """
+    dept_prefix, batch_num = _parse_profile_parts(profile_name)
+    if dept_prefix is None:
+        print(f"  [Readd] Could not parse department/batch from profile name '{profile_name}'. Skipping senior search.")
         return {}
 
     senior = {}
     for p_name, p_data in profiles.items():
-        p_parts = p_name.lower().split()
-        if len(p_parts) >= 2 and p_parts[0] == dept_prefix:
-            try:
-                p_batch = int(p_parts[1])
-                if p_batch < batch_num:
-                    senior[p_name] = p_data
-            except ValueError:
-                continue
+        p_dept, p_batch = _parse_profile_parts(p_name)
+        if p_dept == dept_prefix and p_batch is not None and p_batch < batch_num:
+            senior[p_name] = p_data
     return senior
 
 
@@ -276,8 +305,10 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
         "saved_profiles.json"
     )
     try:
-        with open(profiles_path, "w") as f:
-            json.dump(profiles, f, indent=2)
+        # Serialise the write so concurrent department runs cannot clobber each other.
+        with _file_write_lock:
+            with open(profiles_path, "w") as f:
+                json.dump(profiles, f, indent=2)
         print(f"  [Readd] Persisted {len(readd_info)} readd(s) to saved_profiles.json.")
     except Exception as e:
         print(f"  [Readd] WARNING: Failed to persist readds: {e}")
@@ -383,13 +414,16 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     }
     
     try:
-        tasks = []
-        if os.path.exists(sync_file):
-            with open(sync_file, "r") as f:
-                tasks = json.load(f)
-        tasks.append(task_data)
-        with open(sync_file, "w") as f:
-            json.dump(tasks, f)
+        # Serialise the read-modify-write so parallel department workflow jobs
+        # cannot interleave and produce a truncated or duplicate sync task list.
+        with _file_write_lock:
+            existing_tasks = []
+            if os.path.exists(sync_file):
+                with open(sync_file, "r") as f:
+                    existing_tasks = json.load(f)
+            existing_tasks.append(task_data)
+            with open(sync_file, "w") as f:
+                json.dump(existing_tasks, f)
         print("Sync task queued for v2 analytics database.")
     except Exception as e:
         print(f"Failed to queue sync task: {e}")

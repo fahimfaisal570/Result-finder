@@ -1,0 +1,85 @@
+{
+  "project": "Result Finder & Publication Monitor",
+  "branchName": "main",
+  "description": "High-performance, premium university academic result scraper, dashboard analytics portal, and real-time exam publication monitor with automated secure email delivery.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Stealth Connection Pool Core",
+      "description": "As a scraper system, I want to establish high-speed keep-alive HTTPS connections to the university portal without external dependencies, so that scans run efficiently without triggering WAF blocks.",
+      "acceptanceCriteria": [
+        "Uses custom KeepAlivePool built on standard library http.client",
+        "Implements random UA rotation and cookie synchronization across threads",
+        "Enforces global rate-limiting backoffs and stabilization delays on network errors"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Verified resilient connection pooling implemented in scraper_core/network.py"
+    },
+    {
+      "id": "US-002",
+      "title": "Robust Tag-Agnostic Option & GPA Parser",
+      "description": "As a results engine, I want to parsing student details, names, publication dates, GPA/CGPA, and individual subjects from raw HTML, so that diverse exam syllabus schemas are handled.",
+      "acceptanceCriteria": [
+        "Pre-compiles option parsing and regex matching patterns",
+        "Extracts SGPA, CGPA, Overall Result, and Publication Date resiliently",
+        "Parses tabular subject grades and GP values tag-agnostically"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Tag-agnostic extraction and semester slot calculation complete in scraper_core/parser.py"
+    },
+    {
+      "id": "US-003",
+      "title": "Profile Persistence & Batch Management",
+      "description": "As an administrator, I want to manage student profiles, discover re-adds, and update candidate names, so that student directories are kept synced.",
+      "acceptanceCriteria": [
+        "Loads and saves student profiles under saved_profiles.json",
+        "Performs discovery and smart purge of student registries",
+        "Stores names, registration numbers, and session variables cleanly"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Implemented in BatchManager in scraper_core/profiles.py"
+    },
+    {
+      "id": "US-004",
+      "title": "Streamlit Premium UI Analytics Dashboard",
+      "description": "As a faculty user, I want a premium and gorgeous analytical web dashboard to run scans, view directories, and query results, so that academic records are visually accessible.",
+      "acceptanceCriteria": [
+        "Applies dynamic custom CSS, premium elevation transitions, and custom Outfit typography",
+        "Injects hover-open selectbox javascript actions to eliminate tedious dropdown clicks",
+        "Enforces secure admin-mode settings block at the sidebar footer"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Streamlit frontend beautifully constructed in app.py"
+    },
+    {
+      "id": "US-005",
+      "title": "High-Frequency Real-Time Exam Monitor",
+      "description": "As a system service, I want to run lightweight checks every 10 minutes for newly published exams, so that real-time publication alerts can trigger downstream tasks.",
+      "acceptanceCriteria": [
+        "Maintains zero-dependency fast-boot script monitor.py",
+        "Completes check-only runs in less than 2 seconds",
+        "Saves known published exams to database.db / known_exams.json"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Cron-friendly checker built in exam_monitor/monitor.py"
+    },
+    {
+      "id": "US-006",
+      "title": "Email Routing and Jitter Monkeypatching",
+      "description": "As a department head, I want to receive secure automated PDF result sheets with dynamic re-add detection, so that faculty results records are kept current without manual downloads.",
+      "acceptanceCriteria": [
+        "Monkeypatches random.uniform in GitHub Actions to bypass long safety delays",
+        "Triggers department-specific head email routing via secure environment variables",
+        "Applies subject-overlap fingerprinting to merge genuine senior re-adds and exclude ghosts"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Automated reporting pipeline complete in exam_monitor/auto_pdf_mailer.py"
+    }
+  ]
+}
