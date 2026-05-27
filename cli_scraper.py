@@ -209,7 +209,7 @@ def make_request(url, data=None, headers=None, retries=4):
                 response = session.get(url, headers=req_headers, timeout=15)
                 
             if response.status_code in (200, 301, 302):
-                return response.text
+                return response.content.decode('utf-8', 'ignore')
         except Exception:
             pass
             
