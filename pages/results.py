@@ -255,5 +255,3 @@ else:
     )
 
 ui.add_contact_section()
-
-ui.add_contact_section()
