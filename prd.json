@@ -113,6 +113,19 @@
       "priority": 8,
       "passes": true,
       "notes": "Refactored get_cross_batch_comparison() to replace the N+1 loop with two bulk database queries (matching exams IN, GPAs OR/IN). Replaced the index-invalidating CAST(exam_id AS INTEGER) in get_student_data_for_exam() by pre-fetching from scan_log and using an index-friendly IN clause. Optimized get_effective_cgpa_per_student() latest CGPA query to use a ROW_NUMBER() window function instead of a nested self-join. Consolidated all redundant inline imports of statistics, base64, re, json, and numpy to their respective top levels."
+    },
+    {
+      "id": "US-009",
+      "title": "Trends and Longitudinal Mode Corrections",
+      "description": "As a developer, I want to correct retake success stats, Civil consecutive semester numbering, and student trajectory metrics, so that student history trends are reported accurately.",
+      "acceptanceCriteria": [
+        "Refactor get_retake_success_stats() in database.py to calculate first_gp and best_gp chronologically based on exam_id (window function).",
+        "Update get_longitudinal_data() in database.py to correctly parse Civil Engineering consecutive semesters (when sem_in_yr > 2) and add year title omission fallback.",
+        "Refactor student trajectory metrics in pages/analytics.py to use actual semester_num as independent variable for np.polyfit, and bound consistency score to >= 0.0."
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Refactored get_retake_success_stats() to use ROW_NUMBER() OVER window function so first_gp is always the chronologically first attempt. Updated get_longitudinal_data() to detect consecutive Civil semester numbering (sem_in_yr > 2 → sem_num = sem_in_yr). Refactored analytics.py trajectory metrics to use actual semester_num as the polyfit independent variable and bounded consistency score >= 0.0. Verified by 2 new unit tests: test_longitudinal_data_civil_consecutive_semesters and test_retake_success_stats_chronological_first_attempt. Full suite: 19/19 passed."
     }
   ]
 }

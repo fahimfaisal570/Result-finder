@@ -339,5 +339,143 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertAlmostEqual(res[batch2]['mean_gpa'], 2.9, places=2)
 
 
+    # ------------------------------------------------------------------
+    # 12. US-009: Civil Engineering consecutive semester parsing
+    # ------------------------------------------------------------------
+    def test_longitudinal_data_civil_consecutive_semesters(self):
+        """
+        Civil Engineering uses exam names like '3rd Year 6th Semester Main Exam'.
+        When sem_in_yr > 2, sem_num must equal the raw semester number (6), NOT
+        the standard (yr-1)*2 + sem_in_yr formula.
+        """
+        civil_profile = "civil_test_profile"
+        with database.get_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)",
+                (civil_profile, "77", "42", time.time())
+            )
+            conn.commit()
+
+        # Seed exam name that uses consecutive numbering: 3rd Year 6th Semester
+        exam_id_consec = "5001"
+        exam_name_consec = "3rd Year 6th Semester Main Exam"
+        database.save_exam_analytics_only(civil_profile, exam_id_consec, exam_name_consec, [
+            make_result(9001, gpa=3.0, cgpa=2.8),
+        ])
+
+        # Also seed a standard exam for contrast: 1st Year 2nd Semester
+        exam_id_std = "5002"
+        exam_name_std = "1st Year 2nd Semester Main Exam"
+        database.save_exam_analytics_only(civil_profile, exam_id_std, exam_name_std, [
+            make_result(9001, gpa=2.5, cgpa=2.5),
+        ])
+
+        # Now seed student properly for the JOIN
+        with database.get_connection() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO students (profile_name, reg_no, name, sess_id) VALUES (?, ?, ?, ?)",
+                (civil_profile, 9001, "Civil Student", SESS_ID)
+            )
+            conn.commit()
+
+        data = database.get_longitudinal_data(civil_profile)
+        self.assertIn(9001, data, "Student 9001 should appear in longitudinal data")
+
+        records = data[9001]
+        sem_nums = [r['semester_num'] for r in records]
+
+        # 1st Year 2nd Semester -> sem_num = (1-1)*2 + 2 = 2
+        self.assertIn(2, sem_nums, "Standard 1st year 2nd semester must yield sem_num=2")
+
+        # 3rd Year 6th Semester -> sem_num must = 6 (consecutive), NOT (3-1)*2+6=10
+        self.assertIn(6, sem_nums,
+            "Civil 3rd year 6th semester (consecutive) must yield sem_num=6, not 10")
+        self.assertNotIn(10, sem_nums,
+            "Consecutive semester numbers must NOT use the (yr-1)*2+sem formula")
+
+    # ------------------------------------------------------------------
+    # 13. US-009: Chronological retake success stats via window function
+    # ------------------------------------------------------------------
+    def test_retake_success_stats_chronological_first_attempt(self):
+        """
+        get_retake_success_stats() must identify the FIRST attempt by exam_id order,
+        not the lowest grade_point. If first attempt failed (gp<2.0) and a later attempt
+        passed (gp>=2.0), passed_after_retake must be True.
+        If the high-scoring attempt comes first and the retake is lower, passed_after_retake
+        must be False.
+        """
+        retake_profile = "retake_test_profile"
+        with database.get_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)",
+                (retake_profile, "88", SESS_ID, time.time())
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO students (profile_name, reg_no, name, sess_id) VALUES (?, ?, ?, ?)",
+                (retake_profile, 8001, "Retake Student", SESS_ID)
+            )
+            conn.commit()
+
+        # First attempt (exam_id=6001): Failed CS101 with gp=0.0
+        # Second attempt (exam_id=6002): Passed CS101 with gp=3.0
+        with database.get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO subject_grades
+                (profile_name, reg_no, exam_id, subject_code, grade_point, credit_hours, sess_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (retake_profile, 8001, "6001", "CS101", 0.0, 3.0, SESS_ID))
+            conn.execute("""
+                INSERT OR REPLACE INTO subject_grades
+                (profile_name, reg_no, exam_id, subject_code, grade_point, credit_hours, sess_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (retake_profile, 8001, "6002", "CS101", 3.0, 3.0, SESS_ID))
+            conn.commit()
+
+        stats = database.get_retake_success_stats(retake_profile)
+        self.assertEqual(len(stats), 1, "Should have exactly 1 retake record for CS101")
+
+        s = stats[0]
+        self.assertEqual(s['reg_no'], 8001)
+        self.assertEqual(s['subject_code'], "CS101")
+        self.assertEqual(s['attempts'], 2)
+        self.assertAlmostEqual(s['first_gp'], 0.0, places=1,
+            msg="first_gp must be 0.0 (chronologically first attempt by exam_id=6001)")
+        self.assertAlmostEqual(s['best_gp'], 3.0, places=1)
+        self.assertTrue(s['passed_after_retake'],
+            "passed_after_retake must be True: first_gp < 2.0 and best_gp >= 2.0")
+        self.assertAlmostEqual(s['gp_gain'], 3.0, places=1)
+
+        # Edge case: first attempt PASSED (gp=3.5), retake lowered to 2.0 → NOT passed_after_retake
+        retake_profile2 = "retake_test_profile2"
+        with database.get_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)",
+                (retake_profile2, "89", SESS_ID, time.time())
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO students (profile_name, reg_no, name, sess_id) VALUES (?, ?, ?, ?)",
+                (retake_profile2, 8002, "Pass First", SESS_ID)
+            )
+            conn.execute("""
+                INSERT OR REPLACE INTO subject_grades
+                (profile_name, reg_no, exam_id, subject_code, grade_point, credit_hours, sess_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (retake_profile2, 8002, "7001", "MA101", 3.5, 3.0, SESS_ID))
+            conn.execute("""
+                INSERT OR REPLACE INTO subject_grades
+                (profile_name, reg_no, exam_id, subject_code, grade_point, credit_hours, sess_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (retake_profile2, 8002, "7002", "MA101", 2.0, 3.0, SESS_ID))
+            conn.commit()
+
+        stats2 = database.get_retake_success_stats(retake_profile2)
+        self.assertEqual(len(stats2), 1)
+        s2 = stats2[0]
+        self.assertAlmostEqual(s2['first_gp'], 3.5, places=1,
+            msg="first_gp must be 3.5 (chronologically first attempt by exam_id=7001)")
+        self.assertFalse(s2['passed_after_retake'],
+            "passed_after_retake must be False: first_gp >= 2.0 already passed")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
