@@ -1333,7 +1333,7 @@ with tabs[5]:
           with cols_err[2]:
             if st.button("Retry", key=retry_key, help="Re-run deep analysis for this student"):
               del st.session_state._deep_cache[cache_key]
-              st.rerun()
+              st.rerun(scope="fragment")
         else:
           adv_proj = db.compute_advanced_projection(
             deep_result=deep_res,
@@ -1840,14 +1840,17 @@ with tabs[5]:
           with st.spinner(f"Scanning full academic history for {name} ({reg})\u2026 1\u20132 min."):
             result = _run_deep_analysis(reg, name, sess_id)
           st.session_state._deep_cache[cache_key] = result
-          st.rerun()
+          st.rerun(scope="fragment")
 
       st.write("") # spacing between students
 
   # ── Pagination + call-site ──────────────────────────────────────────────
-  if proj_df.empty:
-    st.warning("No students match your search.")
-  else:
+  @st.fragment
+  def render_paginated_projections(proj_df, profile_name, exam_id):
+    if proj_df.empty:
+      st.warning("No students match your search.")
+      return
+
     st.markdown(
       f"**{len(proj_df)} student(s)** in this exam \u2014 click Deep Analysis to unlock projections."
     )
@@ -1871,17 +1874,19 @@ with tabs[5]:
     if total_pages > 1:
       nav_c1, nav_c2, nav_c3 = st.columns([1, 2, 1])
       with nav_c1:
-        if st.button("\u2190 Previous", key="proj_prev", disabled=(page == 0)):
+        if st.button("← Previous", key="proj_prev", disabled=(page == 0)):
           st.session_state.proj_page -= 1
-          st.rerun()
+          st.rerun(scope="fragment")
       with nav_c2:
         st.markdown(
           f"<div style='text-align:center;padding-top:6px'>Page {page+1} of {total_pages}</div>",
           unsafe_allow_html=True
         )
       with nav_c3:
-        if st.button("Next \u2192", key="proj_next", disabled=(page >= total_pages - 1)):
+        if st.button("Next →", key="proj_next", disabled=(page >= total_pages - 1)):
           st.session_state.proj_page += 1
-          st.rerun()
+          st.rerun(scope="fragment")
+
+  render_paginated_projections(proj_df, profile_name, exam_id)
 
 ui.add_contact_section()

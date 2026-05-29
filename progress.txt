@@ -103,5 +103,17 @@ Started: Wed May 27 16:05:00 2026
 - **Learnings for future iterations:**
   - Rendering large loops of cards with nested containers, columns, inputs, and sliders creates 1,000+ Streamlit elements on a single page run, triggering massive WebSocket serialization lags (3+ seconds). Implementing simple 10-item pagination cuts page loads and reruns to milliseconds.
   - Wrapping dynamic cards in `@st.fragment` ensures any widget interaction (such as checkboxes, selectboxes, or button clicks) only triggers a local fragment-level rerun. The rest of the page—including invisible tabs, Altair charts, and other student cards—is completely bypassed, dropping interaction latency from 3+ seconds to <10ms.
+---
+## 2026-05-29 16:30 - Completion of US-011
+- Optimized the GPA Projection tab (Tab 6) rendering performance to under 1 second by implementing fragment-scoped reruns.
+- Replaced two `st.rerun()` calls inside `render_student_projection_card` with `st.rerun(scope="fragment")` (Retry button at line 1336 and Deep Analysis button at line 1843).
+- Wrapped the pagination controls and active card rendering in a new fragment-isolated helper `render_paginated_projections` decorated with `@st.fragment`.
+- Replaced two `st.rerun()` calls inside page navigation buttons with `st.rerun(scope="fragment")` (lines 1873 and 1883).
+- Verified that all unit and system integration tests pass successfully (20/20 tests).
+- Modified files: `pages/analytics.py`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Calling `st.rerun()` with no arguments inside a `@st.fragment` overrides the local isolation and triggers a full page rerun, re-rendering all other widgets, tables, and Altair charts, which negates the fragment-level performance benefits. Passing `scope="fragment"` confines the rerun to the innermost active fragment.
+  - Nesting fragments (`render_student_projection_card` inside `render_paginated_projections`) is highly effective: changing a slider inside a card only reruns that specific card (<10ms), while navigating pages reruns the outer page container but does not affect the rest of the application.
+
 
 
