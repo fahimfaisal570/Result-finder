@@ -277,6 +277,36 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertEqual(res['total_new_credits'], 6.0)
         self.assertEqual(res['total_new_points'], 12.0)
 
+    def test_get_student_data_for_exam_optimized(self):
+        profile = "cse_test_profile"
+        # Seed both student data in a single batch to avoid SQLite OR REPLACE cascade delete
+        database.save_profile_and_results(profile, PRO_ID, SESS_ID, [
+            make_result(1001, name="Alice", cgpa=3.2, gpa=3.5, subjects=[
+                {"code": "CSE-1101", "name": "Intro CS", "grade": "C", "gp": "2.00"},
+                {"code": "CSE-1102", "name": "Math",     "grade": "B", "gp": "3.00"},
+            ]),
+            make_result(1002, name="Bob", cgpa=1.5, gpa=1.0, subjects=[
+                {"code": "CSE-1101", "name": "Intro CS", "grade": "F", "gp": "0.00"},
+            ])
+        ], EXAM_ID, EXAM_NM)
+
+        # Get analytics for this exam
+        res = database.get_student_data_for_exam(profile, EXAM_ID)
+        self.assertEqual(len(res), 2)
+
+        alice = [r for r in res if r["reg_no"] == 1001][0]
+        self.assertEqual(alice["name"], "Alice")
+        self.assertAlmostEqual(alice["gpa"], 2.6, places=2)
+        self.assertAlmostEqual(alice["cgpa"], 3.2, places=2)
+        self.assertEqual(alice["improvement_count"], 1) # 2.0 is in range 2.0 <= gp <= 2.75
+        self.assertEqual(alice["retake_count"], 0)
+        self.assertFalse(alice["first_chance_fail"])
+
+        bob = [r for r in res if r["reg_no"] == 1002][0]
+        self.assertEqual(bob["name"], "Bob")
+        self.assertEqual(bob["retake_count"], 1)
+        self.assertTrue(bob["first_chance_fail"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

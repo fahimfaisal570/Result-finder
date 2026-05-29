@@ -838,15 +838,43 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
         """, (profile_name, exam_id))
         students = students_cur.fetchall()
 
-        for reg_no, name, gpa_col, cgpa, db_status, raw_json_str, sess_id in students:
-            # Subject grades FOR THIS EXAM ONLY
-            grades_cur = conn.execute("""
-                SELECT subject_code, grade_point, credit_hours
-                FROM subject_grades
-                WHERE profile_name=? AND reg_no=? AND exam_id=?
-            """, (profile_name, reg_no, exam_id))
-            grades = grades_cur.fetchall()
+        if not students:
+            return []
 
+        # Bulk query 1: Pull all grades for this exam and profile in one go
+        grades_cur = conn.execute("""
+            SELECT reg_no, subject_code, grade_point, credit_hours
+            FROM subject_grades
+            WHERE profile_name=? AND exam_id=?
+        """, (profile_name, exam_id))
+        all_grades = grades_cur.fetchall()
+
+        # Group grades by reg_no
+        from collections import defaultdict
+        grades_by_student = defaultdict(list)
+        for r_no, subject_code, gp, ch in all_grades:
+            grades_by_student[r_no].append((subject_code, gp, ch))
+
+        # Bulk query 2: Retrieve historical best grades up to this exam
+        # for dynamic CGPA calculation (used in fallback when CGPA is missing).
+        historical_grades_by_student = defaultdict(list)
+        try:
+            exam_id_int = int(exam_id)
+            hist_cur = conn.execute("""
+                SELECT reg_no, MAX(grade_point) as best_gp, credit_hours
+                FROM subject_grades
+                WHERE profile_name=? AND CAST(exam_id AS INTEGER) <= ?
+                GROUP BY reg_no, subject_code
+            """, (profile_name, exam_id_int))
+            for r_no, best_gp, ch in hist_cur.fetchall():
+                historical_grades_by_student[r_no].append((best_gp, ch))
+        except ValueError:
+            # If exam_id is non-integer, historical query is skipped
+            pass
+
+        for reg_no, name, gpa_col, cgpa, db_status, raw_json_str, sess_id in students:
+            # Get grades from memory
+            grades = grades_by_student.get(reg_no)
             if not grades:
                 continue
 
@@ -878,22 +906,12 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
             # Fallback for missing CGPA IFF it was truly omitted in the scrape
             if (cgpa is None or cgpa == 0.0) and (raw_cgpa_str in ['-', '', 'None']):
                 # Dynamically calculate the retake-aware CGPA up to this specific exam instance
-                try:
-                    calc_cur = conn.execute("""
-                        SELECT MAX(grade_point), credit_hours
-                        FROM subject_grades
-                        WHERE profile_name=? AND reg_no=? AND CAST(exam_id AS INTEGER) <= ?
-                        GROUP BY subject_code
-                    """, (profile_name, reg_no, int(exam_id)))
-                    best_grades = calc_cur.fetchall()
-                    if best_grades:
-                        total_cgpa_points = sum(gp * ch for gp, ch in best_grades if ch > 0)
-                        total_cgpa_credits = sum(ch for gp, ch in best_grades if ch > 0)
-                        if total_cgpa_credits > 0:
-                            cgpa = round(total_cgpa_points / total_cgpa_credits, 2)
-                except ValueError:
-                    # If exam_id happens to be non-integer, skip historical filter
-                    pass
+                best_grades = historical_grades_by_student.get(reg_no)
+                if best_grades:
+                    total_cgpa_points = sum(gp * ch for gp, ch in best_grades if ch > 0)
+                    total_cgpa_credits = sum(ch for gp, ch in best_grades if ch > 0)
+                    if total_cgpa_credits > 0:
+                        cgpa = round(total_cgpa_points / total_cgpa_credits, 2)
 
             # Robust status mapping
             db_status = str(db_status)
