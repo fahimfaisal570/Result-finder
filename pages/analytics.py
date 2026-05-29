@@ -510,7 +510,7 @@ def _run_deep_analysis(reg_no, stu_name, sess_id):
     pro_id=_pro_id,
     exam_id="0",
     all_sessions=_sessions,
-    num_threads=8
+    num_threads=15
   )
 
   if not _history:
