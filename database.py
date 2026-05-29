@@ -655,19 +655,24 @@ def get_profiles() -> dict:
         with get_connection() as conn:
             cur = conn.execute("SELECT name, pro_id, sess_id, timestamp FROM profiles")
             for p_name, pro_id, sess_id, ts in cur.fetchall():
-                stu_cur = conn.execute(
-                    "SELECT reg_no, sess_id, name FROM students WHERE profile_name=?", (p_name,)
-                )
-                regs = [[r[0], r[1], r[2]] for r in stu_cur.fetchall()]
                 profiles[p_name] = {
                     "pro_id": pro_id,
                     "sess_id": sess_id,
                     "timestamp": ts,
-                    "regs": regs,
+                    "regs": [],
                 }
+            if profiles:
+                # Retrieve all students in a single query
+                stu_cur = conn.execute(
+                    "SELECT profile_name, reg_no, sess_id, name FROM students"
+                )
+                for p_name, reg_no, sess_id, name in stu_cur.fetchall():
+                    if p_name in profiles:
+                        profiles[p_name]["regs"].append([reg_no, sess_id, name])
     except Exception as e:
         logger.error("get_profiles error: %s", e)
     return profiles
+
 
 
 def get_effective_cgpa_per_student(profile_name: str) -> list:
