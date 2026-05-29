@@ -56,6 +56,32 @@
       "priority": 4,
       "passes": true,
       "notes": "Refactored get_profiles to load all profile students in a single batched query instead of executing a sequential N+1 query loop."
+    },
+    {
+      "id": "US-005",
+      "title": "Hosted Streamlit Cloud Performance & Caching Optimization",
+      "description": "As a student using the dashboard online, I want UI interactions to be instant without waiting for network or database reads, so that the hosted experience matches local performance.",
+      "acceptanceCriteria": [
+        "Wrap fetch_exams() inside cli_scraper.py with an hourly SQLite-backed metadata cache.",
+        "Implement Streamlit memory cache decorators (@st.cache_data) for fetch_exams() and get_profiles() in app.py, pages/analytics.py, and pages/transcript.py.",
+        "Eliminate direct network-blocking requests on selectbox changes and UI interactions.",
+        "Maintain complete data integrity and automatic cache clearing on database writes."
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Declined caching because Streamlit's @st.cache_data Pickle serialization of large nested dictionaries degraded hosted CPU performance."
+    },
+    {
+      "id": "US-006",
+      "title": "Batch Student Data Queries Optimization",
+      "description": "As a student using the analytics dashboard, I want the statistics and student cards to load instantly without sequential SQL loop delays, so that my usage is seamless.",
+      "acceptanceCriteria": [
+        "Refactor database.py get_student_data_for_exam() to fetch all student grades for this exam in a single bulk query and map them in-memory, completely eliminating the sequential database query loop.",
+        "Ensure all GPA and CGPA calculations, fallback rules, and status mapping continue to function perfectly with 100% test coverage."
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Refactored get_student_data_for_exam to load student grades and historical best grades in single bulk queries, completely eliminating N+1 sequential loops in the student loop."
     }
   ]
 }
