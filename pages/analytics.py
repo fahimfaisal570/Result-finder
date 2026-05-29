@@ -35,6 +35,10 @@ def load_subject_df(profile_name, exam_id):
 def load_exams(profile_name):
   return db.get_exams_for_profile(profile_name)
 
+@st.cache_data(ttl=300)
+def load_retake_stats(profile_name):
+  return db.get_retake_success_stats(profile_name)
+
 def get_promotion_rules(exam_label):
   promo_target = None
   is_even_sem = False
@@ -923,11 +927,21 @@ with tabs[1]:
         })
         continue
         
-      gpas = group.sort_values('semester_num')['gpa'].tolist()
+      sorted_group = group.sort_values('semester_num')
+      gpas = sorted_group['gpa'].tolist()
+      sem_nums = sorted_group['semester_num'].tolist()
       peak = max(gpas)
       valley = min(gpas)
-      consistency = 1 - np.std(gpas)
-      slope, _ = np.polyfit(range(len(gpas)), gpas, 1)
+      consistency = max(0.0, 1.0 - float(np.std(gpas)))
+      
+      # Use actual sem_nums as independent variable for polyfit to prevent distortion
+      try:
+        if len(set(sem_nums)) >= 2:
+          slope, _ = np.polyfit(sem_nums, gpas, 1)
+        else:
+          slope = 0.0
+      except Exception:
+        slope = 0.0
       
       if slope > 0.08:
         traj = "Rising"
@@ -944,7 +958,7 @@ with tabs[1]:
           traj = "Stable"
           
       metrics.append({
-       'reg_no': reg,'name': group.iloc[0]['name'],'peak': round(peak, 2),
+       'reg_no': reg,'name': sorted_group.iloc[0]['name'],'peak': round(peak, 2),
        'valley': round(valley, 2),'consistency': round(consistency, 2),
        'trajectory': traj
       })
@@ -956,10 +970,6 @@ with tabs[1]:
 
     # Section 3.3: Retake & Improvement Success Tracker
     st.markdown("#### Retake & Improvement Success Tracker")
-    @st.cache_data(ttl=300)
-    def load_retake_stats(p_name):
-      return db.get_retake_success_stats(p_name)
-      
     retake_stats = load_retake_stats(profile_name)
     if not retake_stats:
       st.info("No retake or improvement data found for this batch.")

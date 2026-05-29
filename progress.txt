@@ -74,18 +74,23 @@ Started: Wed May 27 16:05:00 2026
   - Windows functions like `ROW_NUMBER() OVER` allow SQLite to partition and rank records in a single database read pass, which is significantly faster than standard nested self-joins.
   - Doing bulk checks (such as using an `IN` clause for matching sets) avoids sequential query loops, lowering response latency under high network/database latency constraints.
 ---
-## 2026-05-29 11:24 - Completion of US-009
+## 2026-05-29 11:36 - Completion of US-009
 - Refactored `get_retake_success_stats()` in `database.py` to use a `ROW_NUMBER() OVER (PARTITION BY reg_no, subject_code ORDER BY CAST(exam_id AS INTEGER) ASC)` window function, ensuring `first_gp` always reflects the chronologically first attempt regardless of grade ordering.
 - Updated `get_longitudinal_data()` semester parsing: when `sem_in_yr > 2`, the raw consecutive number is used directly as `sem_num` instead of the bi-semester formula `(yr-1)*2 + sem_in_yr`, correctly handling Civil Engineering consecutive numbering (e.g. "3rd Year 6th Semester" → sem_num=6, not 10).
-- Added year title omission fallback: when no year token is present but a semester token is found, `sem_num` is set directly from the semester number.
+- Added year title omission fallback: when no year token is present but a semester token is found, `sem_num` is set directly from the semester number (e.g. "5th Semester" → sem_num=5).
+- Added `sem_num=0` filtering in `get_longitudinal_data()` sorting loop to prevent unparseable exam names (orientation, thesis, etc.) from anchoring at position-0 and corrupting `np.polyfit` slope calculations.
+- Cleaned up Streamlit code in `pages/analytics.py` by moving `@st.cache_data` for `load_retake_stats` from inside the tab block to the module level.
 - Refactored student trajectory metrics in `pages/analytics.py` to use `semester_num` as the actual independent variable for `np.polyfit` trajectory slope, and bounded the consistency score to `>= 0.0` to prevent invalid negative values.
-- Added 2 new unit tests to `tests/test_database.py`:
+- Added 3 new unit tests to `tests/test_database.py`:
   - `test_longitudinal_data_civil_consecutive_semesters`: Seeds Civil "3rd Year 6th Semester" exam and asserts `sem_num=6`, not `10`.
   - `test_retake_success_stats_chronological_first_attempt`: Seeds two subject_grades rows for same student and subject (exam_id 6001→0.0 gp, exam_id 6002→3.0 gp) and verifies `first_gp=0.0`, `best_gp=3.0`, `passed_after_retake=True`. Also verifies the reverse case (pass first, retake lower) gives `passed_after_retake=False`.
-- Full suite: **19/19 tests passed**.
+  - `test_get_longitudinal_data_parsing_and_filtering`: Seeds standard, consecutive, year-omitted, and unparseable exams, and verifies that `sem_num=0` is successfully excluded and correct sorting order is preserved.
+- Full suite: **20/20 tests passed**.
 - Modified files: `database.py`, `pages/analytics.py`, `tests/test_database.py`, `prd.json`, `progress.txt`.
 - **Learnings for future iterations:**
   - Window functions (`ROW_NUMBER()`) are essential when "first chronologically" semantics differ from "minimum/maximum value" semantics. Using `MAX(CASE WHEN rn_asc = 1 THEN grade_point END)` cleanly extracts the first-window value in a single pass.
   - Civil Engineering uses consecutive semester numbers starting from 1 per year rather than resetting to 1. A simple threshold check (`sem_in_yr > 2`) correctly distinguishes consecutive numbering from standard bi-semester cycles.
   - Bounding computed metrics (like consistency scores) to valid ranges (`>= 0.0`) prevents downstream rendering bugs caused by negative mathematical results.
+  - Filtering out unparseable semester data (`sem_num=0`) is critical when performing mathematical regression, as a data point at origin zero will severely skew slope calculations.
+  - Avoid defining caching functions inside conditional rendering blocks or functions in Streamlit; module-level caching is much cleaner, reliable, and prevents warnings or repeated definitions.
 

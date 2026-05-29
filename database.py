@@ -2144,7 +2144,14 @@ def get_longitudinal_data(profile_name: str) -> dict:
         if yr_match and sem_match:
             yr = int(yr_match.group(1))
             sem_in_yr = int(sem_match.group(1))
-            sem_num = (yr - 1) * 2 + sem_in_yr
+            if sem_in_yr > 2:
+                # Consecutively numbered semesters (e.g. 3rd year 6th Semester -> semester 6)
+                sem_num = sem_in_yr
+            else:
+                sem_num = (yr - 1) * 2 + sem_in_yr
+        elif sem_match:
+            # Fallback when year title is missing (e.g. "1st Semester Examination" -> semester 1)
+            sem_num = int(sem_match.group(1))
 
         rec = {
             'reg_no': reg_no,
@@ -2169,12 +2176,19 @@ def get_longitudinal_data(profile_name: str) -> dict:
                 student_groups[reg_no][sem_label] = rec
 
     # Convert to sorted list per student
+    # CR5-001: Filter out records where sem_num=0 (unparseable exam names).
+    # A sem_num=0 record sorts to position-0 of the timeline and acts as a spurious
+    # anchor for np.polyfit, corrupting trajectory slope calculations.
     final_data = {}
     for reg_no, sem_dict in student_groups.items():
         if not sem_dict:
             continue
-        sorted_records = sorted(sem_dict.values(), key=lambda x: (x['semester_num'], x['exam_id']))
-        final_data[reg_no] = sorted_records
+        sorted_records = sorted(
+            (r for r in sem_dict.values() if r['semester_num'] > 0),
+            key=lambda x: (x['semester_num'], x['exam_id'])
+        )
+        if sorted_records:
+            final_data[reg_no] = sorted_records
 
     return final_data
 
@@ -2183,12 +2197,23 @@ def get_retake_success_stats(profile_name: str) -> list[dict]:
     """
     Computes success rates for retakes and improvements across the batch.
     Requires at least 2 attempts for a subject.
+    Determines first attempt chronologically using a window function.
     """
     with get_connection() as conn:
         cur = conn.execute("""
-            SELECT reg_no, subject_code, MIN(grade_point) as first_gp, MAX(grade_point) as best_gp, COUNT(*) as attempts
-            FROM subject_grades
-            WHERE profile_name = ?
+            SELECT reg_no, subject_code,
+                   MAX(CASE WHEN rn_asc = 1 THEN grade_point END) as first_gp,
+                   MAX(grade_point) as best_gp,
+                   COUNT(*) as attempts
+            FROM (
+                SELECT reg_no, subject_code, grade_point,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY reg_no, subject_code 
+                           ORDER BY CAST(exam_id AS INTEGER) ASC
+                       ) as rn_asc
+                FROM subject_grades
+                WHERE profile_name = ?
+            )
             GROUP BY reg_no, subject_code
             HAVING COUNT(*) > 1
         """, (profile_name,))
@@ -2197,14 +2222,16 @@ def get_retake_success_stats(profile_name: str) -> list[dict]:
 
     stats = []
     for reg, code, first_gp, best_gp, attempts in rows:
-        passed_after = (first_gp < 2.0 and best_gp >= 2.0)
-        gp_gain = best_gp - first_gp
+        fgp = float(first_gp or 0.0)
+        bgp = float(best_gp or 0.0)
+        passed_after = (fgp < 2.0 and bgp >= 2.0)
+        gp_gain = bgp - fgp
         stats.append({
             'reg_no': reg,
             'subject_code': code,
             'attempts': attempts,
-            'first_gp': first_gp,
-            'best_gp': best_gp,
+            'first_gp': fgp,
+            'best_gp': bgp,
             'gp_gain': gp_gain,
             'passed_after_retake': passed_after
         })

@@ -125,7 +125,7 @@
       ],
       "priority": 9,
       "passes": true,
-      "notes": "Refactored get_retake_success_stats() to use ROW_NUMBER() OVER window function so first_gp is always the chronologically first attempt. Updated get_longitudinal_data() to detect consecutive Civil semester numbering (sem_in_yr > 2 → sem_num = sem_in_yr). Refactored analytics.py trajectory metrics to use actual semester_num as the polyfit independent variable and bounded consistency score >= 0.0. Verified by 2 new unit tests: test_longitudinal_data_civil_consecutive_semesters and test_retake_success_stats_chronological_first_attempt. Full suite: 19/19 passed."
+      "notes": "Refactored get_retake_success_stats() to use ROW_NUMBER() OVER window function so first_gp is always the chronologically first attempt. Updated get_longitudinal_data() to detect consecutive Civil semester numbering (sem_in_yr > 2 -> sem_num = sem_in_yr) and year-omissions (e.g. 5th Semester -> sem_num = 5). Added sem_num=0 exclusion to prevent polyfit corruption. Refactored analytics.py trajectory metrics to use actual semester_num as the polyfit independent variable and bounded consistency score >= 0.0. Verified by new unit tests. Full suite: 20/20 passed."
     }
   ]
 }

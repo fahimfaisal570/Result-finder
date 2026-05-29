@@ -476,6 +476,63 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertFalse(s2['passed_after_retake'],
             "passed_after_retake must be False: first_gp >= 2.0 already passed")
 
+    # ------------------------------------------------------------------
+    # 9. Longitudinal semester parsing & filtering
+    # ------------------------------------------------------------------
+    def test_get_longitudinal_data_parsing_and_filtering(self):
+        long_profile = "long_test_profile"
+        with database.get_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)",
+                (long_profile, "90", SESS_ID, time.time())
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO students (profile_name, reg_no, name, sess_id) VALUES (?, ?, ?, ?)",
+                (long_profile, 9001, "Long Student", SESS_ID)
+            )
+            # Add different exams
+            # 1. Standard: "1st Year 2nd Semester" -> sem_num = 2
+            # 2. Consecutive: "3rd Year 6th Semester" -> sem_num = 6
+            # 3. Year-omitted: "5th Semester" -> sem_num = 5
+            # 4. Unparseable: "Orientation Exam" -> sem_num = 0 (should be excluded)
+            conn.execute("""
+                INSERT OR REPLACE INTO exam_results 
+                (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (long_profile, 9001, "9001", "1st Year 2nd Semester Exam", 3.5, 3.5, "Promoted", SESS_ID))
+            conn.execute("""
+                INSERT OR REPLACE INTO exam_results 
+                (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (long_profile, 9001, "9002", "3rd Year 6th Semester Exam", 3.6, 3.6, "Promoted", SESS_ID))
+            conn.execute("""
+                INSERT OR REPLACE INTO exam_results 
+                (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (long_profile, 9001, "9003", "5th Semester Exam", 3.7, 3.7, "Promoted", SESS_ID))
+            conn.execute("""
+                INSERT OR REPLACE INTO exam_results 
+                (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (long_profile, 9001, "9004", "Orientation Exam", 4.0, 4.0, "Promoted", SESS_ID))
+            conn.commit()
+
+        data = database.get_longitudinal_data(long_profile)
+        self.assertIn(9001, data)
+        records = data[9001]
+        
+        # Verify Orientation (sem_num=0) is filtered out
+        sem_nums = [r['semester_num'] for r in records]
+        self.assertNotIn(0, sem_nums, "sem_num=0 records must be excluded from longitudinal data")
+        
+        # Verify the semester numbers sorted: 2, 5, 6
+        self.assertEqual(sem_nums, [2, 5, 6])
+        
+        # Verify specific details
+        self.assertEqual(records[0]['semester_num'], 2)
+        self.assertEqual(records[1]['semester_num'], 5)
+        self.assertEqual(records[2]['semester_num'], 6)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
