@@ -324,11 +324,17 @@ def fetch_programs_and_sessions():
     return programs, sessions
 
 def fetch_exams(pro_id):
+    cache_key = "exams_{}".format(pro_id)
+    cached = db.get_meta_cache(cache_key, ttl_seconds=3600)  # Cache hourly
+    if cached:
+        return collections.OrderedDict(cached)
     url = "{0}?program_id={1}&pedata=99".format(AJAX_URL, pro_id)
     html = make_request(url)
     if not html: return collections.OrderedDict()
     options = extract_options_from_html(html)
-    return collections.OrderedDict(options)
+    res = collections.OrderedDict(options)
+    db.set_meta_cache(cache_key, dict(res))
+    return res
 
 def run_batch_scan_engine(tasks, pro_id, exam_id="0", all_sessions=None, progress_callback=None, target_college="all", num_threads=5):
     """
@@ -368,7 +374,7 @@ def run_batch_scan_engine(tasks, pro_id, exam_id="0", all_sessions=None, progres
     t_args = (task_queue, pro_id, exam_id, all_results, results_lock, print_lock, len(tasks), completed_tasks, target_college, all_sessions, wrapped_callback)
     threads = []
     for _ in range(worker_count):
-        time.sleep(random.uniform(0.01, 0.02))  # Jitter L3: was (0.02, 0.05)
+        time.sleep(random.uniform(0.05, 0.15))  # Stagger handshakes to prevent rate-limiting/timeouts
         t = threading.Thread(target=worker_thread, args=t_args)
         t.daemon = True; t.start(); threads.append(t)
         
