@@ -76,6 +76,34 @@ adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=0)
 session.mount("https://", adapter)
 session.mount("http://", adapter)
 
+import concurrent.futures
+
+def warm_connection_pool(num_connections=6):
+    """
+    Concurrently warms the requests session connection pool to minimize cold-start SSL/TLS handshake latency.
+    Runs (num_connections - 1) HEAD requests and 1 GET request in parallel.
+    """
+    req_headers = HEADERS.copy()
+    req_headers['User-Agent'] = SESSION_UA
+
+    def _warm_single(method):
+        try:
+            if method == "GET":
+                response = session.get(BASE_URL, headers=req_headers, timeout=15)
+                return response.status_code
+            else:
+                response = session.request("HEAD", BASE_URL, headers=req_headers, timeout=15)
+                return response.status_code
+        except Exception:
+            return None
+
+    # Prepare methods: 1 GET (to fetch and establish cookies) and remaining as HEAD
+    methods = ["GET"] + ["HEAD"] * max(0, num_connections - 1)
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_connections) as executor:
+        futures = [executor.submit(_warm_single, m) for m in methods]
+        concurrent.futures.wait(futures)
+
 global_backoff_until = 0
 
 # Compiled regular expressions for robust, zero-dependency HTML parsing
@@ -341,7 +369,9 @@ def run_batch_scan_engine(tasks, pro_id, exam_id="0", all_sessions=None, progres
     Unified CLI-Native scanning engine. 
     Tasks can be (reg, sess) or (reg, sess, exam).
     """
-    # Ensure session handshake only if sessions aren't already available
+    # Ensure session handshake and connection pool are warmed up
+    if not session.cookies:
+        warm_connection_pool(num_connections=6)
     if not all_sessions:
         fetch_programs_and_sessions()
         
@@ -374,7 +404,7 @@ def run_batch_scan_engine(tasks, pro_id, exam_id="0", all_sessions=None, progres
     t_args = (task_queue, pro_id, exam_id, all_results, results_lock, print_lock, len(tasks), completed_tasks, target_college, all_sessions, wrapped_callback)
     threads = []
     for _ in range(worker_count):
-        time.sleep(random.uniform(0.05, 0.15))  # Stagger handshakes to prevent rate-limiting/timeouts
+        time.sleep(random.uniform(0.01, 0.04))  # Stagger handshakes to prevent rate-limiting/timeouts
         t = threading.Thread(target=worker_thread, args=t_args)
         t.daemon = True; t.start(); threads.append(t)
         

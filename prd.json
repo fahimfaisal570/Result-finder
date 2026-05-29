@@ -155,6 +155,21 @@
       "priority": 11,
       "passes": true,
       "notes": "Replaced full-page st.rerun() inside render_student_projection_card with st.rerun(scope=\"fragment\"). Wrapped the roster loop and pagination elements in a fragment function render_paginated_projections() using st.rerun(scope=\"fragment\"), achieving localized card and page updates (<10ms interaction latency)."
+    },
+    {
+      "id": "US-012",
+      "title": "Connection Pre-warming for Deep Analysis Cold Start",
+      "description": "As a user clicking the Deep Analysis button in the GPA Projection tab, I want the first analysis to load within 3-4 seconds instead of 20 seconds, while subsequent analyses continue to load in 2 seconds, by pre-warming 6 parallel connections at page load time.",
+      "acceptanceCriteria": [
+        "Add warm_connection_pool(num_connections=6) in cli_scraper.py using ThreadPoolExecutor to run 5 HEAD requests and 1 GET request in parallel to BASE_URL.",
+        "Update run_batch_scan_engine() to call warm_connection_pool() if cookies are not set.",
+        "Reduce thread stagger delay in run_batch_scan_engine() to random.uniform(0.01, 0.04).",
+        "Add a @st.cache_data decorated pre-warm function in pages/analytics.py that executes at page load and triggers cs.warm_connection_pool(), cs.fetch_programs_and_sessions(), and cs.fetch_exams(pro_id).",
+        "Ensure all project unit tests pass."
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "Implemented warm_connection_pool(6) in cli_scraper.py utilizing concurrent.futures.ThreadPoolExecutor for parallel SSL/TLS warming. Updated run_batch_scan_engine() to pre-warm if cookies are not set, and reduced thread launching stagger delay from 0.05-0.15s to 0.01-0.04s. Created cache-data-backed _pre_warm_resources() in pages/analytics.py running at page load. Added full unit tests in test_full_system.py; all 21 tests pass successfully."
     }
   ]
 }

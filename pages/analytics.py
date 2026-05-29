@@ -464,8 +464,23 @@ promo_target, is_even_sem, promo_yr = get_promotion_rules(selected_label)
 # ---------------------------------------------------------------------------
 # Deep Analysis Helpers (shared by Strategic Insights + GPA Projection tab)
 # ---------------------------------------------------------------------------
-if'_deep_cache' not in st.session_state:
+if '_deep_cache' not in st.session_state:
   st.session_state._deep_cache = {} # keyed by f"{profile_name}_{reg}"
+
+@st.cache_data(ttl=3600)
+def _pre_warm_resources(pro_id):
+  """Concurrently pre-warm the connection pool and pre-fetch program/session/exam metadata."""
+  import cli_scraper as cs
+  cs.warm_connection_pool(num_connections=6)
+  cs.fetch_programs_and_sessions()
+  if pro_id:
+    cs.fetch_exams(pro_id)
+  return True
+
+_p_data_init = profiles.get(profile_name, {})
+_pro_id_init = _p_data_init.get("pro_id", "")
+if _pro_id_init:
+  _pre_warm_resources(_pro_id_init)
 
 def _run_deep_analysis(reg_no, stu_name, sess_id):
   """Fetch full student record from portal and compute precise analysis."""

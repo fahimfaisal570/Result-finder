@@ -112,6 +112,28 @@ class TestFullSystem(unittest.TestCase):
         self.assertEqual(eff3[0]['effective_cgpa'], 4.0) # Still 4.0!
         self.assertEqual(eff3[0]['improvement_count'], 0)
 
+    def test_connection_pre_warming(self):
+        """Verify that warm_connection_pool fires the correct HTTP requests concurrently."""
+        with patch('cli_scraper.session.get') as mock_get, \
+             patch('cli_scraper.session.request') as mock_request:
+            
+            # Setup mock returns
+            mock_get.return_value.status_code = 200
+            mock_request.return_value.status_code = 200
+            
+            # Run pre-warm
+            cs.warm_connection_pool(num_connections=6)
+            
+            # Assert 1 GET was called on BASE_URL
+            mock_get.assert_called_once_with(cs.BASE_URL, headers=unittest.mock.ANY, timeout=15)
+            
+            # Assert 5 HEAD requests were called on BASE_URL
+            self.assertEqual(mock_request.call_count, 5)
+            for call in mock_request.call_args_list:
+                self.assertEqual(call[0][0], "HEAD")
+                self.assertEqual(call[0][1], cs.BASE_URL)
+                self.assertEqual(call[1]['timeout'], 15)
+
     def tearDown(self):
         # We don't manually delete the file here to avoid PermissionError on Windows.
         # Temp files are cleaned up by OS eventually or when the process ends.

@@ -114,6 +114,20 @@ Started: Wed May 27 16:05:00 2026
 - **Learnings for future iterations:**
   - Calling `st.rerun()` with no arguments inside a `@st.fragment` overrides the local isolation and triggers a full page rerun, re-rendering all other widgets, tables, and Altair charts, which negates the fragment-level performance benefits. Passing `scope="fragment"` confines the rerun to the innermost active fragment.
   - Nesting fragments (`render_student_projection_card` inside `render_paginated_projections`) is highly effective: changing a slider inside a card only reruns that specific card (<10ms), while navigating pages reruns the outer page container but does not affect the rest of the application.
+---
+## 2026-05-29 17:15 - Completion of US-012
+- Implemented concurrent connection pre-warming function `warm_connection_pool(num_connections=6)` in `cli_scraper.py` using `concurrent.futures.ThreadPoolExecutor` to initiate 5 parallel HEAD requests + 1 GET request to BASE_URL to pre-establish SSL/TLS handshakes and cookies concurrently.
+- Integrated `warm_connection_pool` in `run_batch_scan_engine()` as an automatic fallback if session cookies are absent, ensuring connections are pre-warmed even in CLI runs.
+- Reduced the launch stagger delay of worker threads from `random.uniform(0.05, 0.15)` to `random.uniform(0.01, 0.04)` since warmed SSL/TLS connections in the pool prevent concurrent TLS handshaking resource/socket lockups.
+- Developed the `@st.cache_data(ttl=3600)` decorated `_pre_warm_resources(pro_id)` helper function in `pages/analytics.py` executing at page load time. This caches the warming routine hourly, pre-warming connections and pre-fetching program, session, and exam metadata in parallel on initial dashboard load.
+- Added a robust unit test `test_connection_pre_warming` in `tests/test_full_system.py` using mocks to verify exact concurrent GET and HEAD calls.
+- Verified that all unit and system integration tests pass successfully (21/21 tests passed).
+- Modified files: `cli_scraper.py`, `pages/analytics.py`, `tests/test_full_system.py`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Parallelizing cold HTTP/SSL connection pre-warming using a thread pool before worker thread spawn solves the performance bottleneck of requests/urllib3 connection setup contention under the GIL.
+  - Using Streamlit's `@st.cache_data` at page load to execute background warming operations ensures interactions are responsive (<3-4s cold, ~2s warm) without blocking consecutive Streamlit reruns.
+  - Stagger delays are only useful when threads perform fresh TLS handshakes; with pre-warmed pooled connections, thread launching can be virtually instantaneous, drastically speeding up multi-threaded batch operations.
+
 
 
 

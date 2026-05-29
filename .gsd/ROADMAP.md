@@ -59,3 +59,10 @@ All tasks derived from [Code Rabbit Review Report](file:///c:/Users/Ucc/Download
   - [x] Task 10.3: Retain original safety delays in `cli_scraper.py` (Completed - no changes)
   - [x] Task 10.4: Remove redundant outer retry loops in `pages/analytics.py`
   - [x] Task 10.5: Run validation tests and finalize review report
+
+- [x] Wave 11: Connection Pre-warming & Cold Start Optimization
+  - [x] Task 11.1: Implement parallel SSL/TLS connection warming in `cli_scraper.py`
+  - [x] Task 11.2: Integrate pre-warming into CLI scanning engine
+  - [x] Task 11.3: Reduce thread launching stagger delays
+  - [x] Task 11.4: Implement cached pre-warming at Streamlit page-load time
+  - [x] Task 11.5: Write comprehensive concurrent mock tests and verify all pass
