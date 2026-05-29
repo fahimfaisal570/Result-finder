@@ -140,6 +140,21 @@
       "priority": 10,
       "passes": true,
       "notes": "Extracted student card loop into a @st.fragment decorated helper render_student_projection_card() for complete card-level rerun isolation. Implemented 10-student paginated views in Tab 6 with clean Next/Prev buttons, capping the active widget serialization overhead to a small constant footprint, resolving Streamlit's WebSocket rendering freeze."
+    },
+    {
+      "id": "US-011",
+      "title": "Fragment-Scoped Reruns for Deep Analysis Optimization",
+      "description": "As a user clicking the Deep Analysis button in the GPA Projection tab, I want the UI to load and update in under 1 second without triggering a full page rerun of the entire analytics dashboard.",
+      "acceptanceCriteria": [
+        "Change st.rerun() to st.rerun(scope=\"fragment\") inside the Deep Analysis button handler in render_student_projection_card.",
+        "Change st.rerun() to st.rerun(scope=\"fragment\") inside the Retry button handler in render_student_projection_card.",
+        "Wrap the pagination controls and active card rendering in a fragment-decorated function render_paginated_projections so navigating pages only reruns that fragment.",
+        "Ensure page navigation button handlers call st.rerun(scope=\"fragment\") instead of a full page st.rerun().",
+        "Ensure all project unit tests pass."
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
     }
   ]
 }
