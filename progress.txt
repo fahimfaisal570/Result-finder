@@ -25,3 +25,14 @@ Started: Wed May 27 16:05:00 2026
   - Using Streamlit session state and rendering a pre-pass loop allows flawless computation of dynamic attributes (like disable states based on accumulated checkboxes) before any widgets are rendered, eliminating widget initialization lag or logic ordering bugs.
   - Ensuring the calculator evaluates selection status by `credit > 0` instead of grade values guarantees failures are properly included in the total credit calculations.
 ---
+## 2026-05-29 09:59 - Completion of US-004
+- Optimized `database.py`'s `get_profiles()` by eliminating the sequential N+1 query loop.
+- Instead of querying the `students` table once for each profile, we now fetch all profiles in one query, then fetch all student records in a single bulk query, mapping them in-memory.
+- Verified that all functionality remains perfectly intact by running the complete test suite.
+- All 15 unit and system tests passed successfully.
+- Modified files: `database.py`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Standardizing sequential query patterns to bulk loads significantly reduces round-trip database latency, especially when dealing with nested structures (like a list of profiles containing lists of students).
+  - Leveraging in-memory dictionary routing (`profile_name in profiles`) allows O(1) matching after doing bulk fetching.
+---
+
