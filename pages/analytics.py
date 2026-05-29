@@ -1300,567 +1300,547 @@ with tabs[5]:
 
   proj_df = proj_df.sort_values("cgpa", ascending=False).reset_index(drop=True)
 
-  if proj_df.empty:
-    st.warning("No students match your search.")
-  else:
-    st.markdown(f"**{len(proj_df)} student(s)** in this exam \u2014 click Deep Analysis to unlock projections.")
-    st.divider()
+  # GPA Projection Card Fragment
+  @st.fragment
+  def render_student_projection_card(row, profile_name, exam_id):
+    """Renders a single student card with full fragment isolation."""
+    reg = row["reg_no"]
+    sess_id = row.get("sess_id", "AUTO")
+    name = row.get("name", f"Reg {reg}")
+    gpa = row.get("gpa", 0.0)
+    cgpa = row.get("cgpa", 0.0)
 
-    for _, row in proj_df.iterrows():
-      reg = row["reg_no"]
-      sess_id = row.get("sess_id", "AUTO")
-      name = row.get("name", f"Reg {reg}")
-      gpa = row.get("gpa", 0.0)
-      cgpa = row.get("cgpa", 0.0)
+    cache_key = f"{profile_name}_{reg}_{sess_id}"
+    btn_key  = f"proj_deep_{profile_name}_{exam_id}_{reg}_{sess_id}"
 
-      cache_key = f"{profile_name}_{reg}_{sess_id}"
-      btn_key  = f"proj_deep_{profile_name}_{exam_id}_{reg}_{sess_id}"
+    with st.container(border=True):
+      hdr_col1, hdr_col2, hdr_col3, hdr_col4 = st.columns([3, 1, 1, 2])
+      hdr_col1.markdown(f"**{name}** &nbsp; `{reg}`")
+      hdr_col2.markdown(f"GPA &nbsp;**{gpa:.2f}**")
+      hdr_col3.markdown(f"CGPA &nbsp;**{cgpa:.2f}**")
 
-      with st.container(border=True):
-        hdr_col1, hdr_col2, hdr_col3, hdr_col4 = st.columns([3, 1, 1, 2])
-        hdr_col1.markdown(f"**{name}** &nbsp; `{reg}`")
-        hdr_col2.markdown(f"GPA &nbsp;**{gpa:.2f}**")
-        hdr_col3.markdown(f"CGPA &nbsp;**{cgpa:.2f}**")
+      already_done = cache_key in st.session_state._deep_cache
 
-        already_done = cache_key in st.session_state._deep_cache
+      if already_done:
+        deep_res = st.session_state._deep_cache[cache_key]
+        hdr_col4.markdown("✅ **Analysed**")
 
-        if already_done:
-          deep_res = st.session_state._deep_cache[cache_key]
-          hdr_col4.markdown("\u2705 **Analysed**")
+        if deep_res is None:
+          retry_key = f"retry_{profile_name}_{exam_id}_{reg}_{sess_id}"
+          cols_err = st.columns([0.05, 0.55, 0.4])
+          with cols_err[1]:
+            st.caption("⚠️ Could not fetch records — portal may be busy or student not found.")
+          with cols_err[2]:
+            if st.button("Retry", key=retry_key, help="Re-run deep analysis for this student"):
+              del st.session_state._deep_cache[cache_key]
+              st.rerun()
+        else:
+          adv_proj = db.compute_advanced_projection(
+            deep_result=deep_res,
+            effective_grades=deep_res.get('effective_grades', {}),
+            retake_records=deep_res.get('retake_records', []),
+            profile_name=profile_name,
+          )
+          
+          # --- Semester label helper ---
+          def _semester_label(sem_num):
+            yr = (sem_num - 1) // 2 + 1
+            s = 1 if sem_num % 2 == 1 else 2
+            return f"{yr}-{s}"
 
-          if deep_res is None:
-            retry_key = f"retry_{profile_name}_{exam_id}_{reg}_{sess_id}"
-            cols_err = st.columns([0.05, 0.55, 0.4])
-            with cols_err[1]:
-              st.caption("\u26a0\ufe0f Could not fetch records \u2014 portal may be busy or student not found.")
-            with cols_err[2]:
-              if st.button("Retry", key=retry_key, help=f"Re-run deep analysis for this student"):
-                del st.session_state._deep_cache[cache_key]
-                st.rerun()
-          else:
-            adv_proj = db.compute_advanced_projection(
-              deep_result=deep_res,
-              effective_grades=deep_res.get('effective_grades', {}),
-              retake_records=deep_res.get('retake_records', []),
-              profile_name=profile_name,
-            )
-            
-            # --- Semester label helper ---
-            def _semester_label(sem_num):
-              yr = (sem_num - 1) // 2 + 1
-              s = 1 if sem_num % 2 == 1 else 2
-              return f"{yr}-{s}"
-
-            # --- Metrics Row ---
-            diff = deep_res['cgpa_diff']
-            diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
-            cols = st.columns([1, 1, 1])
-            with cols[0]:
-              st.metric("True CGPA", f"{deep_res['true_cgpa']:.2f}",
-                   delta=f"{diff_str} vs official {deep_res['official_cgpa']:.2f}", delta_color="normal" if diff >= 0 else "inverse")
-            with cols[1]:
-              if deep_res['precise_target_gpa'] > 0:
-                target_val = deep_res['precise_target_gpa']
-                if target_val > 4.0:
-                  st.metric("Precise Target GPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
-                else:
-                  st.metric("Precise Target GPA", f"{target_val:.2f}", delta=f"Next sem ({deep_res['next_sem_credits']:.2f} cr)")
+          # --- Metrics Row ---
+          diff = deep_res['cgpa_diff']
+          diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
+          cols = st.columns([1, 1, 1])
+          with cols[0]:
+            st.metric("True CGPA", f"{deep_res['true_cgpa']:.2f}",
+                 delta=f"{diff_str} vs official {deep_res['official_cgpa']:.2f}", delta_color="normal" if diff >= 0 else "inverse")
+          with cols[1]:
+            if deep_res['precise_target_gpa'] > 0:
+              target_val = deep_res['precise_target_gpa']
+              if target_val > 4.0:
+                st.metric("Precise Target GPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
               else:
-                st.metric("Target GPA", "N/A", delta="Even sem / computed")
-            with cols[2]:
-              st.metric("Pending Retakes", f"{deep_res['pending_retake_count']}", delta=f"{deep_res['total_credits']:.2f} cr completed")
+                st.metric("Precise Target GPA", f"{target_val:.2f}", delta=f"Next sem ({deep_res['next_sem_credits']:.2f} cr)")
+            else:
+              st.metric("Target GPA", "N/A", delta="Even sem / computed")
+          with cols[2]:
+            st.metric("Pending Retakes", f"{deep_res['pending_retake_count']}", delta=f"{deep_res['total_credits']:.2f} cr completed")
 
-            # --- Collect Overrides from session_state ---
-            overrides = {}
-            # For pending retakes — honor checkbox
-            for pr in adv_proj['pending_retakes']:
-              chk_key = f"chk_{profile_name}_{reg}_{pr['code']}"
-              will_pass = st.session_state.get(chk_key, False) # default: unchecked
-              
-              if will_pass:
-                tgt_key = f"tgt_{profile_name}_{reg}_{pr['code']}"
-                if tgt_key in st.session_state:
-                  overrides[pr['code']] = st.session_state[tgt_key]
-                else:
-                  overrides[pr['code']] = 2.00
-              else:
-                # Unchecked → keep the current failing grade (no improvement)
-                overrides[pr['code']] = pr['current_gp']
+          # --- Collect Overrides from session_state ---
+          overrides = {}
+          for pr in adv_proj['pending_retakes']:
+            chk_key = f"chk_{profile_name}_{reg}_{pr['code']}"
+            will_pass = st.session_state.get(chk_key, False)
             
-            # For improvement candidates (default current_gp)
-            for ic in adv_proj['improvement_candidates']:
-              key = f"tgt_{profile_name}_{reg}_{ic['code']}"
-              if key in st.session_state:
-                overrides[ic['code']] = st.session_state[key]
+            if will_pass:
+              tgt_key = f"tgt_{profile_name}_{reg}_{pr['code']}"
+              if tgt_key in st.session_state:
+                overrides[pr['code']] = st.session_state[tgt_key]
               else:
-                overrides[ic['code']] = ic['current_gp']
+                overrides[pr['code']] = 2.00
+            else:
+              overrides[pr['code']] = pr['current_gp']
+          
+          for ic in adv_proj['improvement_candidates']:
+            key = f"tgt_{profile_name}_{reg}_{ic['code']}"
+            if key in st.session_state:
+              overrides[ic['code']] = st.session_state[key]
+            else:
+              overrides[ic['code']] = ic['current_gp']
 
-            # --- Compute Adjusted CGPA ---
-            adj_cgpa, adj_credits = db.compute_adjusted_cgpa(deep_res.get('effective_grades', {}), overrides)
-            cgpa_gain = adj_cgpa - deep_res['true_cgpa']
+          # --- Compute Adjusted CGPA ---
+          adj_cgpa, adj_credits = db.compute_adjusted_cgpa(deep_res.get('effective_grades', {}), overrides)
+          cgpa_gain = adj_cgpa - deep_res['true_cgpa']
 
-            # === SEMESTER-WISE GPA/CGPA BREAKDOWN (Collapsed by default) ===
-            _dept = db.get_dept_from_profile(profile_name)
-            _current_sem = deep_res.get("current_semester", 0)
-            _official_sem_records = deep_res.get('official_semester_records', {})
+          # === SEMESTER-WISE GPA/CGPA BREAKDOWN ===
+          _dept = db.get_dept_from_profile(profile_name)
+          _current_sem = deep_res.get("current_semester", 0)
+          _official_sem_records = deep_res.get('official_semester_records', {})
 
-            _sem_breakdown = db.compute_per_semester_breakdown(
-              effective_grades=deep_res.get('effective_grades', {}),
-              dept=_dept,
-              current_semester=_current_sem,
-              overrides=overrides,
-              official_records=_official_sem_records,
-            )
+          _sem_breakdown = db.compute_per_semester_breakdown(
+            effective_grades=deep_res.get('effective_grades', {}),
+            dept=_dept,
+            current_semester=_current_sem,
+            overrides=overrides,
+            official_records=_official_sem_records,
+          )
 
-            if _sem_breakdown:
-              with st.expander("📊 Semester-wise GPA & CGPA Breakdown", expanded=False):
-                # Header row
-                _hdr = st.columns([1, 1.2, 1.2, 1.2, 1.2, 0.8])
-                _hdr[0].markdown("**Semester**")
-                _hdr[1].markdown("**Official GPA**")
-                _hdr[2].markdown("**Computed GPA**")
-                _hdr[3].markdown("**Official CGPA**")
-                _hdr[4].markdown("**Adjusted CGPA**")
-                _hdr[5].markdown("**Credits**")
-                st.markdown("---")
+          if _sem_breakdown:
+            with st.expander("📊 Semester-wise GPA & CGPA Breakdown", expanded=False):
+              _hdr = st.columns([1, 1.2, 1.2, 1.2, 1.2, 0.8])
+              _hdr[0].markdown("**Semester**")
+              _hdr[1].markdown("**Official GPA**")
+              _hdr[2].markdown("**Computed GPA**")
+              _hdr[3].markdown("**Official CGPA**")
+              _hdr[4].markdown("**Adjusted CGPA**")
+              _hdr[5].markdown("**Credits**")
+              st.markdown("---")
 
-                for _sb in _sem_breakdown:
-                  _row = st.columns([1, 1.2, 1.2, 1.2, 1.2, 0.8])
-                  _row[0].markdown(f"**{_sb['label']}**")
-                  # Official GPA
-                  _o_gpa = _sb.get('official_gpa')
-                  _row[1].markdown(f"{_o_gpa:.2f}" if _o_gpa is not None else "—")
-                  # Computed GPA (with retake improvements)
-                  _gpa_diff = ""
-                  if _o_gpa is not None and _o_gpa > 0:
-                    _delta_g = _sb['computed_gpa'] - _o_gpa
-                    if abs(_delta_g) >= 0.01:
-                      _color = "green" if _delta_g > 0 else "red"
-                      _gpa_diff = f" :{_color}[({_delta_g:+.2f})]"
-                  _row[2].markdown(f"{_sb['computed_gpa']:.2f}{_gpa_diff}")
-                  # Official CGPA
-                  _o_cgpa = _sb.get('official_cgpa')
-                  _row[3].markdown(f"{_o_cgpa:.2f}" if _o_cgpa is not None else "—")
-                  # Adjusted CGPA (with user overrides)
-                  _adj_diff = ""
-                  if _o_cgpa is not None and _o_cgpa > 0:
-                    _delta = _sb['computed_cgpa'] - _o_cgpa
-                    if abs(_delta) >= 0.01:
-                      _color = "green" if _delta > 0 else "red"
-                      _adj_diff = f" :{_color}[({_delta:+.2f})]"
-                  _row[4].markdown(f"{_sb['computed_cgpa']:.2f}{_adj_diff}")
-                  _row[5].markdown(f"{_sb['credits']:.2f}")
+              for _sb in _sem_breakdown:
+                _row = st.columns([1, 1.2, 1.2, 1.2, 1.2, 0.8])
+                _row[0].markdown(f"**{_sb['label']}**")
+                _o_gpa = _sb.get('official_gpa')
+                _row[1].markdown(f"{_o_gpa:.2f}" if _o_gpa is not None else "—")
+                _gpa_diff = ""
+                if _o_gpa is not None and _o_gpa > 0:
+                  _delta_g = _sb['computed_gpa'] - _o_gpa
+                  if abs(_delta_g) >= 0.01:
+                    _color = "green" if _delta_g > 0 else "red"
+                    _gpa_diff = f" :{_color}[({_delta_g:+.2f})]"
+                _row[2].markdown(f"{_sb['computed_gpa']:.2f}{_gpa_diff}")
+                _o_cgpa = _sb.get('official_cgpa')
+                _row[3].markdown(f"{_o_cgpa:.2f}" if _o_cgpa is not None else "—")
+                _adj_diff = ""
+                if _o_cgpa is not None and _o_cgpa > 0:
+                  _delta = _sb['computed_cgpa'] - _o_cgpa
+                  if abs(_delta) >= 0.01:
+                    _color = "green" if _delta > 0 else "red"
+                    _adj_diff = f" :{_color}[({_delta:+.2f})]"
+                _row[4].markdown(f"{_sb['computed_cgpa']:.2f}{_adj_diff}")
+                _row[5].markdown(f"{_sb['credits']:.2f}")
 
-            # === HELPER: Render items grouped by semester ===
-            def _render_semester_grouped(items, render_fn):
-              """Groups items by semester and renders with sub-headers."""
-              from itertools import groupby
-              for sem_num, group in groupby(items, key=lambda x: x.get('semester', 0)):
-                group_list = list(group)
-                if sem_num > 0:
-                  st.markdown(f"**━━ Semester {_semester_label(sem_num)} ━━**")
-                else:
-                  st.markdown("**━━ Other ━━**")
-                for item in group_list:
-                  render_fn(item)
+          def _render_semester_grouped(items, render_fn):
+            from itertools import groupby
+            for sem_num, group in groupby(items, key=lambda x: x.get('semester', 0)):
+              group_list = list(group)
+              if sem_num > 0:
+                st.markdown(f"**━━ Semester {_semester_label(sem_num)} ━━**")
+              else:
+                st.markdown("**━━ Other ━━**")
+              for item in group_list:
+                render_fn(item)
 
-            # --- Expanders for Retakes and Improvements ---
-            if adv_proj['pending_retakes']:
-              with st.expander(f"{len(adv_proj['pending_retakes'])} Subject(s) Still Failing"):
-                def _render_retake(pr):
-                  cc0, cc1, cc2 = st.columns([0.4, 3, 1])
-                  with cc0:
-                    will_pass_key = f"chk_{profile_name}_{reg}_{pr['code']}"
-                    will_pass = st.checkbox("Pass", value=False, key=will_pass_key, label_visibility="collapsed")
-                  with cc1:
-                    gp_display = f"{pr['current_gp']:.2f}" if pr['current_gp'] > 0 else "F"
-                    status_icon = "\u2705" if will_pass else "\u274c"
-                    name_str = f" | *{pr['name']}*" if pr.get('name') else ""
-                    st.markdown(f"{status_icon} **{pr['code']}**{name_str} \u2014 GP: {gp_display} ({pr['credit']:.2f} cr)")
-                  with cc2:
-                    if will_pass:
-                      key = f"tgt_{profile_name}_{reg}_{pr['code']}"
-                      st.number_input("Target GP", min_value=2.00, max_value=4.00, value=overrides.get(pr['code'], 2.00), step=0.25, key=key, label_visibility="collapsed")
-                    else:
-                      st.caption("\u2014")
-                _render_semester_grouped(adv_proj['pending_retakes'], _render_retake)
-            
-            if adv_proj['improvement_candidates']:
-              with st.expander(f"{len(adv_proj['improvement_candidates'])} Improvement Candidates"):
-                def _render_improvement(ic):
-                  cc1, cc2 = st.columns([3, 1])
-                  with cc1:
-                    name_str = f" | *{ic['name']}*" if ic.get('name') else ""
-                    st.markdown(f"**{ic['code']}**{name_str} \u2014 GP: {ic['current_gp']:.2f} ({ic['credit']:.2f} cr)")
-                  with cc2:
-                    key = f"tgt_{profile_name}_{reg}_{ic['code']}"
-                    st.number_input("Target GP", min_value=ic['current_gp'], max_value=4.00, value=overrides[ic['code']], step=0.25, key=key, label_visibility="collapsed")
-                _render_semester_grouped(adv_proj['improvement_candidates'], _render_improvement)
-
-            if adv_proj['already_attempted']:
-              with st.expander(f"Already Attempted ({len(adv_proj['already_attempted'])})"):
-                st.caption("These courses were previously retaken/improved but GP is still \u2264 2.75. They remain as improvement candidates above.")
-                def _render_attempted(aa):
-                  name_str = f" | *{aa['name']}*" if aa.get('name') else ""
-                  st.markdown(f"\u26a0\ufe0f **{aa['code']}**{name_str} \u2014 GP: {aa['current_gp']:.2f} | {aa['reason']}")
-                _render_semester_grouped(adv_proj['already_attempted'], _render_attempted)
-
-            if adv_proj['ineligible_retake_cleared']:
-              _n_retake = sum(1 for x in adv_proj['ineligible_retake_cleared'] if x.get('clear_type') !='improvement_cleared')
-              _n_improv = sum(1 for x in adv_proj['ineligible_retake_cleared'] if x.get('clear_type') =='improvement_cleared')
-              _counts_parts = []
-              if _n_retake:
-                _counts_parts.append(f"{_n_retake} retake")
-              if _n_improv:
-                _counts_parts.append(f"{_n_improv} improvement")
-              _counts_str = ", ".join(_counts_parts) if _counts_parts else str(len(adv_proj['ineligible_retake_cleared']))
-              with st.expander(f"Cleared (not improvable, {_counts_str})"):
-                def _render_cleared(irc):
-                  name_str = f" | *{irc['name']}*" if irc.get('name') else ""
-                  # Green improvement badge showing delta from original
-                  _orig = irc.get('original_gp', irc['current_gp'])
-                  _delta = irc['current_gp'] - _orig
-                  if _delta > 0:
-                    badge = f' <span style="background:#22c55e;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.8em;">+{_delta:.2f} improved</span>'
+          # --- Expanders for Retakes and Improvements ---
+          if adv_proj['pending_retakes']:
+            with st.expander(f"{len(adv_proj['pending_retakes'])} Subject(s) Still Failing"):
+              def _render_retake(pr):
+                cc0, cc1, cc2 = st.columns([0.4, 3, 1])
+                with cc0:
+                  will_pass_key = f"chk_{profile_name}_{reg}_{pr['code']}"
+                  will_pass = st.checkbox("Pass", value=False, key=will_pass_key, label_visibility="collapsed")
+                with cc1:
+                  gp_display = f"{pr['current_gp']:.2f}" if pr['current_gp'] > 0 else "F"
+                  status_icon = "✅" if will_pass else "❌"
+                  name_str = f" | *{pr['name']}*" if pr.get('name') else ""
+                  st.markdown(f"{status_icon} **{pr['code']}**{name_str} \u2014 GP: {gp_display} ({pr['credit']:.2f} cr)")
+                with cc2:
+                  if will_pass:
+                    key = f"tgt_{profile_name}_{reg}_{pr['code']}"
+                    st.number_input("Target GP", min_value=2.00, max_value=4.00, value=overrides.get(pr['code'], 2.00), step=0.25, key=key, label_visibility="collapsed")
                   else:
-                    badge = ""
-                  st.markdown(
-                    f"**{irc['code']}**{name_str} \u2014 GP: {irc['current_gp']:.2f}{badge} | {irc['reason']}",
-                    unsafe_allow_html=True
+                    st.caption("—")
+              _render_semester_grouped(adv_proj['pending_retakes'], _render_retake)
+          
+          if adv_proj['improvement_candidates']:
+            with st.expander(f"{len(adv_proj['improvement_candidates'])} Improvement Candidates"):
+              def _render_improvement(ic):
+                cc1, cc2 = st.columns([3, 1])
+                with cc1:
+                  name_str = f" | *{ic['name']}*" if ic.get('name') else ""
+                  st.markdown(f"**{ic['code']}**{name_str} \u2014 GP: {ic['current_gp']:.2f} ({ic['credit']:.2f} cr)")
+                with cc2:
+                  key = f"tgt_{profile_name}_{reg}_{ic['code']}"
+                  st.number_input("Target GP", min_value=ic['current_gp'], max_value=4.00, value=overrides[ic['code']], step=0.25, key=key, label_visibility="collapsed")
+              _render_semester_grouped(adv_proj['improvement_candidates'], _render_improvement)
+
+          if adv_proj['already_attempted']:
+            with st.expander(f"Already Attempted ({len(adv_proj['already_attempted'])})"):
+              st.caption("These courses were previously retaken/improved but GP is still \u2264 2.75. They remain as improvement candidates above.")
+              def _render_attempted(aa):
+                name_str = f" | *{aa['name']}*" if aa.get('name') else ""
+                st.markdown(f"⚠️ **{aa['code']}**{name_str} \u2014 GP: {aa['current_gp']:.2f} | {aa['reason']}")
+              _render_semester_grouped(adv_proj['already_attempted'], _render_attempted)
+
+          if adv_proj['ineligible_retake_cleared']:
+            _n_retake = sum(1 for x in adv_proj['ineligible_retake_cleared'] if x.get('clear_type') !='improvement_cleared')
+            _n_improv = sum(1 for x in adv_proj['ineligible_retake_cleared'] if x.get('clear_type') =='improvement_cleared')
+            _counts_parts = []
+            if _n_retake:
+              _counts_parts.append(f"{_n_retake} retake")
+            if _n_improv:
+              _counts_parts.append(f"{_n_improv} improvement")
+            _counts_str = ", ".join(_counts_parts) if _counts_parts else str(len(adv_proj['ineligible_retake_cleared']))
+            with st.expander(f"Cleared (not improvable, {_counts_str})"):
+              def _render_cleared(irc):
+                name_str = f" | *{irc['name']}*" if irc.get('name') else ""
+                _orig = irc.get('original_gp', irc['current_gp'])
+                _delta = irc['current_gp'] - _orig
+                if _delta > 0:
+                  badge = f' <span style="background:#22c55e;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.8em;">+{_delta:.2f} improved</span>'
+                else:
+                  badge = ""
+                st.markdown(
+                  f"**{irc['code']}**{name_str} \u2014 GP: {irc['current_gp']:.2f}{badge} | {irc['reason']}",
+                  unsafe_allow_html=True
+                )
+              _render_semester_grouped(adv_proj['ineligible_retake_cleared'], _render_cleared)
+
+          st.caption(f"Analyzed {deep_res['effective_grade_count']} subjects across {deep_res['semesters_found']} semester(s)")
+
+          # --- Graduation Target Calculator ---
+          st.markdown("---")
+          st.markdown("##### Graduation Target Calculator")
+          _dept = db.get_dept_from_profile(profile_name)
+          _current_sem = deep_res.get("current_semester", 0)
+          _remaining_sems = max(0, 8 - _current_sem)
+
+          if _remaining_sems == 0:
+            st.success(
+              f"This student has completed all 8 semesters. "
+              f"Final Adjusted CGPA: **{adj_cgpa:.2f}**"
+            )
+          else:
+            target_key = f"target_cgpa_{profile_name}_{reg}"
+            target_cgpa = st.slider(
+              "Target Graduation CGPA",
+              min_value=2.00,
+              max_value=4.00,
+              value=max(2.00, min(4.00, float(adj_cgpa))),
+              step=0.05,
+              key=target_key
+            )
+
+            proj = db.compute_graduation_projection(
+              deep_result=deep_res,
+              target_grad_cgpa=target_cgpa,
+              dept=_dept,
+            )
+
+            p_c1, p_c2, p_c3 = st.columns(3)
+            with p_c1:
+              if proj["already_met"]:
+                st.metric("Required Avg GPA", "Already Met",
+                     delta=f"Current Adj: {proj['current_true_cgpa']:.2f}")
+              elif not proj["is_achievable"]:
+                st.metric("Required Avg GPA", "Impossible",
+                     delta=f"Needs {proj['required_avg_gpa']:.2f} > 4.00",
+                     delta_color="inverse")
+              else:
+                st.metric("Required Avg GPA",
+                     f"{proj['required_avg_gpa']:.2f}",
+                     delta=f"per semester on avg")
+            with p_c2:
+              st.metric("Adjusted CGPA", f"{adj_cgpa:.2f}",
+                   delta=f"+{cgpa_gain:.2f} from targets" if cgpa_gain > 0 else None)
+            with p_c3:
+              st.metric("Remaining Semesters", proj["remaining_semesters"],
+                   delta=f"{proj['remaining_credits']:.2f} credits left")
+
+            # Per-semester breakdown
+            if proj["remaining_credits_breakdown"]:
+              with st.expander("Remaining Semester Credit Breakdown"):
+                bd_cols = st.columns(len(proj["remaining_credits_breakdown"]))
+                for ci, sem_info in enumerate(proj["remaining_credits_breakdown"]):
+                  bd_cols[ci].metric(
+                    f"Sem {sem_info['semester']}",
+                    f"{sem_info['credits']:.2f} cr"
                   )
-                _render_semester_grouped(adv_proj['ineligible_retake_cleared'], _render_cleared)
 
-            st.caption(f"Analyzed {deep_res['effective_grade_count']} subjects across {deep_res['semesters_found']} semester(s)")
-
-            # --- Graduation Target Calculator ---
-            st.markdown("---")
-            st.markdown("##### Graduation Target Calculator")
-            _dept = db.get_dept_from_profile(profile_name)
-            _current_sem = deep_res.get("current_semester", 0)
-            _remaining_sems = max(0, 8 - _current_sem)
-
-            if _remaining_sems == 0:
+            # Status message
+            if proj["already_met"]:
               st.success(
-                f"This student has completed all 8 semesters. "
-                f"Final Adjusted CGPA: **{adj_cgpa:.2f}**"
+                f"**{name}** already has an Adjusted CGPA of "
+                f"**{proj['current_true_cgpa']:.2f}**, which exceeds the "
+                f"target of **{target_cgpa:.2f}**. Maintain performance!"
+              )
+            elif not proj["is_achievable"]:
+              st.error(
+                f"**Mathematically impossible.** Even with a perfect "
+                f"4.00 in all {proj['remaining_semesters']} remaining semester(s), "
+                f"the target CGPA of **{target_cgpa:.2f}** cannot be reached. "
+                f"Consider adjusting the target."
+              )
+            elif proj["required_avg_gpa"] >= 3.75:
+              st.warning(
+                f"**Very challenging.** Needs an average GPA of "
+                f"**{proj['required_avg_gpa']:.2f}** across "
+                f"**{proj['remaining_semesters']}** remaining semester(s). "
+                f"Consistent top performance required."
+              )
+            elif proj["required_avg_gpa"] >= 3.25:
+              st.info(
+                f"**Ambitious but achievable.** Needs **{proj['required_avg_gpa']:.2f}** "
+                f"avg GPA over {proj['remaining_semesters']} semester(s)."
               )
             else:
-              target_key = f"target_cgpa_{profile_name}_{reg}"
-              target_cgpa = st.slider(
-                "Target Graduation CGPA",
-                min_value=2.00,
-                max_value=4.00,
-                value=3.25,
-                step=0.05,
-                key=target_key,
-                help="Drag to set your desired graduation CGPA"
+              st.success(
+                f"**Well within reach.** Needs **{proj['required_avg_gpa']:.2f}** "
+                f"avg GPA over {proj['remaining_semesters']} semester(s). "
+                f"Stay consistent!"
               )
 
-              # OVERRIDE FOR CALCULATION
-              adj_deep_res = deep_res.copy()
-              adj_deep_res['true_cgpa'] = adj_cgpa
-              adj_deep_res['total_credits'] = adj_credits
+            # --- Graduation CGPA Simulator ---
+            st.markdown("---")
+            st.markdown("##### Graduation CGPA Simulator")
+            st.caption(
+              "Input your expected performance for each remaining semester. "
+              "Use **Summary** mode for a quick GPA estimate, or expand "
+              "**Detailed** mode to set per-course grades. You can mix both."
+            )
 
-              proj = db.compute_graduation_projection(
-                deep_result=adj_deep_res,
-                target_grad_cgpa=target_cgpa,
-                dept=_dept,
-              )
+            _sim_semester_inputs = []
 
-              p_c1, p_c2, p_c3 = st.columns(3)
-              with p_c1:
-                if proj["already_met"]:
-                  st.metric("Required Avg GPA", "Already Met",
-                       delta=f"Current Adj: {proj['current_true_cgpa']:.2f}")
-                elif not proj["is_achievable"]:
-                  st.metric("Required Avg GPA", "Impossible",
-                       delta=f"Needs {proj['required_avg_gpa']:.2f} > 4.00",
-                       delta_color="inverse")
-                else:
-                  st.metric("Required Avg GPA",
-                       f"{proj['required_avg_gpa']:.2f}",
-                       delta=f"per semester on avg")
-              with p_c2:
-                st.metric("Adjusted CGPA", f"{adj_cgpa:.2f}",
-                     delta=f"+{cgpa_gain:.2f} from targets" if cgpa_gain > 0 else None)
-              with p_c3:
-                st.metric("Remaining Semesters", proj["remaining_semesters"],
-                     delta=f"{proj['remaining_credits']:.2f} credits left")
+            for _sem_info in proj["remaining_credits_breakdown"]:
+              _sem_n = _sem_info["semester"]
+              _sem_cr = _sem_info["credits"]
 
-              # Per-semester breakdown
-              if proj["remaining_credits_breakdown"]:
-                with st.expander("Remaining Semester Credit Breakdown"):
-                  bd_cols = st.columns(len(proj["remaining_credits_breakdown"]))
-                  for ci, sem_info in enumerate(proj["remaining_credits_breakdown"]):
-                    bd_cols[ci].metric(
-                      f"Sem {sem_info['semester']}",
-                      f"{sem_info['credits']:.2f} cr"
-                    )
+              _mode_key = f"sim_mode_{profile_name}_{reg}_{_sem_n}"
+              _use_detailed = st.session_state.get(_mode_key, False)
+              
+              _include_key = f"sim_include_{profile_name}_{reg}_{_sem_n}"
 
-              # Status message
-              if proj["already_met"]:
-                st.success(
-                  f"**{name}** already has an Adjusted CGPA of "
-                  f"**{proj['current_true_cgpa']:.2f}**, which exceeds the "
-                  f"target of **{target_cgpa:.2f}**. Maintain performance!"
-                )
-              elif not proj["is_achievable"]:
-                st.error(
-                  f"**Mathematically impossible.** Even with a perfect "
-                  f"4.00 in all {proj['remaining_semesters']} remaining semester(s), "
-                  f"the target CGPA of **{target_cgpa:.2f}** cannot be reached. "
-                  f"Consider adjusting the target."
-                )
-              elif proj["required_avg_gpa"] >= 3.75:
-                st.warning(
-                  f"**Very challenging.** Needs an average GPA of "
-                  f"**{proj['required_avg_gpa']:.2f}** across "
-                  f"**{proj['remaining_semesters']}** remaining semester(s). "
-                  f"Consistent top performance required."
-                )
-              elif proj["required_avg_gpa"] >= 3.25:
-                st.info(
-                  f"**Ambitious but achievable.** Needs **{proj['required_avg_gpa']:.2f}** "
-                  f"avg GPA over {proj['remaining_semesters']} semester(s)."
-                )
-              else:
-                st.success(
-                  f"**Well within reach.** Needs **{proj['required_avg_gpa']:.2f}** "
-                  f"avg GPA over {proj['remaining_semesters']} semester(s). "
-                  f"Stay consistent!"
-                )
-
-              # --- Graduation CGPA Simulator ---
-              st.markdown("---")
-              st.markdown("##### Graduation CGPA Simulator")
-              st.caption(
-                "Input your expected performance for each remaining semester. "
-                "Use **Summary** mode for a quick GPA estimate, or expand "
-                "**Detailed** mode to set per-course grades. You can mix both."
-              )
-
-              _sim_semester_inputs = []
-
-              for _sem_info in proj["remaining_credits_breakdown"]:
-                _sem_n = _sem_info["semester"]
-                _sem_cr = _sem_info["credits"]
-
-                _mode_key = f"sim_mode_{profile_name}_{reg}_{_sem_n}"
+              with st.container(border=True):
+                _hdr_c0, _hdr_c1, _hdr_c2, _hdr_c3 = st.columns([0.3, 2.5, 1.2, 1.2])
+                with _hdr_c0:
+                  _include = st.checkbox("Incl", value=True, key=_include_key, label_visibility="collapsed", help="Include this semester in projection")
+                with _hdr_c1:
+                  st.markdown(f"**Semester {_sem_n}** ({_sem_cr:.2f} cr)")
+                with _hdr_c2:
+                  st.toggle(
+                    "Detailed", value=_use_detailed, key=_mode_key,
+                    help="Toggle to enter per-course grades",
+                    disabled=not _include
+                  )
+                # Re-read after widget render
                 _use_detailed = st.session_state.get(_mode_key, False)
-                
-                _include_key = f"sim_include_{profile_name}_{reg}_{_sem_n}"
 
-                with st.container(border=True):
-                  _hdr_c0, _hdr_c1, _hdr_c2, _hdr_c3 = st.columns([0.3, 2.5, 1.2, 1.2])
-                  with _hdr_c0:
-                    _include = st.checkbox("Incl", value=True, key=_include_key, label_visibility="collapsed", help="Include this semester in projection")
-                  with _hdr_c1:
-                    st.markdown(f"**Semester {_sem_n}** ({_sem_cr:.2f} cr)")
-                  with _hdr_c2:
-                    st.toggle(
-                      "Detailed", value=_use_detailed, key=_mode_key,
-                      help="Toggle to enter per-course grades",
-                      disabled=not _include
-                    )
-                  # Re-read after widget render
-                  _use_detailed = st.session_state.get(_mode_key, False)
+                if not _include:
+                  st.caption("Semester excluded from projection calculation.")
+                  continue
 
-                  if not _include:
-                    st.caption("Semester excluded from projection calculation.")
-                    continue
-
-                  if _use_detailed:
-                    # --- Detailed per-course input ---
+                if _use_detailed:
+                  # --- Detailed per-course input ---
+                  try:
+                    _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
+                  except TypeError:
+                    import importlib
                     try:
+                      importlib.reload(db)
                       _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
-                    except TypeError:
-                      import importlib
-                      try:
-                        importlib.reload(db)
-                        _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
-                      except Exception:
-                        _courses = db.get_semester_courses(_dept, _sem_n)
-                    _course_grades = []
-                    _det_points = 0.0
-                    _det_credits = 0.0
+                    except Exception:
+                      _courses = db.get_semester_courses(_dept, _sem_n)
+                  _course_grades = []
+                  _det_points = 0.0
+                  _det_credits = 0.0
 
-                    if not _courses:
-                      st.info(f"No course mapping found for Semester {_sem_n}.")
-                    else:
-                      # Pre-pass to compute total selected credits for elective-enabled semesters
-                      _dept_clean = str(_dept).strip().upper()
-                      _is_elective_sem = False
-                      if ("CSE" in _dept_clean and _sem_n in (7, 8)) or ("CIVIL" in _dept_clean and _sem_n == 8):
-                        _is_elective_sem = True
-
-                      _total_sel_credits = 0.0
-                      _credit_cap = db.get_semester_total_credits(_dept, _sem_n)
-
-                      if _is_elective_sem:
-                        for _c in _courses:
-                          if not _c.get('is_elective', False):
-                            _total_sel_credits += _c['credit']
-                          else:
-                            _chk_key = f"sim_select_{profile_name}_{reg}_{_sem_n}_{_c['code']}"
-                            if st.session_state.get(_chk_key, False):
-                              _total_sel_credits += _c['credit']
-
-                        st.info(f"Selected Elective Credits: **{_total_sel_credits:.2f}** / **{_credit_cap:.2f}** cr")
-
-                      for _c in _courses:
-                        _is_selected = True
-                        _disable_chk = False
-                        
-                        if _is_elective_sem and _c.get('is_elective', False):
-                          _chk_key = f"sim_select_{profile_name}_{reg}_{_sem_n}_{_c['code']}"
-                          _is_checked = st.session_state.get(_chk_key, False)
-                          
-                          # Enforce the hard cap
-                          if not _is_checked:
-                            if _total_sel_credits >= _credit_cap or (_total_sel_credits + _c['credit'] > _credit_cap):
-                              _disable_chk = True
-                          
-                          _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
-                          with _cg_c0:
-                            _is_selected = st.checkbox(
-                              "Select",
-                              value=False,
-                              key=_chk_key,
-                              disabled=_disable_chk,
-                              label_visibility="collapsed"
-                            )
-                        else:
-                          _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
-                          with _cg_c0:
-                            if _is_elective_sem:
-                              st.checkbox("Core", value=True, disabled=True, key=f"sim_core_chk_{profile_name}_{reg}_{_sem_n}_{_c['code']}", label_visibility="collapsed")
-                            else:
-                              st.markdown(" ")
-                              
-                        with _cg_c1:
-                          _c_label = _c.get('label', _c['code'])
-                          _c_name_str = f" | *{_c['name']}*" if _c.get('name') else ""
-                          if _disable_chk:
-                            st.markdown(f"<span style='color: gray;'>`{_c_label}`{_c_name_str} &mdash; {_c['credit']:.2f} cr (Cap reached)</span>", unsafe_allow_html=True)
-                          else:
-                            st.markdown(f"`{_c_label}`{_c_name_str} &mdash; {_c['credit']:.2f} cr")
-                            
-                        with _cg_c2:
-                          _gp_key = f"sim_gp_{profile_name}_{reg}_{sess_id}_{_sem_n}_{_c['code']}"
-                          if _is_selected:
-                            # Restrict GP options using select_slider: 0.00 (Fail), 2.00 to 4.00
-                            _VALID_FUTURE_GPA_OPTIONS = [0.00, 2.00, 2.25, 2.50, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00]
-                            _gp_val = st.select_slider(
-                              "GP",
-                              options=_VALID_FUTURE_GPA_OPTIONS,
-                              value=3.25,
-                              format_func=lambda x: "F" if x == 0.00 else f"{x:.2f}",
-                              key=_gp_key,
-                              label_visibility="collapsed"
-                            )
-                            _course_grades.append({
-                              'code': _c['code'],
-                              'credit': _c['credit'],
-                              'gp': _gp_val,
-                            })
-                            _det_points += _gp_val * _c['credit']
-                            _det_credits += _c['credit']
-                          else:
-                            st.markdown("<span style='color: gray; font-size: 0.85rem; padding-top: 5px; display: inline-block;'>Excluded</span>", unsafe_allow_html=True)
-
-                      # Show calculated GPA for this semester
-                      if _det_credits > 0:
-                        _calc_gpa = round(_det_points / _det_credits, 2)
-                        st.success(
-                          f"Calculated GPA: **{_calc_gpa:.2f}** "
-                          f"({_det_credits:.2f} / {_sem_cr:.2f} cr filled)"
-                        )
-                      else:
-                        st.caption("Enter course GPs above to calculate GPA.")
-
-                    _sim_semester_inputs.append({
-                     'semester': _sem_n,
-                     'mode':'detailed',
-                     'gpa': None,
-                     'course_grades': _course_grades,
-                    })
+                  if not _courses:
+                    st.info(f"No course mapping found for Semester {_sem_n}.")
                   else:
-                    # --- Summary GPA input ---
-                    with _hdr_c3:
-                      _gpa_key = f"sim_gpa_{profile_name}_{reg}_{sess_id}_{_sem_n}"
-                      _gpa_val = st.number_input(
-                        "Expected GPA", min_value=0.00, max_value=4.00,
-                        value=3.00, step=0.05,
-                        key=_gpa_key,
-                        label_visibility="collapsed"
+                    # Pre-pass to compute total selected credits for elective-enabled semesters
+                    _dept_clean = str(_dept).strip().upper()
+                    _is_elective_sem = False
+                    if ("CSE" in _dept_clean and _sem_n in (7, 8)) or ("CIVIL" in _dept_clean and _sem_n == 8):
+                      _is_elective_sem = True
+
+                    _total_sel_credits = 0.0
+                    _credit_cap = db.get_semester_total_credits(_dept, _sem_n)
+
+                    if _is_elective_sem:
+                      for _c in _courses:
+                        if not _c.get('is_elective', False):
+                          _total_sel_credits += _c['credit']
+                        else:
+                          _chk_key = f"sim_select_{profile_name}_{reg}_{_sem_n}_{_c['code']}"
+                          if st.session_state.get(_chk_key, False):
+                            _total_sel_credits += _c['credit']
+
+                      st.info(f"Selected Elective Credits: **{_total_sel_credits:.2f}** / **{_credit_cap:.2f}** cr")
+
+                    for _c in _courses:
+                      _is_selected = True
+                      _disable_chk = False
+                      
+                      if _is_elective_sem and _c.get('is_elective', False):
+                        _chk_key = f"sim_select_{profile_name}_{reg}_{_sem_n}_{_c['code']}"
+                        _is_checked = st.session_state.get(_chk_key, False)
+                        
+                        # Enforce the hard cap
+                        if not _is_checked:
+                          if _total_sel_credits >= _credit_cap or (_total_sel_credits + _c['credit'] > _credit_cap):
+                            _disable_chk = True
+                        
+                        _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
+                        with _cg_c0:
+                          _is_selected = st.checkbox(
+                            "Select",
+                            value=False,
+                            key=_chk_key,
+                            disabled=_disable_chk,
+                            label_visibility="collapsed"
+                          )
+                      else:
+                        _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
+                        with _cg_c0:
+                          if _is_elective_sem:
+                            st.checkbox("Core", value=True, disabled=True, key=f"sim_core_chk_{profile_name}_{reg}_{_sem_n}_{_c['code']}", label_visibility="collapsed")
+                          else:
+                            st.markdown(" ")
+                            
+                      with _cg_c1:
+                        _c_label = _c.get('label', _c['code'])
+                        _c_name_str = f" | *{_c['name']}*" if _c.get('name') else ""
+                        if _disable_chk:
+                          st.markdown(f"<span style='color: gray;'>`{_c_label}`{_c_name_str} &mdash; {_c['credit']:.2f} cr (Cap reached)</span>", unsafe_allow_html=True)
+                        else:
+                          st.markdown(f"`{_c_label}`{_c_name_str} &mdash; {_c['credit']:.2f} cr")
+                          
+                      with _cg_c2:
+                        _gp_key = f"sim_gp_{profile_name}_{reg}_{sess_id}_{_sem_n}_{_c['code']}"
+                        if _is_selected:
+                          # Restrict GP options using select_slider: 0.00 (Fail), 2.00 to 4.00
+                          _VALID_FUTURE_GPA_OPTIONS = [0.00, 2.00, 2.25, 2.50, 2.75, 3.00, 3.25, 3.50, 3.75, 4.00]
+                          _gp_val = st.select_slider(
+                            "GP",
+                            options=_VALID_FUTURE_GPA_OPTIONS,
+                            value=3.25,
+                            format_func=lambda x: "F" if x == 0.00 else f"{x:.2f}",
+                            key=_gp_key,
+                            label_visibility="collapsed"
+                          )
+                          _course_grades.append({
+                            'code': _c['code'],
+                            'credit': _c['credit'],
+                            'gp': _gp_val,
+                          })
+                          _det_points += _gp_val * _c['credit']
+                          _det_credits += _c['credit']
+                        else:
+                          st.markdown("<span style='color: gray; font-size: 0.85rem; padding-top: 5px; display: inline-block;'>Excluded</span>", unsafe_allow_html=True)
+
+                    # Show calculated GPA for this semester
+                    if _det_credits > 0:
+                      _calc_gpa = round(_det_points / _det_credits, 2)
+                      st.success(
+                        f"Calculated GPA: **{_calc_gpa:.2f}** "
+                        f"({_det_credits:.2f} / {_sem_cr:.2f} cr filled)"
                       )
+                    else:
+                      st.caption("Enter course GPs above to calculate GPA.")
 
-                    _sim_semester_inputs.append({
-                     'semester': _sem_n,
-                     'mode':'summary',
-                     'gpa': _gpa_val,
-                     'course_grades': None,
-                    })
+                  _sim_semester_inputs.append({
+                   'semester': _sem_n,
+                   'mode':'detailed',
+                   'gpa': None,
+                   'course_grades': _course_grades,
+                  })
+                else:
+                  # --- Summary GPA input ---
+                  with _hdr_c3:
+                    _gpa_key = f"sim_gpa_{profile_name}_{reg}_{sess_id}_{_sem_n}"
+                    _gpa_val = st.number_input(
+                      "Expected GPA", min_value=0.00, max_value=4.00,
+                      value=3.00, step=0.05,
+                      key=_gpa_key,
+                      label_visibility="collapsed"
+                    )
 
-              # --- Compute Graduation CGPA ---
-              _sim_result = db.compute_graduation_cgpa_from_inputs(
-                adj_cgpa=adj_cgpa,
-                adj_credits=adj_credits,
-                remaining_semester_inputs=_sim_semester_inputs,
-                dept=_dept,
+                  _sim_semester_inputs.append({
+                   'semester': _sem_n,
+                   'mode':'summary',
+                   'gpa': _gpa_val,
+                   'course_grades': None,
+                  })
+
+            # --- Compute Graduation CGPA ---
+            _sim_result = db.compute_graduation_cgpa_from_inputs(
+              adj_cgpa=adj_cgpa,
+              adj_credits=adj_credits,
+              remaining_semester_inputs=_sim_semester_inputs,
+              dept=_dept,
+            )
+
+            # --- Display Result ---
+            st.markdown("---")
+            _sim_c1, _sim_c2, _sim_c3 = st.columns(3)
+            with _sim_c1:
+              _grad_cgpa = _sim_result['graduation_cgpa']
+              _grad_delta = _grad_cgpa - adj_cgpa
+              st.metric(
+                "Projected Graduation CGPA",
+                f"{_grad_cgpa:.2f}",
+                delta=f"{_grad_delta:+.2f} from current adjusted",
+                delta_color="normal" if _grad_delta >= 0 else "inverse"
+              )
+            with _sim_c2:
+              st.metric(
+                "Total Credits (All 8 Sems)",
+                f"{_sim_result['grand_total_credits']:.2f} cr"
+              )
+            with _sim_c3:
+              st.metric(
+                "New Credits Projected",
+                f"{_sim_result['total_new_credits']:.2f} cr",
+                delta=f"from {len(_sim_semester_inputs)} semester(s)"
               )
 
-              # --- Display Result ---
-              st.markdown("---")
-              _sim_c1, _sim_c2, _sim_c3 = st.columns(3)
-              with _sim_c1:
-                _grad_cgpa = _sim_result['graduation_cgpa']
-                _grad_delta = _grad_cgpa - adj_cgpa
-                st.metric(
-                  "Projected Graduation CGPA",
-                  f"{_grad_cgpa:.2f}",
-                  delta=f"{_grad_delta:+.2f} from current adjusted",
-                  delta_color="normal" if _grad_delta >= 0 else "inverse"
-                )
-              with _sim_c2:
-                st.metric(
-                  "Total Credits (All 8 Sems)",
-                  f"{_sim_result['grand_total_credits']:.2f} cr"
-                )
-              with _sim_c3:
-                st.metric(
-                  "New Credits Projected",
-                  f"{_sim_result['total_new_credits']:.2f} cr",
-                  delta=f"from {len(_sim_semester_inputs)} semester(s)"
-                )
+            # Per-semester breakdown table
+            with st.expander("Per-Semester Breakdown"):
+              _bd_df = pd.DataFrame(_sim_result['per_semester_detail'])
+              _bd_df.columns = ['Semester','GPA','Credits','Quality Points']
+              st.dataframe(_bd_df, hide_index=True, width='stretch')
 
-              # Per-semester breakdown table
-              with st.expander("Per-Semester Breakdown"):
-                _bd_df = pd.DataFrame(_sim_result['per_semester_detail'])
-                _bd_df.columns = ['Semester','GPA','Credits','Quality Points']
-                st.dataframe(_bd_df, hide_index=True, width='stretch')
+            # Graduation status message
+            if _grad_cgpa >= 3.75:
+              st.success(f"**First Class with Distinction!** Projected CGPA: {_grad_cgpa:.2f}")
+            elif _grad_cgpa >= 3.50:
+              st.success(f"**First Class!** Projected CGPA: {_grad_cgpa:.2f}")
+            elif _grad_cgpa >= 3.25:
+              st.info(f"**Second Class (Upper).** Projected CGPA: {_grad_cgpa:.2f}")
+            elif _grad_cgpa >= 2.75:
+              st.info(f"**Second Class.** Projected CGPA: {_grad_cgpa:.2f}")
+            elif _grad_cgpa >= 2.00:
+              st.warning(f"**Pass.** Projected CGPA: {_grad_cgpa:.2f}")
+            else:
+              st.error(f"**Below minimum graduation threshold.** Projected CGPA: {_grad_cgpa:.2f}")
 
-              # Graduation status message
-              if _grad_cgpa >= 3.75:
-                st.success(f"**First Class with Distinction!** Projected CGPA: {_grad_cgpa:.2f}")
-              elif _grad_cgpa >= 3.50:
-                st.success(f"**First Class!** Projected CGPA: {_grad_cgpa:.2f}")
-              elif _grad_cgpa >= 3.25:
-                st.info(f"**Second Class (Upper).** Projected CGPA: {_grad_cgpa:.2f}")
-              elif _grad_cgpa >= 2.75:
-                st.info(f"**Second Class.** Projected CGPA: {_grad_cgpa:.2f}")
-              elif _grad_cgpa >= 2.00:
-                st.warning(f"**Pass.** Projected CGPA: {_grad_cgpa:.2f}")
-              else:
-                st.error(f"**Below minimum graduation threshold.** Projected CGPA: {_grad_cgpa:.2f}")
-
-        else:
-          if hdr_col4.button("Deep Analysis", key=btn_key,
-                    help=f"Fetch full record for {name} and compute True CGPA + projections"):
-            with st.spinner(f"Scanning full academic history for {name} ({reg})\u2026 1\u20132 min."):
-              result = _run_deep_analysis(reg, name, sess_id)
-            st.session_state._deep_cache[cache_key] = result
-            st.rerun()
+      else:
+        if hdr_col4.button("Deep Analysis", key=btn_key,
+                  help=f"Fetch full record for {name} and compute True CGPA + projections"):
+          with st.spinner(f"Scanning full academic history for {name} ({reg})\u2026 1\u20132 min."):
+            result = _run_deep_analysis(reg, name, sess_id)
+          st.session_state._deep_cache[cache_key] = result
+          st.rerun()
 
       st.write("") # spacing between students
 
