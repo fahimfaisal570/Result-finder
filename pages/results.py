@@ -30,7 +30,6 @@ sess_id = "" # Master session for report tagging
 # 1. Source: Multi-Batch Payload (High Priority)
 if payload_b64:
     try:
-        import json
         batch_data = json.loads(base64.b64decode(payload_b64).decode())
         pro_id = params.get("pro_id", "") # Always provided with payload
         # batch_data structure: [[range_str, sess_id], ...]

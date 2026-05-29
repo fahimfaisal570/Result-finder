@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import re
 import altair as alt
 import sys
 import time
@@ -35,7 +36,6 @@ def load_exams(profile_name):
   return db.get_exams_for_profile(profile_name)
 
 def get_promotion_rules(exam_label):
-  import re
   promo_target = None
   is_even_sem = False
   yr = None
@@ -250,7 +250,6 @@ def exam_label(e):
   name = e.get('exam_name') or f"Exam {e['exam_id']}"
   
   # Intelligently condense names like "B.Sc. in Computer Science... 3rd year 1st Semester... of 2024"
-  import re
   pattern = r'(?i)(\d[A-Za-z]+)\s+year\s+(\d[A-Za-z]+)\s+Semester.*?(?:of\s+)?(\d{4})'
   match = re.search(pattern, name)
   if match:
@@ -368,7 +367,6 @@ if _incomplete_students:
       _fix_key = f"fix_{profile_name}_{_s['reg_no']}"
       if _col2.button("Scan & Fix", key=_fix_key, type="primary"):
         import cli_scraper as cs
-        import re as _re
 
         st.info(f"🔍 Scanning full academic history for **{_s['name']}** ({_s['reg_no']})…")
 
@@ -385,11 +383,11 @@ if _incomplete_students:
           _start_year = 0
           if _sess_id and _sess_id != "AUTO":
             _sname = _sessions.get(_sess_id, "")
-            _ym = _re.search(r"20(\d{2})", _sname)
+            _ym = re.search(r"20(\d{2})", _sname)
             if _ym:
               _start_year = int("20" + _ym.group(1))
 
-          _YEAR_PAT = _re.compile(r'\b(20\d{2})\b')
+          _YEAR_PAT = re.compile(r'\b(20\d{2})\b')
           _filtered_eids = []
           for _eid, _ename in _all_exams.items():
             if _start_year:
@@ -468,7 +466,6 @@ if'_deep_cache' not in st.session_state:
 def _run_deep_analysis(reg_no, stu_name, sess_id):
   """Fetch full student record from portal and compute precise analysis."""
   import cli_scraper as cs
-  import re as _re
 
   _p_data = profiles.get(profile_name, {})
   _pro_id = _p_data.get("pro_id", "")
@@ -487,11 +484,11 @@ def _run_deep_analysis(reg_no, stu_name, sess_id):
   _start_year = 0
   if _sess_id and _sess_id != "AUTO":
     _sname = _sessions.get(_sess_id, "")
-    _ym = _re.search(r"20(\d{2})", _sname)
+    _ym = re.search(r"20(\d{2})", _sname)
     if _ym:
       _start_year = int("20" + _ym.group(1))
 
-  _YEAR_PAT = _re.compile(r'\b(20\d{2})\b')
+  _YEAR_PAT = re.compile(r'\b(20\d{2})\b')
   _filtered_eids = []
   for _eid, _ename in _all_exams.items():
     if _start_year:
@@ -710,7 +707,6 @@ with tabs[0]:
     
     # High-leverage axis anchoring: Remove the'0.0 - 2.0' void
     curr_min = dist_df['gpa'].min() if not dist_df.empty else 0.0
-    import numpy as np
     axis_start = max(0.0, float(np.floor(curr_min * 5) / 5) - 0.2)
     
     dist_chart = alt.Chart(dist_df).mark_bar().encode(

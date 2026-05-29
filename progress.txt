@@ -61,3 +61,17 @@ Started: Wed May 27 16:05:00 2026
   - Custom context managers wrapping pooled connections can manage database transactions properly while preserving active connections in thread-local cache.
   - Pre-filtering entries at the database engine level (such as SQLite `LIKE` checks) reduces Python string processing overhead and drastically lowers overall response times.
 ---
+## 2026-05-29 10:55 - Completion of US-008
+- Refactored `get_cross_batch_comparison()` in `database.py` to replace the N+1 loop with two bulk database queries (matching exams using `IN`, and matching GPAs using dynamic `OR` / `IN`), reducing connection overhead and multi-cohort query time.
+- Replaced the index-invalidating `CAST(exam_id AS INTEGER)` in `get_student_data_for_exam()`'s historical grades subquery by pre-fetching the list of relevant `exam_ids` from `scan_log` first in Python and using an index-friendly `exam_id IN (...)` clause, preserving compound index seeks on `idx_subject_grades_exam`.
+- Optimized `get_effective_cgpa_per_student()` latest CGPA subquery to utilize a modern single-scan `ROW_NUMBER() OVER (...)` window function rather than a double-scan self-join, eliminating database self-join query loops.
+- Cleaned up redundant and nested inline imports across the codebase (`statistics`, `base64`, `json`, `re`, and `numpy`), moving them to respective top-level module scopes.
+- Developed a new unit test `test_get_cross_batch_comparison_bulk` inside `tests/test_database.py` to verify correctness of bulk comparison metrics.
+- All 17 unit and full-system tests passed successfully.
+- Modified files: `database.py`, `pages/analytics.py`, `pages/results.py`, `app.py`, `tests/test_database.py`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Standard SQL functions like `CAST` or `LOWER` in `WHERE` clauses invalidate indexing seeks, leading to full-table scans. Moving filtering logic to Python and passing precise lists via `IN` clauses preserves index efficiency.
+  - Windows functions like `ROW_NUMBER() OVER` allow SQLite to partition and rank records in a single database read pass, which is significantly faster than standard nested self-joins.
+  - Doing bulk checks (such as using an `IN` clause for matching sets) avoids sequential query loops, lowering response latency under high network/database latency constraints.
+---
+

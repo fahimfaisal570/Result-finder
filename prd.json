@@ -99,6 +99,20 @@
       "priority": 7,
       "passes": true,
       "notes": "Implemented thread-local SQLite connection pool in database.py returning reusable connections mapped by DB_PATH. ClosedOnExitConnection modified to commit/rollback transactions without closing pooled connections. Moved persistent WAL initialization to init_db(). Added optimized compound indices on (profile_name, exam_id) to eliminate full-table scans. Optimized longitudinal retake queries with SQL-level NOT LIKE pre-filtering. Removed redundant get_profiles() scans in analytics.py. Cleaned up global defaultdict imports."
+    },
+    {
+      "id": "US-008",
+      "title": "Advanced database queries and indexing optimizations",
+      "description": "As a developer, I want to optimize database queries, index seeks, and import structure to achieve further page loading and analytics rendering speedups.",
+      "acceptanceCriteria": [
+        "Refactor get_cross_batch_comparison() to replace the N+1 queries loop over profile names with two bulk database queries (bulk-fetch matching exams using IN, then bulk-fetch GPAs using OR/IN).",
+        "Replace the index-invalidating CAST(exam_id AS INTEGER) in get_student_data_for_exam() by pre-fetching and filtering relevant exam_ids in Python, then using an index-friendly IN clause.",
+        "Optimize get_effective_cgpa_per_student() latest-CGPA query by replacing the nested self-join with a modern, high-performance ROW_NUMBER() OVER window function.",
+        "Clean up nested inline imports in database.py, pages/analytics.py, pages/results.py, and app.py to follow standard styling and remove runtime overhead."
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Refactored get_cross_batch_comparison() to replace the N+1 loop with two bulk database queries (matching exams IN, GPAs OR/IN). Replaced the index-invalidating CAST(exam_id AS INTEGER) in get_student_data_for_exam() by pre-fetching from scan_log and using an index-friendly IN clause. Optimized get_effective_cgpa_per_student() latest CGPA query to use a ROW_NUMBER() window function instead of a nested self-join. Consolidated all redundant inline imports of statistics, base64, re, json, and numpy to their respective top levels."
     }
   ]
 }

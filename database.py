@@ -11,6 +11,7 @@ import logging
 import re
 from collections import defaultdict
 import threading
+import statistics
 
 logger = logging.getLogger(__name__)
 
@@ -732,23 +733,20 @@ def get_effective_cgpa_per_student(profile_name: str) -> list:
         failed_students = {(r[0], r[1]) for r in fail_cur.fetchall()}
 
         # Batch Query 3: Latest raw CGPA and status from exam_results for all students in profile
+        # Uses modern ROW_NUMBER() window function to avoid table self-joins.
         raw_cur = conn.execute("""
-            SELECT 
-                er.reg_no,
-                er.sess_id,
-                er.cgpa,
-                er.result_status
-            FROM exam_results er
-            INNER JOIN (
-                SELECT reg_no, sess_id, MAX(CAST(exam_id AS INTEGER)) as max_eid
+            SELECT reg_no, sess_id, cgpa, result_status
+            FROM (
+                SELECT reg_no, sess_id, cgpa, result_status,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY reg_no, sess_id 
+                           ORDER BY CAST(exam_id AS INTEGER) DESC
+                       ) as rn
                 FROM exam_results
                 WHERE profile_name = ?
-                GROUP BY reg_no, sess_id
-            ) latest ON er.reg_no = latest.reg_no 
-                AND er.sess_id = latest.sess_id 
-                AND CAST(er.exam_id AS INTEGER) = latest.max_eid
-            WHERE er.profile_name = ?
-        """, (profile_name, profile_name))
+            )
+            WHERE rn = 1
+        """, (profile_name,))
         raw_rows = raw_cur.fetchall()
         raw_by_student = {}
         for r_reg, r_sess, r_cgpa, r_status in raw_rows:
@@ -876,14 +874,29 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
         historical_grades_by_student = defaultdict(list)
         try:
             exam_id_int = int(exam_id)
-            hist_cur = conn.execute("""
-                SELECT reg_no, MAX(grade_point) as best_gp, credit_hours
-                FROM subject_grades
-                WHERE profile_name=? AND CAST(exam_id AS INTEGER) <= ?
-                GROUP BY reg_no, subject_code
-            """, (profile_name, exam_id_int))
-            for r_no, best_gp, ch in hist_cur.fetchall():
-                historical_grades_by_student[r_no].append((best_gp, ch))
+            
+            # Fetch all exam_ids for this profile <= exam_id_int to preserve index seeks
+            cur = conn.execute("SELECT exam_id FROM scan_log WHERE profile_name=?", (profile_name,))
+            matched_ids = []
+            for (eid,) in cur.fetchall():
+                try:
+                    if int(eid) <= exam_id_int:
+                        matched_ids.append(eid)
+                except (ValueError, TypeError):
+                    pass
+            if exam_id not in matched_ids:
+                matched_ids.append(exam_id)
+                
+            if matched_ids:
+                placeholders = ",".join(["?"] * len(matched_ids))
+                hist_cur = conn.execute(f"""
+                    SELECT reg_no, MAX(grade_point) as best_gp, credit_hours
+                    FROM subject_grades
+                    WHERE profile_name=? AND exam_id IN ({placeholders})
+                    GROUP BY reg_no, subject_code
+                """, (profile_name,) + tuple(matched_ids))
+                for r_no, best_gp, ch in hist_cur.fetchall():
+                    historical_grades_by_student[r_no].append((best_gp, ch))
         except ValueError:
             # If exam_id is non-integer, historical query is skipped
             pass
@@ -2070,7 +2083,6 @@ def get_longitudinal_data(profile_name: str) -> dict:
     retake exams and ensuring "latest exam_id wins" for readmitted students.
     Returns: dict mapping reg_no -> list of semester records (sorted by semester_num)
     """
-    import re
     RETAKE_KEYWORDS = [
         "retake", "re-take", "improvement", "special",
         "make-up", "makeup", "supplementary"
@@ -2203,7 +2215,11 @@ def get_cross_batch_comparison(profile_names: list[str], semester_pattern: str) 
     """
     Compares the performance of multiple batches on a specific semester.
     Finds the main exam (highest student count) matching the pattern for each profile.
+    Uses BULK fetches to optimize connection and latency on Streamlit Cloud.
     """
+    if not profile_names:
+        return {}
+
     RETAKE_KEYWORDS = [
         "retake", "re-take", "improvement", "special",
         "make-up", "makeup", "supplementary"
@@ -2211,60 +2227,90 @@ def get_cross_batch_comparison(profile_names: list[str], semester_pattern: str) 
     
     results = {}
     
+    # 1. Bulk query to find all exams matching the pattern for all selected profiles
+    placeholders = ",".join(["?"] * len(profile_names))
+    query1 = f"""
+        SELECT profile_name, exam_id, exam_name, COUNT(reg_no) as student_count
+        FROM exam_results
+        WHERE profile_name IN ({placeholders}) AND exam_name LIKE ?
+        GROUP BY profile_name, exam_id, exam_name
+    """
+    params1 = tuple(profile_names) + (f"%{semester_pattern}%",)
+    
+    profile_exams = defaultdict(list)
     with get_connection() as conn:
-        for profile in profile_names:
-            # Find all exams matching the pattern
-            cur = conn.execute("""
-                SELECT exam_id, exam_name, COUNT(reg_no) as student_count
-                FROM exam_results
-                WHERE profile_name = ? AND exam_name LIKE ?
-                GROUP BY exam_id, exam_name
-            """, (profile, f"%{semester_pattern}%"))
+        cur = conn.execute(query1, params1)
+        for profile, eid, ename, scount in cur.fetchall():
+            profile_exams[profile].append((eid, ename, scount))
             
-            exams = cur.fetchall()
-            
-            # Filter out retakes and find the one with the most students (the "main" cohort)
-            main_exam = None
-            max_students = 0
-            
-            for eid, ename, scount in exams:
-                if any(kw in (ename or '').lower() for kw in RETAKE_KEYWORDS):
-                    continue
-                # If tied, take higher exam_id
-                if scount > max_students or (scount == max_students and main_exam and int(eid) > int(main_exam[0])):
-                    max_students = scount
-                    main_exam = (eid, ename)
-            
-            if not main_exam:
+    # 2. In Python, identify the main exam (highest student count) for each profile
+    main_exams = {} # profile_name -> (eid, ename)
+    for profile in profile_names:
+        exams = profile_exams.get(profile, [])
+        main_exam = None
+        max_students = 0
+        
+        for eid, ename, scount in exams:
+            if any(kw in (ename or '').lower() for kw in RETAKE_KEYWORDS):
                 continue
+            
+            # Safe parsing of exam_id as int
+            try:
+                eid_val = int(eid)
+            except (ValueError, TypeError):
+                eid_val = 0
                 
-            eid, ename = main_exam
-            
-            # Fetch all GPAs for this exam
-            cur = conn.execute("""
-                SELECT gpa
-                FROM exam_results
-                WHERE profile_name = ? AND exam_id = ?
-            """, (profile, eid))
-            
-            gpas = [row[0] for row in cur.fetchall() if row[0] is not None]
-            
-            if not gpas:
-                continue
+            try:
+                main_eid_val = int(main_exam[0]) if main_exam else 0
+            except (ValueError, TypeError):
+                main_eid_val = 0
                 
-            import statistics
-            gpas_sorted = sorted(gpas)
+            if scount > max_students or (scount == max_students and main_exam and eid_val > main_eid_val):
+                max_students = scount
+                main_exam = (eid, ename)
+                
+        if main_exam:
+            main_exams[profile] = main_exam
             
-            results[profile] = {
-                'exam_name': ename,
-                'students': len(gpas),
-                'mean_gpa': round(statistics.mean(gpas), 2),
-                'median_gpa': round(statistics.median(gpas), 2),
-                'pass_rate': round(sum(1 for s in gpas if s >= 2.0) / len(gpas) * 100, 1),
-                'honours_count': sum(1 for s in gpas if s >= 3.75),
-                'gpa_list': gpas
-            }
+    if not main_exams:
+        return {}
+        
+    # 3. Bulk fetch all GPAs for all matched main exams in one single query
+    gpa_clauses = []
+    gpa_params = []
+    for profile, (eid, _) in main_exams.items():
+        gpa_clauses.append("(profile_name = ? AND exam_id = ?)")
+        gpa_params.extend([profile, eid])
+        
+    query2 = f"""
+        SELECT profile_name, gpa
+        FROM exam_results
+        WHERE {" OR ".join(gpa_clauses)}
+    """
+    
+    gpas_by_profile = defaultdict(list)
+    with get_connection() as conn:
+        cur = conn.execute(query2, tuple(gpa_params))
+        for profile, gpa in cur.fetchall():
+            if gpa is not None:
+                gpas_by_profile[profile].append(gpa)
+                
+    # 4. Compute statistics for each profile
+    for profile, (eid, ename) in main_exams.items():
+        gpas = gpas_by_profile.get(profile, [])
+        if not gpas:
+            continue
             
+        results[profile] = {
+            'exam_name': ename,
+            'students': len(gpas),
+            'mean_gpa': round(statistics.mean(gpas), 2),
+            'median_gpa': round(statistics.median(gpas), 2),
+            'pass_rate': round(sum(1 for s in gpas if s >= 2.0) / len(gpas) * 100, 1),
+            'honours_count': sum(1 for s in gpas if s >= 3.75),
+            'gpa_list': gpas
+        }
+        
     return results
 
 

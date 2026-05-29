@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import base64
 import sys
 import time
 import re
@@ -21,7 +22,6 @@ if "is_admin" not in st.session_state:
 
 # --- Helper: Logo Base64 ---
 def get_base64_logo(file_path):
-    import base64
     if not os.path.exists(file_path): return ""
     with open(file_path, "rb") as f:
         return base64.b64encode(f.read()).decode()

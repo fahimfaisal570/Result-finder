@@ -307,6 +307,37 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertEqual(bob["retake_count"], 1)
         self.assertTrue(bob["first_chance_fail"])
 
+    def test_get_cross_batch_comparison_bulk(self):
+        # Seed profiles & results for multiple batches
+        batch1 = "cse_09"
+        batch2 = "cse_10"
+        
+        # We need to insert profiles first to satisfy FK constraints
+        with database.get_connection() as conn:
+            conn.execute("INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)", (batch1, PRO_ID, SESS_ID, time.time()))
+            conn.execute("INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)", (batch2, PRO_ID, SESS_ID, time.time()))
+            conn.commit()
+            
+        database.save_exam_analytics_only(batch1, "1001", "3rd Yr 1st Sem Main Exam", [
+            make_result(1001, gpa=3.5, cgpa=3.4),
+            make_result(1002, gpa=3.7, cgpa=3.6),
+        ])
+        
+        database.save_exam_analytics_only(batch2, "1001", "3rd Yr 1st Sem Main Exam", [
+            make_result(2001, gpa=2.8, cgpa=2.9),
+            make_result(2002, gpa=3.0, cgpa=3.1),
+        ])
+        
+        res = database.get_cross_batch_comparison([batch1, batch2], "3rd Yr 1st Sem")
+        self.assertIn(batch1, res)
+        self.assertIn(batch2, res)
+        
+        self.assertEqual(res[batch1]['students'], 2)
+        self.assertAlmostEqual(res[batch1]['mean_gpa'], 3.6, places=2)
+        
+        self.assertEqual(res[batch2]['students'], 2)
+        self.assertAlmostEqual(res[batch2]['mean_gpa'], 2.9, places=2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
