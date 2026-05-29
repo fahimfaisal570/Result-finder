@@ -35,4 +35,14 @@ Started: Wed May 27 16:05:00 2026
   - Standardizing sequential query patterns to bulk loads significantly reduces round-trip database latency, especially when dealing with nested structures (like a list of profiles containing lists of students).
   - Leveraging in-memory dictionary routing (`profile_name in profiles`) allows O(1) matching after doing bulk fetching.
 ---
-
+## 2026-05-29 10:20 - Completion of US-006
+- Optimized `database.py`'s `get_student_data_for_exam()` by replacing sequential N+1 query loops with bulk queries.
+- Created `grades_by_student` bulk query to load all subject grades for a specific profile and exam at once.
+- Created `historical_grades_by_student` bulk query to load the historical maximum grade points up to a specific exam ID for all student records in the profile at once, preventing sequential calculations.
+- Developed a comprehensive unit test `test_get_student_data_for_exam_optimized` in `tests/test_database.py` that validates fallback behaviors, failing grade detections, and GPA audit drift calculations.
+- All 16 unit and full-system tests passed successfully.
+- Modified files: `database.py`, `tests/test_database.py`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Grouping SQLite operations by `reg_no, subject_code` in a single query with aggregate functions (`MAX(grade_point)`) perfectly recreates the dynamic student fallback history in a single trip.
+  - SQLite's `INSERT OR REPLACE` deletes the conflicting row, which cascaded via foreign keys and wiped student records. Seeding testing student datasets in a single batch prevents unexpected cascade deletions during unit test setup.
+---
