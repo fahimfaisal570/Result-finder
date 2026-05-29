@@ -44,6 +44,18 @@
       "priority": 3,
       "passes": true,
       "notes": "Modified compute_graduation_cgpa_from_inputs and analytics.py to always include credits of selected courses regardless of grade."
+    },
+    {
+      "id": "US-004",
+      "title": "N+1 Database Query Bottleneck Optimization",
+      "description": "As a system administrator, I want the get_profiles() function to fetch student lists in a single batched query instead of iterating database requests, so that dashboard loading performance is optimized.",
+      "acceptanceCriteria": [
+        "Refactor database.py get_profiles() to retrieve all profiles in one query, then retrieve all student rosters in a second single query, and assemble the profiles dictionary in memory.",
+        "Eliminate the N+1 database queries sequential loop."
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Refactored get_profiles to load all profile students in a single batched query instead of executing a sequential N+1 query loop."
     }
   ]
 }
