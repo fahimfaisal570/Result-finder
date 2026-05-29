@@ -994,7 +994,7 @@ with tabs[1]:
 
     # Section 3.4: Cross-Batch Benchmarking
     st.markdown("#### Cross-Batch Benchmarking")
-    all_profiles = sorted(db.get_profiles().keys())
+    all_profiles = sorted(list(profiles.keys()))
     current_dept = profile_name.split()[0].lower() if profile_name else ""
     dept_profiles = [p for p in all_profiles if p.lower().startswith(current_dept)]
     

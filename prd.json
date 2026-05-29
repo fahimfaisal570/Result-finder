@@ -82,6 +82,23 @@
       "priority": 6,
       "passes": true,
       "notes": "Refactored get_student_data_for_exam to load student grades and historical best grades in single bulk queries, completely eliminating N+1 sequential loops in the student loop."
+    },
+    {
+      "id": "US-007",
+      "title": "Database connection pooling and data loading optimizations",
+      "description": "As a developer, I want to optimize database connection efficiency, index seeks, and data parsing, so that the page load time is reduced by 30-50% on Streamlit Cloud.",
+      "acceptanceCriteria": [
+        "Implement a thread-local SQLite connection pool in database.py returning reusable connections mapped by DB_PATH.",
+        "Ensure context manager ClosedOnExitConnection commits but does not close pooled connections.",
+        "Add compound indices on (profile_name, exam_id) for subject_grades and exam_results tables.",
+        "Eliminate WAL checking from get_connection() and move it to init_db().",
+        "Eliminate the redundant get_profiles() call in pages/analytics.py.",
+        "Pre-filter retakes and improvements in SQL inside get_longitudinal_data().",
+        "Move defaultdict imports to top-level in database.py."
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Implemented thread-local SQLite connection pool in database.py returning reusable connections mapped by DB_PATH. ClosedOnExitConnection modified to commit/rollback transactions without closing pooled connections. Moved persistent WAL initialization to init_db(). Added optimized compound indices on (profile_name, exam_id) to eliminate full-table scans. Optimized longitudinal retake queries with SQL-level NOT LIKE pre-filtering. Removed redundant get_profiles() scans in analytics.py. Cleaned up global defaultdict imports."
     }
   ]
 }

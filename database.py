@@ -9,6 +9,8 @@ import os
 import time
 import logging
 import re
+from collections import defaultdict
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -77,20 +79,25 @@ class ClosedOnExitConnection:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        try:
-            return self._conn.__exit__(exc_type, exc_val, exc_tb)
-        finally:
-            self._conn.close()
+        # We commit/rollback on transaction block exit but do NOT close the connection
+        # since it is pooled and reused on the same thread.
+        return self._conn.__exit__(exc_type, exc_val, exc_tb)
+
+_thread_local = threading.local()
 
 def get_connection():
     """
-    Returns a local SQLite database connection wrapped to guarantee closure upon context manager exit.
-    (Turso Cloud Mode is currently disabled).
+    Returns a local SQLite database connection from a thread-local pool, wrapped to manage transactions.
+    Keyed by DB_PATH to support dynamic swap in unit test runners.
     """
-    conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA busy_timeout = 30000")
+    conns = getattr(_thread_local, 'conns', {})
+    conn = conns.get(DB_PATH)
+    if conn is None:
+        conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 30000")
+        conns[DB_PATH] = conn
+        _thread_local.conns = conns
     return ClosedOnExitConnection(conn)
 
 
@@ -122,10 +129,21 @@ def ensure_database_indices(conn):
     if res and column_exists('students', 'sess_id'):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_students_lookup ON students(profile_name, reg_no, sess_id)")
 
+    # CR-002: Add compound index idx_subject_grades_exam ON subject_grades(profile_name, exam_id)
+    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='subject_grades'").fetchone()
+    if res:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_subject_grades_exam ON subject_grades(profile_name, exam_id)")
+
+    # CR-003: Add compound index idx_exam_results_exam ON exam_results(profile_name, exam_id)
+    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='exam_results'").fetchone()
+    if res:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_results_exam ON exam_results(profile_name, exam_id)")
+
 
 def init_db():
     """Create base schema (v1 tables) — safe to call on every startup."""
     with get_connection() as conn:
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS profiles (
                 name     TEXT PRIMARY KEY,
@@ -701,7 +719,6 @@ def get_effective_cgpa_per_student(profile_name: str) -> list:
         """, (profile_name,))
         best_rows = best_cur.fetchall()
 
-        from collections import defaultdict
         best_grades_by_student = defaultdict(list)
         for reg_no_r, sess_id_r, subject_code, best_gp, credit_hours in best_rows:
             best_grades_by_student[(reg_no_r, sess_id_r)].append((subject_code, best_gp, credit_hours))
@@ -850,7 +867,6 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
         all_grades = grades_cur.fetchall()
 
         # Group grades by reg_no
-        from collections import defaultdict
         grades_by_student = defaultdict(list)
         for r_no, subject_code, gp, ch in all_grades:
             grades_by_student[r_no].append((subject_code, gp, ch))
@@ -2073,6 +2089,13 @@ def get_longitudinal_data(profile_name: str) -> dict:
                            AND e.reg_no = s.reg_no
                            AND e.sess_id = s.sess_id
             WHERE e.profile_name = ?
+              AND LOWER(e.exam_name) NOT LIKE '%retake%'
+              AND LOWER(e.exam_name) NOT LIKE '%re-take%'
+              AND LOWER(e.exam_name) NOT LIKE '%improvement%'
+              AND LOWER(e.exam_name) NOT LIKE '%special%'
+              AND LOWER(e.exam_name) NOT LIKE '%make-up%'
+              AND LOWER(e.exam_name) NOT LIKE '%makeup%'
+              AND LOWER(e.exam_name) NOT LIKE '%supplementary%'
         """, (profile_name,))
         
         all_records = cur.fetchall()

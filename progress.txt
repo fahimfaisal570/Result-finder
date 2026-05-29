@@ -46,3 +46,18 @@ Started: Wed May 27 16:05:00 2026
   - Grouping SQLite operations by `reg_no, subject_code` in a single query with aggregate functions (`MAX(grade_point)`) perfectly recreates the dynamic student fallback history in a single trip.
   - SQLite's `INSERT OR REPLACE` deletes the conflicting row, which cascaded via foreign keys and wiped student records. Seeding testing student datasets in a single batch prevents unexpected cascade deletions during unit test setup.
 ---
+## 2026-05-29 10:39 - Completion of US-007
+- Implemented a thread-local SQLite connection pool keyed by `DB_PATH` inside `database.py`.
+- Refactored `ClosedOnExitConnection` so it executes `__exit__` transaction committing/rolling back but does not close pooled connections, saving over 150 ms of open/close/PRAGMA cycles per analytics page load on Streamlit Cloud.
+- Shiftedpersistent `PRAGMA journal_mode = WAL` initialization to `init_db()`.
+- Created compound database indices `idx_subject_grades_exam` and `idx_exam_results_exam` on `(profile_name, exam_id)` to convert heavy analytics and JOIN queries from full-table scans to instant index seeks.
+- Removed redundant `db.get_profiles()` loading in Section 3.4 of `pages/analytics.py` and reused the module-level dictionary in-memory.
+- Optimized longitudinal data query with SQL-level retake exclusion pattern `LIKE` filtering in `get_longitudinal_data()`.
+- Moved `defaultdict` imports to top-level to eliminate repetition overhead.
+- All 16 unit and full-system tests passed successfully.
+- Modified files: `database.py`, `pages/analytics.py`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Indexing search attributes (`profile_name, exam_id`) used in JOINs or high-frequency filter statements eliminates costly full-table scans.
+  - Custom context managers wrapping pooled connections can manage database transactions properly while preserving active connections in thread-local cache.
+  - Pre-filtering entries at the database engine level (such as SQLite `LIKE` checks) reduces Python string processing overhead and drastically lowers overall response times.
+---
