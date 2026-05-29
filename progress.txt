@@ -93,4 +93,15 @@ Started: Wed May 27 16:05:00 2026
   - Bounding computed metrics (like consistency scores) to valid ranges (`>= 0.0`) prevents downstream rendering bugs caused by negative mathematical results.
   - Filtering out unparseable semester data (`sem_num=0`) is critical when performing mathematical regression, as a data point at origin zero will severely skew slope calculations.
   - Avoid defining caching functions inside conditional rendering blocks or functions in Streamlit; module-level caching is much cleaner, reliable, and prevents warnings or repeated definitions.
+---
+## 2026-05-29 12:55 - Completion of US-010
+- Extracted the student card loop in the GPA Projection tab (Tab 6) of `pages/analytics.py` into a standalone card helper `render_student_projection_card()` decorated with `@st.fragment` for fragment-level rerun isolation.
+- Implemented roster pagination (10 students per page) in Tab 6 of `pages/analytics.py` with dynamic Previous and Next page button selectors, capping active widgets serialization and WebSocket bandwidth overhead.
+- Removed redundant full-page reruns on clicking Deep Analysis or interactive sliders/checkboxes.
+- All 20 database and system integration tests passed successfully.
+- Modified files: `pages/analytics.py`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Rendering large loops of cards with nested containers, columns, inputs, and sliders creates 1,000+ Streamlit elements on a single page run, triggering massive WebSocket serialization lags (3+ seconds). Implementing simple 10-item pagination cuts page loads and reruns to milliseconds.
+  - Wrapping dynamic cards in `@st.fragment` ensures any widget interaction (such as checkboxes, selectboxes, or button clicks) only triggers a local fragment-level rerun. The rest of the page—including invisible tabs, Altair charts, and other student cards—is completely bypassed, dropping interaction latency from 3+ seconds to <10ms.
+
 

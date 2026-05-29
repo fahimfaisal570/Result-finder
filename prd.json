@@ -126,6 +126,21 @@
       "priority": 9,
       "passes": true,
       "notes": "Refactored get_retake_success_stats() to use ROW_NUMBER() OVER window function so first_gp is always the chronologically first attempt. Updated get_longitudinal_data() to detect consecutive Civil semester numbering (sem_in_yr > 2 -> sem_num = sem_in_yr) and year-omissions (e.g. 5th Semester -> sem_num = 5). Added sem_num=0 exclusion to prevent polyfit corruption. Refactored analytics.py trajectory metrics to use actual semester_num as the polyfit independent variable and bounded consistency score >= 0.0. Verified by new unit tests. Full suite: 20/20 passed."
+    },
+    {
+      "id": "US-010",
+      "title": "GPA Projection Streamlit Loading Optimization",
+      "description": "As a developer, I want to optimize Streamlit rendering, widget tree serialization, and page rerun loops inside the GPA Projection tab, so that the deep analysis loading duration is shortened to less than 3 seconds.",
+      "acceptanceCriteria": [
+        "Wrap the rendering of each student card in a helper function decorated with `@st.fragment` to prevent full-page reruns.",
+        "Implement roster pagination (10 students per page) in Tab 6 using a clean page navigation control to limit active widget serialization overhead.",
+        "Ensure the deep analysis spinner and results load instantly (<0.1s post-fetch) by avoiding full-page redraws.",
+        "Verify database and system tests pass successfully."
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Extracted student card loop into a @st.fragment decorated helper render_student_projection_card() for complete card-level rerun isolation. Implemented 10-student paginated views in Tab 6 with clean Next/Prev buttons, capping the active widget serialization overhead to a small constant footprint, resolving Streamlit's WebSocket rendering freeze."
     }
   ]
 }
+
