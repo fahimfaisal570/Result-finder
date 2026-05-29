@@ -1844,4 +1844,44 @@ with tabs[5]:
 
       st.write("") # spacing between students
 
+  # ── Pagination + call-site ──────────────────────────────────────────────
+  if proj_df.empty:
+    st.warning("No students match your search.")
+  else:
+    st.markdown(
+      f"**{len(proj_df)} student(s)** in this exam \u2014 click Deep Analysis to unlock projections."
+    )
+    st.divider()
+
+    PAGE_SIZE = 10
+    total_pages = max(1, (len(proj_df) + PAGE_SIZE - 1) // PAGE_SIZE)
+
+    if "proj_page" not in st.session_state:
+      st.session_state.proj_page = 0
+    if st.session_state.proj_page >= total_pages:
+      st.session_state.proj_page = 0
+
+    page     = st.session_state.proj_page
+    page_df  = proj_df.iloc[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
+
+    for _, row in page_df.iterrows():
+      render_student_projection_card(row, profile_name, exam_id)
+
+    # Pagination controls
+    if total_pages > 1:
+      nav_c1, nav_c2, nav_c3 = st.columns([1, 2, 1])
+      with nav_c1:
+        if st.button("\u2190 Previous", key="proj_prev", disabled=(page == 0)):
+          st.session_state.proj_page -= 1
+          st.rerun()
+      with nav_c2:
+        st.markdown(
+          f"<div style='text-align:center;padding-top:6px'>Page {page+1} of {total_pages}</div>",
+          unsafe_allow_html=True
+        )
+      with nav_c3:
+        if st.button("Next \u2192", key="proj_next", disabled=(page >= total_pages - 1)):
+          st.session_state.proj_page += 1
+          st.rerun()
+
 ui.add_contact_section()
