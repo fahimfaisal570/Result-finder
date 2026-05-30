@@ -348,7 +348,7 @@ def render_provisional_simulator(profile_name):
                                 if _total_sel_credits >= _credit_cap or (_total_sel_credits + _c['credit'] > _credit_cap):
                                     _disable_chk = True
                             
-                            _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
+                            _cg_c0, _cg_c1, _cg_c2 = st.columns([0.18, 2.82, 1.0])
                             with _cg_c0:
                                 _is_selected = st.checkbox(
                                     "Select",
@@ -358,7 +358,7 @@ def render_provisional_simulator(profile_name):
                                     label_visibility="collapsed"
                                 )
                         else:
-                            _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
+                            _cg_c0, _cg_c1, _cg_c2 = st.columns([0.18, 2.82, 1.0])
                             with _cg_c0:
                                 if _is_elective_sem:
                                     st.checkbox("Core", value=True, disabled=True, key=f"prov_core_chk_{profile_name}_{_sem_n}_{_c['code']}", label_visibility="collapsed")
@@ -1952,7 +1952,7 @@ with tabs[5]:
                           if _total_sel_credits >= _credit_cap or (_total_sel_credits + _c['credit'] > _credit_cap):
                             _disable_chk = True
                         
-                        _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
+                        _cg_c0, _cg_c1, _cg_c2 = st.columns([0.18, 2.82, 1.0])
                         with _cg_c0:
                           _is_selected = st.checkbox(
                             "Select",
@@ -1962,7 +1962,7 @@ with tabs[5]:
                             label_visibility="collapsed"
                           )
                       else:
-                        _cg_c0, _cg_c1, _cg_c2 = st.columns([0.5, 2.5, 1.0])
+                        _cg_c0, _cg_c1, _cg_c2 = st.columns([0.18, 2.82, 1.0])
                         with _cg_c0:
                           if _is_elective_sem:
                             st.checkbox("Core", value=True, disabled=True, key=f"sim_core_chk_{profile_name}_{reg}_{_sem_n}_{_c['code']}", label_visibility="collapsed")
