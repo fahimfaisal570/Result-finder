@@ -188,15 +188,91 @@ else: # Saved Profiles Mode
     st.sidebar.markdown("---")
     st.sidebar.page_link("pages/analytics.py", label="Open Data Analytics", icon=":material/analytics:")
     st.sidebar.markdown("---")
+    
+    # --- Create Manual Batch in Sidebar ---
+    with st.sidebar.expander("🛠️ Create Manual Batch", expanded=False):
+        st.write("Create a provisional batch without portal results.")
+        PROFILE_NAME_PATTERN = re.compile(r'^(cse|eee|civil)\s+\d+$', re.IGNORECASE)
+        
+        prov_name = st.text_input("Profile Name (e.g. cse 12)", placeholder="cse 12")
+        
+        # Programs & Sessions
+        p_list_prov = list(st.session_state.programs.values())
+        p_keys_prov = list(st.session_state.programs.keys())
+        p_sel_prov = st.selectbox("Program", options=p_list_prov, key="prov_pro_sel")
+        pro_id_prov = p_keys_prov[p_list_prov.index(p_sel_prov)] if p_sel_prov in p_list_prov else ""
+        
+        s_list_prov = list(st.session_state.sessions.values())
+        s_keys_prov = list(st.session_state.sessions.keys())
+        s_sel_prov = st.selectbox("Session", options=s_list_prov, key="prov_sess_sel")
+        sess_id_prov = s_keys_prov[s_list_prov.index(s_sel_prov)] if s_sel_prov in s_list_prov else ""
+        
+        regs_input = st.text_input("Registration Numbers", placeholder="e.g. 220101-220160")
+        
+        if st.button("Create Batch", type="primary", use_container_width=True, key="btn_create_prov"):
+            if not prov_name or not regs_input or not pro_id_prov or not sess_id_prov:
+                st.error("Please fill in all fields.")
+            elif not PROFILE_NAME_PATTERN.match(prov_name):
+                st.error("❌ Must follow format: 'cse 12', 'eee 12', 'civil 12'")
+            else:
+                parsed_regs = cs.parse_range(regs_input)
+                if not parsed_regs:
+                    st.error("❌ Invalid registration range.")
+                else:
+                    db.save_provisional_profile(prov_name.lower().strip(), pro_id_prov, sess_id_prov, [(r,) for r in parsed_regs])
+                    cs.batch_manager.save_provisional_to_json(prov_name.lower().strip(), pro_id_prov, sess_id_prov, parsed_regs)
+                    st.success(f"Provisional batch '{prov_name}' created!")
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    st.rerun()
+
     profiles = db.get_profiles()
     if not profiles:
-        st.info("No saved profiles found. Run a scan first!")
+        st.info("No saved profiles found. Run a scan or create a manual batch in the sidebar first!")
     else:
         st.sidebar.header("Profiles")
         p_selected = st.sidebar.selectbox("Select Profile", sorted(list(profiles.keys())))
         profile_data = profiles[p_selected]
+        is_prov = profile_data.get('is_provisional', False)
 
         st.header(f"Profile: {p_selected}")
+        if is_prov:
+            st.warning("🔶 **Provisional Batch** — Waiting for portal results to publish.")
+            
+            # --- Check Portal CTA ---
+            st.markdown("### Check Portal for Results")
+            st.info("Check if DUCMC portal has published the first exam results for this batch.")
+            
+            exams_raw = fetch_exams(profile_data.get('pro_id')) if profile_data.get('pro_id') else {}
+            if exams_raw:
+                chk_exam_name = st.selectbox("Select Exam to Check Against", options=list(exams_raw.values()), key="chk_portal_exam")
+                chk_exam_id = [k for k, v in exams_raw.items() if v == chk_exam_name][0]
+                
+                if st.button("Check Portal & Import", type="primary", use_container_width=True, key="btn_chk_prov"):
+                    p_regs = profile_data.get('regs', [])
+                    active_sess_id = profile_data.get('sess_id')
+                    probe_regs = [r[0] for r in p_regs if str(r[1]) == str(active_sess_id)][:5]
+                    
+                    with st.spinner("Probing portal with sample students..."):
+                        matched = False
+                        for reg in probe_regs:
+                            res = cs.fetch_student_result(reg, active_sess_id, chk_exam_id)
+                            if res and 'GPA' in res:
+                                matched = True
+                                break
+                        
+                        if not matched:
+                            st.warning("❌ No results found on portal yet for this exam.")
+                        else:
+                            st.success("✅ Results found on portal! Redirecting to scraper...")
+                            import base64, json
+                            payload = [[f"{p_regs[0][0]}-{p_regs[-1][0]}", active_sess_id]]
+                            payload_str = base64.b64encode(json.dumps(payload).encode()).decode()
+                            from urllib.parse import quote as _quote
+                            st.markdown(f'<meta http-equiv="refresh" content="0; url=/results?profile={_quote(p_selected)}&exam_id={chk_exam_id}&exam_name={_quote(chk_exam_name)}">', unsafe_allow_html=True)
+                            st.link_button("Launch Full Import & Promotion", url=f"/results?profile={_quote(p_selected)}&exam_id={chk_exam_id}&exam_name={_quote(chk_exam_name)}")
+            st.write("---")
+
         st.write(f"Students: {len(profile_data.get('regs', []))}")
         
         with st.expander("View Student List"):

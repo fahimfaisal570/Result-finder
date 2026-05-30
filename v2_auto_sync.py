@@ -209,6 +209,15 @@ def main():
             db.save_exam_analytics_only(profile_name, exam_id, exam_name, results)
             print("Save complete.")
 
+            # Auto-promote provisional profiles (V2 branch)
+            try:
+                p_meta = db.get_profiles()
+                if p_meta.get(profile_name, {}).get('is_provisional'):
+                    db.promote_provisional_profile(profile_name)
+                    print(f"  [Promotion] '{profile_name}' promoted from provisional to full (V2 branch).")
+            except Exception as e:
+                print(f"  [Promotion] Warning: {e}")
+
             # --- Readd Detection Phase ---
             readd_info = detect_and_add_readds(
                 profile_name, pro_id, exam_id, exam_name, results

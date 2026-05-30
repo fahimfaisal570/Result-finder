@@ -376,6 +376,17 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
         results.extend(readd_results)
         print(f"  [Readd] {len(readd_results)} readd student(s) merged into report.")
 
+    # --- Auto-Promote Provisional Batch (Main Branch) ---
+    if all_profiles.get(profile_name, {}).get("is_provisional"):
+        all_profiles[profile_name]["is_provisional"] = False
+        try:
+            with _file_write_lock:
+                with open(profiles_path, "w") as f:
+                    json.dump(all_profiles, f, indent=2)
+            print(f"  [Promotion] '{profile_name}' promoted from provisional to full (main branch).")
+        except Exception as e:
+            print(f"  [Promotion] WARNING: Failed to promote in saved_profiles.json: {e}")
+
     print("Generating Printable Thesis HTML format...")
     # Inject profile_name into title so it appears nicely in the central PDF rendering engine
     full_title = f"Department: {dept_name} | Exam: {exam_name} | Target Batch: {profile_name}"

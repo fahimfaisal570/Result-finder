@@ -600,7 +600,7 @@ def save_profile_and_results(profile_name: str, pro_id: str, sess_id: str,
     """
     stmts = []
     stmts.append((
-        "INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp, is_provisional, batch_source) VALUES (?, ?, ?, ?, 0, 'portal')",
         (profile_name, pro_id, sess_id, time.time())
     ))
 
@@ -623,6 +623,46 @@ def save_profile_and_results(profile_name: str, pro_id: str, sess_id: str,
     return True
 
 
+def save_provisional_profile(profile_name: str, pro_id: str, sess_id: str,
+                             reg_list: list, batch_source: str = 'manual'):
+    """
+    Creates a batch profile from a student roster WITHOUT requiring exam results.
+    reg_list: list of reg_nos (int) or (reg_no, name) tuples.
+    Students get name='Unknown' if name not provided.
+    """
+    stmts = []
+    stmts.append((
+        """INSERT OR REPLACE INTO profiles 
+           (name, pro_id, sess_id, timestamp, is_provisional, batch_source) 
+           VALUES (?, ?, ?, ?, 1, ?)""",
+        (profile_name, pro_id, sess_id, time.time(), batch_source)
+    ))
+    for item in reg_list:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            reg_no, name = int(item[0]), str(item[1])
+        elif isinstance(item, (list, tuple)):
+            reg_no, name = int(item[0]), 'Unknown'
+        else:
+            reg_no, name = int(item), 'Unknown'
+        upsert_student(profile_name, reg_no, name, sess_id, stmts)
+
+    with get_connection() as conn:
+        for sql, params in stmts:
+            conn.execute(sql, params)
+    return True
+
+
+def promote_provisional_profile(profile_name: str):
+    """Clears the provisional flag after exam results are successfully ingested."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE profiles SET is_provisional=0, batch_source='portal' WHERE name=?",
+            (profile_name,)
+        )
+        conn.commit()
+    logger.info("Promoted provisional profile '%s' to full.", profile_name)
+
+
 def save_exam_analytics_only(profile_name: str, exam_id: str, exam_name: str, results_list: list):
     """
     Saves ONLY exam results (and subject grades) for an existing profile.
@@ -640,6 +680,22 @@ def save_exam_analytics_only(profile_name: str, exam_id: str, exam_name: str, re
         else:
             for sql, params in stmts:
                 conn.execute(sql, params)
+
+    # Auto-promote provisional profiles on first exam ingest (V2 branch)
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT is_provisional FROM profiles WHERE name=?", (profile_name,)
+            ).fetchone()
+            if row and row[0]:
+                conn.execute(
+                    "UPDATE profiles SET is_provisional=0, batch_source='portal' WHERE name=?",
+                    (profile_name,)
+                )
+                conn.commit()
+                logger.info("Auto-promoted provisional profile '%s' (V2).", profile_name)
+    except Exception as e:
+        logger.error("Auto-promotion error during save_exam_analytics_only: %s", e)
     return True
 
 
@@ -672,13 +728,20 @@ def get_profiles() -> dict:
     profiles = {}
     try:
         with get_connection() as conn:
-            cur = conn.execute("SELECT name, pro_id, sess_id, timestamp FROM profiles")
-            for p_name, pro_id, sess_id, ts in cur.fetchall():
+            cur = conn.execute(
+                "SELECT name, pro_id, sess_id, timestamp, is_provisional, batch_source FROM profiles"
+            )
+            for row in cur.fetchall():
+                p_name, pro_id, sess_id, ts = row[0], row[1], row[2], row[3]
+                is_prov = row[4] if len(row) > 4 else 0
+                b_source = row[5] if len(row) > 5 else 'portal'
                 profiles[p_name] = {
                     "pro_id": pro_id,
                     "sess_id": sess_id,
                     "timestamp": ts,
                     "regs": [],
+                    "is_provisional": bool(is_prov),
+                    "batch_source": b_source or 'portal',
                 }
             if profiles:
                 # Retrieve all students in a single query
@@ -2424,8 +2487,20 @@ def set_meta_cache(key: str, value: dict):
             pass # Table might not be created yet
 
 # ---------------------------------------------------------------------------
-# Bootstrap
+# Migration v5 and Bootstrap
 # ---------------------------------------------------------------------------
+
+def migrate_schema_v5():
+    """Adds provisional batch support columns to profiles table."""
+    with get_connection() as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(profiles)").fetchall()]
+        if 'is_provisional' not in cols:
+            conn.execute("ALTER TABLE profiles ADD COLUMN is_provisional INTEGER DEFAULT 0")
+        if 'batch_source' not in cols:
+            conn.execute("ALTER TABLE profiles ADD COLUMN batch_source TEXT DEFAULT 'portal'")
+        conn.commit()
+    logger.info("Schema v5 migration complete.")
+
 _bootstrapped = False
 
 def _bootstrap():
@@ -2436,7 +2511,9 @@ def _bootstrap():
     migrate_schema_v2()
     migrate_schema_v3()
     migrate_schema_v4()
+    migrate_schema_v5()
     migrate_legacy_json()
     _bootstrapped = True
 
 _bootstrap()
+

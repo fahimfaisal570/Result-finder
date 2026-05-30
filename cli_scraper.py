@@ -203,6 +203,30 @@ class BatchManager:
         """No-op for SQLite backend as writes are immediate."""
         return True
 
+    def save_provisional_to_json(self, name, pro_id, sess_id, regs):
+        """Save a provisional batch to saved_profiles.json (main branch storage)."""
+        profiles_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_profiles.json")
+        profiles_dict = {}
+        if os.path.exists(profiles_path):
+            try:
+                with open(profiles_path, "r") as f:
+                    profiles_dict = json.load(f)
+            except Exception:
+                pass
+        
+        profiles_dict[name] = {
+            "pro_id": pro_id,
+            "sess_id": sess_id,
+            "regs": [[r, sess_id, "Unknown"] for r in regs],
+            "is_provisional": True
+        }
+        
+        try:
+            with open(profiles_path, "w") as f:
+                json.dump(profiles_dict, f, indent=2)
+        except Exception as e:
+            print(f"Error saving to saved_profiles.json: {e}")
+
 batch_manager = BatchManager()
 
 
@@ -1660,6 +1684,56 @@ def generate_transcript_report(records, title, name, return_html=False):
         os.chdir(ORIGINAL_DIR)
     except: pass
 
+def create_manual_batch(programs, sessions):
+    """Creates a provisional batch using standard naming convention."""
+    print("\n=== Create Manual Batch (Provisional) ===")
+    print("Creates a batch WITHOUT portal contact.")
+    print("Auto-promoted when results are published.\n")
+    
+    # 1. Program selection (reuse existing prompt)
+    res = prompt_preloaded_program(programs)
+    if res[0] == 'b': return
+    pro_id, pro_name = res
+    
+    # 2. Session selection
+    s_res = prompt_custom_session(sessions, "Batch Session")
+    if s_res[0] == 'b': return
+    sess_id = s_res[0]
+    
+    # 3. Registration range
+    r_str = input_func("Registration Range(s): ").strip()
+    if r_str.lower() == 'b': return
+    regs = parse_range(r_str)
+    if not regs:
+        print("❌ Invalid range.")
+        return
+    
+    # 4. Profile name — enforce standard naming convention
+    while True:
+        p_name = input_func("Batch Profile Name (e.g. 'cse 12'): ").strip()
+        if not p_name: return
+        # Validate format: dept_prefix + space + batch_number
+        parts = p_name.lower().split()
+        if len(parts) >= 2 and parts[0] in ('cse', 'eee', 'civil'):
+            try:
+                int(parts[1])
+                break
+            except ValueError:
+                pass
+        print("❌ Must follow format: 'cse 12', 'eee 12', 'civil 12'")
+    
+    # 5. Save to SQLite (V2 branch)
+    import database as db
+    db.save_provisional_profile(p_name, pro_id, sess_id, [(r,) for r in regs])
+    
+    # 6. Save to saved_profiles.json (Main branch)
+    batch_manager.save_provisional_to_json(p_name, pro_id, sess_id, regs)
+    
+    print(f"\n✅ Provisional batch '{p_name}' created with {len(regs)} students.")
+    print("   Names: 'Unknown' (auto-populated when results are published)")
+    print("   Readds: Auto-detected from senior batches on first exam scan")
+    print("   Promotion: Automatic when exam monitor detects published results")
+
 def main():
     print("Welcome tob FEC result finder")
     programs, sessions = fetch_programs_and_sessions()
@@ -1682,6 +1756,7 @@ def main():
             p_count = len(batch_manager.profiles)
             print("    - Found {0} profiles.".format(p_count))
             print("[3] Manage Saved Profiles (Update / Delete / Export)")
+            print("[4] Create Manual Batch (No Portal Required)")
             choice = input_func("Choice [1]: ").strip()
             if not choice:
                 state = 1
@@ -1729,6 +1804,7 @@ def main():
                         else: state = 1
                 except: pass
             elif choice == '3': manage_profiles(programs, sessions); continue
+            elif choice == '4': create_manual_batch(programs, sessions); continue
             else: state = 1
                    
         elif state == 1: # Program
