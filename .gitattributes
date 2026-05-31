@@ -1,0 +1,5 @@
+# Treat all SQLite database files as binary to prevent Git line ending conversion corruption
+*.db binary
+result_finder.db binary
+result_data.db binary
+database.db binary
