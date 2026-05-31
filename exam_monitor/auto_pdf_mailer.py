@@ -14,6 +14,34 @@ from email.mime.application import MIMEApplication
 # multi-department parallel workflow runs, so all writes must be serialised.
 _file_write_lock = threading.Lock()
 
+import contextlib
+import time
+
+# Cross-process and cross-thread atomic directory lock to prevent JSON state corruption.
+# Standard library, zero-dependency, and safe across Windows/Linux OS boundaries.
+@contextlib.contextmanager
+def file_process_lock(lock_path, timeout=30):
+    lock_dir = lock_path + ".lock"
+    start_time = time.time()
+    while True:
+        try:
+            os.mkdir(lock_dir)
+            break
+        except FileExistsError:
+            if time.time() - start_time > timeout:
+                print(f"Lock acquisition timed out for {lock_path}. Proceeding with fallback to avoid blockages...")
+                break
+            time.sleep(0.2)
+    try:
+        yield
+    finally:
+        try:
+            if os.path.exists(lock_dir):
+                os.rmdir(lock_dir)
+        except OSError:
+            pass
+
+
 # Dynamic Scraper Jitter Monkeypatch for Workflow Performance (Wave 10 Alignment)
 import random
 _orig_uniform = random.uniform
@@ -80,6 +108,7 @@ def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
             else:
                 std_regs.append(str(r))
                 
+        samples = []
         if std_regs:
             step = max(1, len(std_regs) // 5)
             samples = std_regs[::step][:5]
@@ -190,7 +219,7 @@ def _get_senior_profiles_json(profiles, profile_name):
     return senior
 
 
-def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_results):
+def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_results, should_save=True):
     """
     Readd detection using subject-overlap fingerprinting.
     Scans senior batch students against the exam. A student is a genuine readd
@@ -300,18 +329,19 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
         profiles[profile_name].setdefault("regs", []).append([reg, sess_id, name])
         readd_info.append({'reg_no': reg, 'name': name, 'source': source})
 
-    profiles_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "saved_profiles.json"
-    )
-    try:
-        # Serialise the write so concurrent department runs cannot clobber each other.
-        with _file_write_lock:
-            with open(profiles_path, "w") as f:
-                json.dump(profiles, f, indent=2)
-        print(f"  [Readd] Persisted {len(readd_info)} readd(s) to saved_profiles.json.")
-    except Exception as e:
-        print(f"  [Readd] WARNING: Failed to persist readds: {e}")
+    if should_save:
+        profiles_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "saved_profiles.json"
+        )
+        try:
+            # Serialise the write using process-safe directory lock
+            with file_process_lock(profiles_path):
+                with open(profiles_path, "w") as f:
+                    json.dump(profiles, f, indent=2)
+            print(f"  [Readd] Persisted {len(readd_info)} readd(s) to saved_profiles.json.")
+        except Exception as e:
+            print(f"  [Readd] WARNING: Failed to persist readds: {e}")
 
     return filtered_readds, readd_info
 
@@ -361,29 +391,35 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     
     print(f"Filtered to {len(results)} participating students.")
 
-    # --- Readd Detection Phase (Subject-Overlap Fingerprinting) ---
+    # --- Readd Detection Phase (Subject-Overlap Fingerprinting) & Promotion ---
     profiles_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "saved_profiles.json"
     )
-    with open(profiles_path, "r") as f:
-        all_profiles = json.load(f)
-        
-    readd_results, readd_info = detect_readds_main_branch(
-        all_profiles, profile_name, pro_id, exam_id, results
-    )
-    if readd_results:
-        results.extend(readd_results)
-        print(f"  [Readd] {len(readd_results)} readd student(s) merged into report.")
+    with file_process_lock(profiles_path):
+        with open(profiles_path, "r") as f:
+            all_profiles = json.load(f)
+            
+        readd_results, readd_info = detect_readds_main_branch(
+            all_profiles, profile_name, pro_id, exam_id, results, should_save=False
+        )
+        if readd_results:
+            results.extend(readd_results)
+            print(f"  [Readd] {len(readd_results)} readd student(s) merged into report.")
 
-    # --- Auto-Promote Provisional Batch (Main Branch) ---
-    if all_profiles.get(profile_name, {}).get("is_provisional"):
-        all_profiles[profile_name]["is_provisional"] = False
+        # --- Auto-Promote Provisional Batch (Main Branch) ---
+        promoted = False
+        if all_profiles.get(profile_name, {}).get("is_provisional"):
+            all_profiles[profile_name]["is_provisional"] = False
+            promoted = True
+            
         try:
-            with _file_write_lock:
-                with open(profiles_path, "w") as f:
-                    json.dump(all_profiles, f, indent=2)
-            print(f"  [Promotion] '{profile_name}' promoted from provisional to full (main branch).")
+            with open(profiles_path, "w") as f:
+                json.dump(all_profiles, f, indent=2)
+            if readd_results:
+                print(f"  [Readd] Persisted {len(readd_info)} readd(s) to saved_profiles.json.")
+            if promoted:
+                print(f"  [Promotion] '{profile_name}' promoted from provisional to full (main branch).")
         except Exception as e:
             print(f"  [Promotion] WARNING: Failed to promote in saved_profiles.json: {e}")
 
@@ -428,7 +464,7 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     try:
         # Serialise the read-modify-write so parallel department workflow jobs
         # cannot interleave and produce a truncated or duplicate sync task list.
-        with _file_write_lock:
+        with file_process_lock(sync_file):
             existing_tasks = []
             if os.path.exists(sync_file):
                 with open(sync_file, "r") as f:

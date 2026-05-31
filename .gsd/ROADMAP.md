@@ -66,3 +66,12 @@ All tasks derived from [Code Rabbit Review Report](file:///c:/Users/Ucc/Download
   - [x] Task 11.3: Reduce thread launching stagger delays
   - [x] Task 11.4: Implement cached pre-warming at Streamlit page-load time
   - [x] Task 11.5: Write comprehensive concurrent mock tests and verify all pass
+
+- [x] Wave 12: Exam Monitor Concurrency and Reliability Hardening
+  - [x] Task 12.1: Implement zero-dependency process directory lock in `auto_pdf_mailer.py`
+  - [x] Task 12.2: Unify saved_profiles.json reads and writes under a single lock block
+  - [x] Task 12.3: Initialise samples in identify_batch_for_exam to fix NameError
+  - [x] Task 12.4: Set explicit timeouts and fix bare except blocks in find_latest.py & sync_state.py
+  - [x] Task 12.5: Replace deprecated datetime.utcnow() and harden sys.path resolution in monitor.py
+  - [x] Task 12.6: Run verification tests and confirm all pass
+

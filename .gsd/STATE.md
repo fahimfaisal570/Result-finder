@@ -28,3 +28,4 @@
 - Wave 9: Obsolete Code & Backup Cleanups completed (13/13 tests pass)
 - Wave 10: Deep Analysis Performance Optimization completed (13/13 tests pass, caching rolled back, Level 3 aggressive jitter reductions applied, verified safe and pushed online)
 - Wave 11: Connection Pre-warming & Cold Start Optimization completed (21/21 tests pass, parallel connection pre-warming and Streamlit page-load cache-data warming implemented, verified safe)
+- Wave 12: Exam Monitor Concurrency and Reliability Hardening completed (22/22 tests pass, process atomic directory locking, timeout safety, and robust path resolution implemented, verified safe)

@@ -12,9 +12,9 @@ OPTION_ID_PAT = re.compile(r'<option[^>]+value=["\'](\d+)["\'][^>]*>')
 def fetch_all_ids(pid):
     url = f"https://ducmc.du.ac.bd/ajax/get_program_by_exam.php?program_id={pid}&pedata=99"
     try:
-        html = urllib.request.urlopen(url).read().decode('utf-8')
+        html = urllib.request.urlopen(url, timeout=15).read().decode('utf-8')
         return OPTION_ID_PAT.findall(html)
-    except:
+    except Exception:
         return []
 
 new_state = {}

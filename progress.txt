@@ -127,6 +127,23 @@ Started: Wed May 27 16:05:00 2026
   - Parallelizing cold HTTP/SSL connection pre-warming using a thread pool before worker thread spawn solves the performance bottleneck of requests/urllib3 connection setup contention under the GIL.
   - Using Streamlit's `@st.cache_data` at page load to execute background warming operations ensures interactions are responsive (<3-4s cold, ~2s warm) without blocking consecutive Streamlit reruns.
   - Stagger delays are only useful when threads perform fresh TLS handshakes; with pre-warmed pooled connections, thread launching can be virtually instantaneous, drastically speeding up multi-threaded batch operations.
+---
+## 2026-06-01 02:15 - Completion of US-013
+- Implemented standard-library atomic directory lock context manager `file_process_lock` utilizing `os.mkdir()` which is inherently atomic across OS processes and threads on both Windows and Linux, preventing JSON state database corruption under parallel runs.
+- Wrapped the entire loading, processing (readd detection), auto-promotion, and saving operations of `saved_profiles.json` under a single critical section using the process-safe lock to eliminate lost updates/race conditions.
+- Protected `v2_sync_tasks.json` writing operations with the process-safe lock.
+- Initialized `samples = []` inside the candidate iteration loop in `identify_batch_for_exam` inside `auto_pdf_mailer.py` to prevent `NameError` or leaked student state when candidate batch profiles have empty lists of registrations.
+- Configured a 15-second explicit network request timeout inside `urllib.request.urlopen` calls in `find_latest.py` and `sync_state.py` to eliminate potential infinite hangs on network page drops.
+- Cleaned up bare `except:` blocks by refactoring to standard `except Exception:` catches, maintaining normal `KeyboardInterrupt` / Ctrl+C and exit signal handling.
+- Silenced Python 3.12+ runtime deprecation warnings by replacing `datetime.utcnow()` with timezone-aware `datetime.now(timezone.utc)` in `monitor.py`.
+- Fortified standard import path resolution of `auto_pdf_mailer` by dynamically inserting `monitor_dir` explicitly into `sys.path`.
+- Modified files: `exam_monitor/auto_pdf_mailer.py`, `exam_monitor/monitor.py`, `exam_monitor/find_latest.py`, `exam_monitor/sync_state.py`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Standard in-memory locks like `threading.Lock` are completely ineffective across separate background processes. Utilizing directories (`os.mkdir`) for atomic locking is a clean, zero-dependency, and cross-platform way to serialize access to files without external binaries.
+  - Doing file reads outside of a lock block and writing under a lock is a classic race condition. Both the read and write operations must reside within the same lock boundary to prevent dirty writes or lost updates.
+  - Never omit timeouts inside standard Python `urllib` network calls, as it defaults to an infinite duration which can freeze automated execution runners indefinitely.
+  - Explicitly configuring search directories inside `sys.path` guarantees script importability regardless of the current working directory context from which Python is executed.
+
 
 
 

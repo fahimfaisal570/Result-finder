@@ -170,6 +170,25 @@
       "priority": 12,
       "passes": true,
       "notes": "Implemented warm_connection_pool(6) in cli_scraper.py utilizing concurrent.futures.ThreadPoolExecutor for parallel SSL/TLS warming. Updated run_batch_scan_engine() to pre-warm if cookies are not set, and reduced thread launching stagger delay from 0.05-0.15s to 0.01-0.04s. Created cache-data-backed _pre_warm_resources() in pages/analytics.py running at page load. Added full unit tests in test_full_system.py; all 21 tests pass successfully."
+    },
+    {
+      "id": "US-013",
+      "title": "Harden Exam Monitor Concurrency and Exception Reliability",
+      "description": "As a system administrator running automated scans, I want the exam monitor scripts to handle concurrent executions safely, specify explicit timeouts, and cleanly handle errors, so that files are never corrupted and runs never freeze.",
+      "acceptanceCriteria": [
+        "Implement a standard-library, process-safe directory lock context manager.",
+        "Unify saved_profiles.json read-modify-write operations inside a single unified locked block in auto_pdf_mailer.py.",
+        "Protect v2_sync_tasks.json write operations with the process lock.",
+        "Initialize samples variable in identify_batch_for_exam to prevent NameError or leaked state state-leaks.",
+        "Set explicit timeout=15 for urllib.request.urlopen calls in find_latest.py and sync_state.py.",
+        "Refactor bare except blocks to except Exception.",
+        "Replace deprecated datetime.utcnow() in monitor.py with timezone-aware datetime.",
+        "Prepend monitor_dir explicitly to sys.path in monitor.py's lazy import block to secure path resolution.",
+        "Ensure all unit tests pass."
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "Implemented file_process_lock context manager using atomic os.mkdir(). Unified saved_profiles.json operations under a single critical section with should_save=False parameter. Locked v2_sync_tasks.json writes. Initialized samples = [] to avoid NameError bugs. Set timeout=15 for urllib calls. Refactored bare excepts to except Exception. Migrated to datetime.now(timezone.utc). Appended monitor_dir explicitly to sys.path. Tested successfully."
     }
   ]
 }
