@@ -723,6 +723,12 @@ def remove_student_from_profile(profile_name: str, reg_no: int, sess_id: str):
 # Read functions
 # ---------------------------------------------------------------------------
 
+def profile_exists(profile_name: str) -> bool:
+    """Checks if a profile name already exists in the profiles table (case-insensitive)."""
+    with get_connection() as conn:
+        cur = conn.execute("SELECT 1 FROM profiles WHERE LOWER(name) = LOWER(?)", (profile_name.strip(),))
+        return cur.fetchone() is not None
+
 def get_profiles() -> dict:
     """Returns dict keyed by profile name, compatible with legacy app.py usage."""
     profiles = {}

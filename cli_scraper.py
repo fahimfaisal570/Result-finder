@@ -1707,23 +1707,33 @@ def create_manual_batch(programs, sessions):
     if not regs:
         print("❌ Invalid range.")
         return
+    regs = list(dict.fromkeys(regs))
     
     # 4. Profile name — enforce standard naming convention
+    import database as db
     while True:
         p_name = input_func("Batch Profile Name (e.g. 'cse 12'): ").strip()
         if not p_name: return
         # Validate format: dept_prefix + space + batch_number
         parts = p_name.lower().split()
+        is_valid_format = False
         if len(parts) >= 2 and parts[0] in ('cse', 'eee', 'civil'):
             try:
                 int(parts[1])
-                break
+                is_valid_format = True
             except ValueError:
                 pass
-        print("❌ Must follow format: 'cse 12', 'eee 12', 'civil 12'")
+        
+        if not is_valid_format:
+            print("❌ Must follow format: 'cse 12', 'eee 12', 'civil 12'")
+            continue
+        
+        if db.profile_exists(p_name.lower().strip()):
+            print("Profile already exists")
+            continue
+        break
     
     # 5. Save to SQLite (V2 branch)
-    import database as db
     db.save_provisional_profile(p_name, pro_id, sess_id, [(r,) for r in regs])
     
     # 6. Save to saved_profiles.json (Main branch)

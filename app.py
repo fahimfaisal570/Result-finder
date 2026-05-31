@@ -194,7 +194,7 @@ else: # Saved Profiles Mode
         st.write("Create a provisional batch without portal results.")
         PROFILE_NAME_PATTERN = re.compile(r'^(cse|eee|civil)\s+\d+$', re.IGNORECASE)
         
-        prov_name = st.text_input("Profile Name (e.g. cse 12)", placeholder="cse 12")
+        prov_name = st.text_input("Profile Name (e.g. cse 12)", placeholder="cse 12", key="prov_name_input")
         
         # Programs & Sessions
         p_list_prov = list(st.session_state.programs.values())
@@ -207,20 +207,26 @@ else: # Saved Profiles Mode
         s_sel_prov = st.selectbox("Session", options=s_list_prov, key="prov_sess_sel")
         sess_id_prov = s_keys_prov[s_list_prov.index(s_sel_prov)] if s_sel_prov in s_list_prov else ""
         
-        regs_input = st.text_input("Registration Numbers", placeholder="e.g. 220101-220160")
+        regs_input = st.text_input("Registration Numbers", placeholder="e.g. 220101-220160", key="prov_regs_input")
         
         if st.button("Create Batch", type="primary", use_container_width=True, key="btn_create_prov"):
             if not prov_name or not regs_input or not pro_id_prov or not sess_id_prov:
                 st.error("Please fill in all fields.")
             elif not PROFILE_NAME_PATTERN.match(prov_name):
                 st.error("❌ Must follow format: 'cse 12', 'eee 12', 'civil 12'")
+            elif db.profile_exists(prov_name.lower().strip()):
+                st.error("Profile already exists")
             else:
                 parsed_regs = cs.parse_range(regs_input)
                 if not parsed_regs:
                     st.error("❌ Invalid registration range.")
                 else:
+                    # Remove duplicate registration numbers (ensure uniqueness)
+                    parsed_regs = list(dict.fromkeys(parsed_regs))
                     db.save_provisional_profile(prov_name.lower().strip(), pro_id_prov, sess_id_prov, [(r,) for r in parsed_regs])
                     cs.batch_manager.save_provisional_to_json(prov_name.lower().strip(), pro_id_prov, sess_id_prov, parsed_regs)
+                    st.session_state.prov_name_input = ""
+                    st.session_state.prov_regs_input = ""
                     st.success(f"Provisional batch '{prov_name}' created!")
                     st.cache_data.clear()
                     time.sleep(1)

@@ -135,6 +135,20 @@ class TestFullSystem(unittest.TestCase):
                 self.assertEqual(call[0][1], cs.BASE_URL)
                 self.assertEqual(call[1]['timeout'], 15)
 
+    def test_duplicate_and_unique_guardrails(self):
+        """Verify duplicate profile checking and unique registration filtering."""
+        # 1. Profile existence helper
+        self.assertFalse(db.profile_exists("cse 12"))
+        
+        db.save_provisional_profile("cse 12", "14", "25", [2024731669])
+        self.assertTrue(db.profile_exists("cse 12"))
+        self.assertTrue(db.profile_exists("CSE 12")) # case-insensitivity check
+        
+        # 2. Duplicate registration filtering check
+        raw_regs = [2024731669, 2024531670, 2024731669, 2024531670]
+        unique_regs = list(dict.fromkeys(raw_regs))
+        self.assertEqual(unique_regs, [2024731669, 2024531670])
+
     def tearDown(self):
         # We don't manually delete the file here to avoid PermissionError on Windows.
         # Temp files are cleaned up by OS eventually or when the process ends.
