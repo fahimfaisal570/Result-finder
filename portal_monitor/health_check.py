@@ -11,7 +11,7 @@ from email.mime.multipart import MIMEMultipart
 
 # Configuration
 CHECK_URL = "https://ducmc.du.ac.bd/"
-ALERT_RECIPIENT = "fahimfaisal2657@gmail.com"
+ALERT_RECIPIENT = os.getenv("RECEIVER_EMAIL", "fahimfaisal2657@gmail.com")
 PORTAL_MONITOR_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(PORTAL_MONITOR_DIR, "state.json")
 

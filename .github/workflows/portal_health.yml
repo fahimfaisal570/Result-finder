@@ -1,9 +1,8 @@
 name: Portal Uptime Health Check
 
 on:
-  schedule:
-    # Run every 10 minutes
-    - cron: '*/10 * * * *'
+  repository_dispatch:
+    types: [check_uptime]
   workflow_dispatch: # Allows manual verification triggers from GitHub UI
 
 jobs:
@@ -32,6 +31,7 @@ jobs:
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
         run: python portal_monitor/health_check.py
 
       # Save the updated state.json back to the cache for the next run
