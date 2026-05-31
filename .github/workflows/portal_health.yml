@@ -32,7 +32,7 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
-        run: python portal_monitor/health_check.py --test-email
+        run: python portal_monitor/health_check.py
 
       # Save the updated state.json back to the cache for the next run
       - name: Save Uptime State Cache
