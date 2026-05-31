@@ -75,3 +75,11 @@ All tasks derived from [Code Rabbit Review Report](file:///c:/Users/Ucc/Download
   - [x] Task 12.5: Replace deprecated datetime.utcnow() and harden sys.path resolution in monitor.py
   - [x] Task 12.6: Run verification tests and confirm all pass
 
+- [x] Wave 13: Isolated Portal Uptime Health Check Workflow
+  - [x] Task 13.1: Create isolated portal_monitor/ directory containing health_check.py
+  - [x] Task 13.2: Implement CrowdSec-aware positive verification strategy (white-listing standard signatures)
+  - [x] Task 13.3: Set up persistent state logic using actions/cache in .github/workflows/portal_health.yml
+  - [x] Task 13.4: Route transition alerts exclusively to fahimfaisal2657@gmail.com
+  - [x] Task 13.5: Run health check verify script successfully
+
+

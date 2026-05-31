@@ -29,3 +29,5 @@
 - Wave 10: Deep Analysis Performance Optimization completed (13/13 tests pass, caching rolled back, Level 3 aggressive jitter reductions applied, verified safe and pushed online)
 - Wave 11: Connection Pre-warming & Cold Start Optimization completed (21/21 tests pass, parallel connection pre-warming and Streamlit page-load cache-data warming implemented, verified safe)
 - Wave 12: Exam Monitor Concurrency and Reliability Hardening completed (22/22 tests pass, process atomic directory locking, timeout safety, and robust path resolution implemented, verified safe)
+- Wave 13: Isolated Portal Uptime Health Check Workflow completed (completely isolated portal_monitor/ suite with positive verification, CrowdSec handling, Actions state cache, and transaction emails implemented, verified safe)
+

@@ -35,6 +35,8 @@ temp_*.json
 .venv
 venv/
 ENV/
+/portal_monitor/state.json
+
 
 # OS-specific
 system_cache.json

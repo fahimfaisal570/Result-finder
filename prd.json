@@ -189,6 +189,20 @@
       "priority": 13,
       "passes": true,
       "notes": "Implemented file_process_lock context manager using atomic os.mkdir(). Unified saved_profiles.json operations under a single critical section with should_save=False parameter. Locked v2_sync_tasks.json writes. Initialized samples = [] to avoid NameError bugs. Set timeout=15 for urllib calls. Refactored bare excepts to except Exception. Migrated to datetime.now(timezone.utc). Appended monitor_dir explicitly to sys.path. Tested successfully."
+    },
+    {
+      "id": "US-014",
+      "title": "Isolated Portal Uptime Health Checker with Positive Verification",
+      "description": "As a system administrator, I want a completely separate portal uptime monitoring workflow, so that I am alerted via email only when the DUCMC website goes offline/online without complicating the results monitoring system.",
+      "acceptanceCriteria": [
+        "Create isolated portal_monitor/ directory containing health_check.py script.",
+        "Implement white-list based Positive Verification verifying standard HTML signatures (DUCMC/University of Dhaka) and classifying WAF blocks/CrowdSec as offline.",
+        "Set up persistent state management via actions/cache in portal_health.yml to track states across cron runs without Git noise.",
+        "Ensure alerts are strictly sent only on transitions (online to offline and back) and routed exclusively to fahimfaisal2657@gmail.com."
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "Created completely isolated portal_monitor/ suite with health_check.py and state.json. Developed robust positive verification (DUCMC signature presence) that correctly classifies all crashes and CrowdSec blocks as offline. Created portal_health.yml workflow with Actions caching. Alerts routed strictly to fahimfaisal2657@gmail.com only on transition changes."
     }
   ]
 }

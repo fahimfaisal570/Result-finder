@@ -143,6 +143,21 @@ Started: Wed May 27 16:05:00 2026
   - Doing file reads outside of a lock block and writing under a lock is a classic race condition. Both the read and write operations must reside within the same lock boundary to prevent dirty writes or lost updates.
   - Never omit timeouts inside standard Python `urllib` network calls, as it defaults to an infinite duration which can freeze automated execution runners indefinitely.
   - Explicitly configuring search directories inside `sys.path` guarantees script importability regardless of the current working directory context from which Python is executed.
+---
+## 2026-06-01 02:42 - Completion of US-014
+- Created a completely isolated monitoring suite inside the `portal_monitor/` directory containing `health_check.py` and `state.json` to keep the results-checking system unencumbered and clean.
+- Implemented robust **Positive Verification (White-listing)** verifying that the server successfully responds with HTTP `200 OK` and returns standard DUCMC signatures (`"DUCMC"` and `"University of Dhaka"`).
+- Correctly classified all other network errors, connection timeouts, gateway failures, custom database failures, or WAF screens (such as the `"CrowdSec Access Forbidden"` page) as **OFFLINE** (down) to ensure total coverage.
+- Configured a standalone `portal_health.yml` GitHub Actions workflow scheduled every 10 minutes via cron.
+- Implemented statefulness across Actions runners using `actions/cache` with dynamic keys and fallback prefixes, retrieving and saving `state.json` cleanly on each run with zero commit pollution.
+- Configured SMTP notifications to trigger strictly on status transition changes, routed exclusively to `fahimfaisal2657@gmail.com`.
+- Added manual force flags (`--force-online` and `--force-offline`) and `--test-email` flag to make verification simple.
+- Verified that the check script successfully runs locally, diagnosing standard portal uptime and exiting silently when status is unchanged.
+- Modified files: `portal_monitor/health_check.py`, `portal_monitor/state.json`, `.github/workflows/portal_health.yml`, `.gitignore`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Standard white-list verification (Positive Verification) is infinitely more reliable than error-pattern black-listing for health checks, as it encapsulates all possible timeout, gateway, WAF, or blank page errors under a single expected healthy signature.
+  - Using Actions Cache with dynamic restore-keys allows storing mutable operational state (like JSON status files) in GitHub Actions workflows without generating high-volume Git history noise.
+
 
 
 
