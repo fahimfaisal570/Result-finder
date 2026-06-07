@@ -535,5 +535,65 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertEqual(records[2]['semester_num'], 6)
 
 
+    def test_compute_per_semester_breakdown_uses_original_gp(self):
+        # CSE-1102 has gp=2.75, original_gp=2.25
+        effective_grades = {
+            "CSE-1102": {"gp": 2.75, "original_gp": 2.25, "credit": 3.0, "source": "improvement_cleared", "name": "Intro CS"}
+        }
+        breakdown = database.compute_per_semester_breakdown(
+            effective_grades=effective_grades,
+            dept="CSE",
+            current_semester=1,
+            overrides={}
+        )
+        self.assertEqual(len(breakdown), 1)
+        self.assertAlmostEqual(breakdown[0]["computed_gpa"], 2.25, places=2)
+        self.assertAlmostEqual(breakdown[0]["computed_cgpa"], 2.75, places=2)
+
+    def test_compute_advanced_projection_shows_correct_already_attempted_reason(self):
+        # CSE-1102 has gp=2.75, original_gp=2.25, source="improvement_cleared"
+        deep_result = {
+            'true_cgpa': 2.75,
+            'total_credits': 3.0
+        }
+        effective_grades = {
+            "CSE-1102": {"gp": 2.75, "original_gp": 2.25, "credit": 3.0, "source": "improvement_cleared", "name": "Intro CS"}
+        }
+        adv = database.compute_advanced_projection(
+            deep_result=deep_result,
+            effective_grades=effective_grades,
+            retake_records=[],
+            profile_name=""
+        )
+        self.assertEqual(len(adv["already_attempted"]), 1)
+        aa = adv["already_attempted"][0]
+        self.assertEqual(aa["code"], "CSE-1102")
+        self.assertEqual(aa["reason"], "Increased by 0.50 (from 2.25), but still improvable")
+
+
+    def test_compute_graduation_projection_uses_adj_cgpa_and_credits(self):
+        deep_result = {
+            'true_cgpa': 3.0,
+            'total_credits': 100.0,
+            'current_semester': 5
+        }
+        res = database.compute_graduation_projection(
+            deep_result=deep_result,
+            target_grad_cgpa=3.50,
+            dept="CSE"
+        )
+        self.assertAlmostEqual(res["current_true_cgpa"], 3.0, places=2)
+
+        res_adj = database.compute_graduation_projection(
+            deep_result=deep_result,
+            target_grad_cgpa=3.50,
+            dept="CSE",
+            adj_cgpa=3.20,
+            adj_credits=100.0
+        )
+        self.assertAlmostEqual(res_adj["current_true_cgpa"], 3.2, places=2)
+        self.assertTrue(res_adj["required_avg_gpa"] < res["required_avg_gpa"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1588,6 +1588,8 @@ def compute_graduation_projection(
     target_grad_cgpa: float,
     dept: str,
     total_semesters: int = 8,
+    adj_cgpa: float | None = None,
+    adj_credits: float | None = None,
 ) -> dict:
     """
     Given the output of compute_deep_analysis() and a user target graduation CGPA,
@@ -1600,8 +1602,8 @@ def compute_graduation_projection(
         required_avg_gpa = (target_grad_cgpa * (total_credits + remaining_credits)
                             - current_points) / remaining_credits
     """
-    true_cgpa        = deep_result.get("true_cgpa", 0.0)
-    total_credits    = deep_result.get("total_credits", 0.0)
+    true_cgpa        = adj_cgpa if adj_cgpa is not None else deep_result.get("true_cgpa", 0.0)
+    total_credits    = adj_credits if adj_credits is not None else deep_result.get("total_credits", 0.0)
     current_semester = deep_result.get("current_semester", 0)
 
     current_points = true_cgpa * total_credits
@@ -1735,12 +1737,18 @@ def compute_advanced_projection(
                 projected_points_all += (simulated_gp - curr_gp) * credit
 
             # --- ALSO log in already_attempted if a retake/improvement was taken before ---
+            orig_gp_val = g.get('original_gp')
+            if orig_gp_val is not None and curr_gp > orig_gp_val:
+                reason_str = f"Increased by {curr_gp - orig_gp_val:.2f} (from {orig_gp_val:.2f}), but still improvable"
+            else:
+                reason_str = f"Attempted but still {curr_gp:.2f}"
+
             if code in attempted_subjects:
                 attempt_gp = max((a['gp'] for a in attempted_subjects[code]), default=0)
                 already_attempted.append({
                     'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
                     'attempt_gp': attempt_gp,
-                    'reason': f"Attempted but still {curr_gp:.2f}",
+                    'reason': reason_str,
                     'semester': sem_num
                 })
             elif source in ('retake_cleared', 'improvement_cleared', 'retake_improved'):
@@ -1748,7 +1756,7 @@ def compute_advanced_projection(
                 already_attempted.append({
                     'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
                     'attempt_gp': curr_gp,
-                    'reason': f"Retake/improvement applied but still {curr_gp:.2f}",
+                    'reason': reason_str,
                     'semester': sem_num
                 })
 
@@ -1841,13 +1849,13 @@ def compute_per_semester_breakdown(
         return f"{yr}-{s}"
 
     # Group effective grades by semester
-    sem_courses = {}  # sem_num -> [(code, gp, credit), ...]
+    sem_courses = {}  # sem_num -> [(code, original_gp, adjusted_gp, credit), ...]
     for code, g in effective_grades.items():
         sem = get_semester_from_code(code, dept)
         if sem <= 0:
             continue
+        orig_gp = g.get('original_gp', g['gp'])
         gp = g['gp']
-        credit = g['credit']
         # Apply override if present (Adjusted CGPA mode)
         if overrides and code in overrides:
             override_gp = overrides[code]
@@ -1855,7 +1863,7 @@ def compute_per_semester_breakdown(
                 gp = override_gp
         if sem not in sem_courses:
             sem_courses[sem] = []
-        sem_courses[sem].append((code, gp, credit))
+        sem_courses[sem].append((code, orig_gp, gp, g['credit']))
 
     # Build per-semester breakdown with running CGPA
     result = []
@@ -1867,11 +1875,13 @@ def compute_per_semester_breakdown(
         if not courses:
             continue
 
-        sem_points = sum(gp * cr for _, gp, cr in courses)
-        sem_credits = sum(cr for _, _, cr in courses)
-        sem_gpa = round(sem_points / sem_credits, 2) if sem_credits > 0 else 0.0
+        sem_points_original = sum(orig_gp * cr for _, orig_gp, _, cr in courses)
+        sem_points_adjusted = sum(adj_gp * cr for _, _, adj_gp, cr in courses)
+        sem_credits = sum(cr for _, _, _, cr in courses)
+        
+        sem_gpa = round(sem_points_original / sem_credits, 2) if sem_credits > 0 else 0.0
 
-        cumulative_points += sem_points
+        cumulative_points += sem_points_adjusted
         cumulative_credits += sem_credits
         cumulative_cgpa = round(cumulative_points / cumulative_credits, 2) if cumulative_credits > 0 else 0.0
 
@@ -1886,7 +1896,7 @@ def compute_per_semester_breakdown(
             'official_gpa': official.get('gpa'),
             'official_cgpa': official.get('cgpa'),
             'credits': round(sem_credits, 2),
-            'points': round(sem_points, 2),
+            'points': round(sem_points_original, 2),
             'course_count': len(courses),
         })
 

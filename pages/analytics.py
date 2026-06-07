@@ -1538,7 +1538,7 @@ with tabs[5]:
   # Search + filter bar
   proj_search = st.text_input(
     "Search student by name or reg no:",
-    placeholder="e.g. Eftakharul or 1011",
+    placeholder="Search by name or registration number...",
     key="proj_search"
   )
 
@@ -1600,25 +1600,6 @@ with tabs[5]:
             s = 1 if sem_num % 2 == 1 else 2
             return f"{yr}-{s}"
 
-          # --- Metrics Row ---
-          diff = deep_res['cgpa_diff']
-          diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
-          cols = st.columns([1, 1, 1])
-          with cols[0]:
-            st.metric("True CGPA", f"{deep_res['true_cgpa']:.2f}",
-                 delta=f"{diff_str} vs official {deep_res['official_cgpa']:.2f}", delta_color="normal" if diff >= 0 else "inverse")
-          with cols[1]:
-            if deep_res['precise_target_gpa'] > 0:
-              target_val = deep_res['precise_target_gpa']
-              if target_val > 4.0:
-                st.metric("Precise Target GPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
-              else:
-                st.metric("Precise Target GPA", f"{target_val:.2f}", delta=f"Next sem ({deep_res['next_sem_credits']:.2f} cr)")
-            else:
-              st.metric("Target GPA", "N/A", delta="Even sem / computed")
-          with cols[2]:
-            st.metric("Pending Retakes", f"{deep_res['pending_retake_count']}", delta=f"{deep_res['total_credits']:.2f} cr completed")
-
           # --- Collect Overrides from session_state ---
           overrides = {}
           for pr in adv_proj['pending_retakes']:
@@ -1644,6 +1625,44 @@ with tabs[5]:
           # --- Compute Adjusted CGPA ---
           adj_cgpa, adj_credits = db.compute_adjusted_cgpa(deep_res.get('effective_grades', {}), overrides)
           cgpa_gain = adj_cgpa - deep_res['true_cgpa']
+
+          # --- Compute Adjusted Pending Retakes ---
+          adj_pending_retake_count = 0
+          for code, g in deep_res.get('effective_grades', {}).items():
+            gp = g['gp']
+            if code in overrides:
+              if overrides[code] > gp:
+                gp = overrides[code]
+            if gp < 2.0:
+              adj_pending_retake_count += 1
+
+          # --- Compute Adjusted Precise Target GPA ---
+          adj_precise_target_gpa = 0.0
+          if deep_res.get('promo_target') is not None and deep_res.get('next_sem_credits', 0) > 0:
+            adj_precise_target_gpa = (
+              deep_res['promo_target'] * (adj_credits + deep_res['next_sem_credits']) -
+              adj_cgpa * adj_credits
+            ) / deep_res['next_sem_credits']
+            adj_precise_target_gpa = max(0.0, round(adj_precise_target_gpa, 2))
+
+          # --- Metrics Row ---
+          diff = adj_cgpa - deep_res['official_cgpa']
+          diff_str = f"+{diff:.2f}" if diff > 0 else f"{diff:.2f}"
+          cols = st.columns([1, 1, 1])
+          with cols[0]:
+            st.metric("True CGPA", f"{adj_cgpa:.2f}",
+                 delta=f"{diff_str} vs official {deep_res['official_cgpa']:.2f}", delta_color="normal" if diff >= 0 else "inverse")
+          with cols[1]:
+            if adj_precise_target_gpa > 0:
+              target_val = adj_precise_target_gpa
+              if target_val > 4.0:
+                st.metric("Precise Target GPA", "Impossible", delta=f"{target_val:.2f} > 4.00", delta_color="inverse")
+              else:
+                st.metric("Precise Target GPA", f"{target_val:.2f}", delta=f"Next sem ({deep_res['next_sem_credits']:.2f} cr)")
+            else:
+              st.metric("Target GPA", "N/A", delta="Even sem / computed")
+          with cols[2]:
+            st.metric("Pending Retakes", f"{adj_pending_retake_count}", delta=f"{deep_res['total_credits']:.2f} cr completed")
 
           # === SEMESTER-WISE GPA/CGPA BREAKDOWN ===
           _dept = db.get_dept_from_profile(profile_name)
@@ -1797,6 +1816,8 @@ with tabs[5]:
               deep_result=deep_res,
               target_grad_cgpa=target_cgpa,
               dept=_dept,
+              adj_cgpa=adj_cgpa,
+              adj_credits=adj_credits,
             )
 
             p_c1, p_c2, p_c3 = st.columns(3)
