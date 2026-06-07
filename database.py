@@ -1867,8 +1867,10 @@ def compute_per_semester_breakdown(
 
     # Build per-semester breakdown with running CGPA
     result = []
-    cumulative_points = 0.0
-    cumulative_credits = 0.0
+    cumulative_points_orig = 0.0
+    cumulative_credits_orig = 0.0
+    cumulative_points_adj = 0.0
+    cumulative_credits_adj = 0.0
 
     for sem_num in range(1, current_semester + 1):
         courses = sem_courses.get(sem_num, [])
@@ -1879,22 +1881,35 @@ def compute_per_semester_breakdown(
         sem_points_adjusted = sum(adj_gp * cr for _, _, adj_gp, cr in courses)
         sem_credits = sum(cr for _, _, _, cr in courses)
         
-        sem_gpa = round(sem_points_original / sem_credits, 2) if sem_credits > 0 else 0.0
+        sem_gpa_orig = round(sem_points_original / sem_credits, 2) if sem_credits > 0 else 0.0
+        sem_gpa_adj = round(sem_points_adjusted / sem_credits, 2) if sem_credits > 0 else 0.0
 
-        cumulative_points += sem_points_adjusted
-        cumulative_credits += sem_credits
-        cumulative_cgpa = round(cumulative_points / cumulative_credits, 2) if cumulative_credits > 0 else 0.0
+        cumulative_points_orig += sem_points_original
+        cumulative_credits_orig += sem_credits
+        cumulative_cgpa_orig = round(cumulative_points_orig / cumulative_credits_orig, 2) if cumulative_credits_orig > 0 else 0.0
+
+        cumulative_points_adj += sem_points_adjusted
+        cumulative_credits_adj += sem_credits
+        cumulative_cgpa_adj = round(cumulative_points_adj / cumulative_credits_adj, 2) if cumulative_credits_adj > 0 else 0.0
 
         # Get official values if available
         official = official_records.get(sem_num, {}) if official_records else {}
+        o_gpa = official.get('gpa')
+        o_cgpa = official.get('cgpa')
+
+        # Fallback if official GPA/CGPA is missing or <= 0
+        if o_gpa is None or o_gpa <= 0.0:
+            o_gpa = sem_gpa_orig
+        if o_cgpa is None or o_cgpa <= 0.0:
+            o_cgpa = cumulative_cgpa_orig
 
         result.append({
             'semester': sem_num,
             'label': _sem_label(sem_num),
-            'computed_gpa': sem_gpa,
-            'computed_cgpa': cumulative_cgpa,
-            'official_gpa': official.get('gpa'),
-            'official_cgpa': official.get('cgpa'),
+            'computed_gpa': sem_gpa_adj,      # "computed_gpa" key represents Adjusted GPA
+            'computed_cgpa': cumulative_cgpa_adj,  # "computed_cgpa" key represents Adjusted CGPA
+            'official_gpa': o_gpa,
+            'official_cgpa': o_cgpa,
             'credits': round(sem_credits, 2),
             'points': round(sem_points_original, 2),
             'course_count': len(courses),

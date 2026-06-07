@@ -1682,7 +1682,7 @@ with tabs[5]:
               _hdr = st.columns([1, 1.2, 1.2, 1.2, 1.2, 0.8])
               _hdr[0].markdown("**Semester**")
               _hdr[1].markdown("**Official GPA**")
-              _hdr[2].markdown("**Computed GPA**")
+              _hdr[2].markdown("**Adjusted GPA**")
               _hdr[3].markdown("**Official CGPA**")
               _hdr[4].markdown("**Adjusted CGPA**")
               _hdr[5].markdown("**Credits**")

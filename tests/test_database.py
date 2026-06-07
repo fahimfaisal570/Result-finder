@@ -535,7 +535,7 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertEqual(records[2]['semester_num'], 6)
 
 
-    def test_compute_per_semester_breakdown_uses_original_gp(self):
+    def test_compute_per_semester_breakdown_adjusted_and_fallback(self):
         # CSE-1102 has gp=2.75, original_gp=2.25
         effective_grades = {
             "CSE-1102": {"gp": 2.75, "original_gp": 2.25, "credit": 3.0, "source": "improvement_cleared", "name": "Intro CS"}
@@ -547,8 +547,12 @@ class TestSchemaAndAcid(unittest.TestCase):
             overrides={}
         )
         self.assertEqual(len(breakdown), 1)
-        self.assertAlmostEqual(breakdown[0]["computed_gpa"], 2.25, places=2)
+        # computed_gpa should now contain Adjusted GPA (2.75)
+        self.assertAlmostEqual(breakdown[0]["computed_gpa"], 2.75, places=2)
         self.assertAlmostEqual(breakdown[0]["computed_cgpa"], 2.75, places=2)
+        # official_gpa and official_cgpa (being missing/0.00) should fall back to original main grades (2.25)
+        self.assertAlmostEqual(breakdown[0]["official_gpa"], 2.25, places=2)
+        self.assertAlmostEqual(breakdown[0]["official_cgpa"], 2.25, places=2)
 
     def test_compute_advanced_projection_shows_correct_already_attempted_reason(self):
         # CSE-1102 has gp=2.75, original_gp=2.25, source="improvement_cleared"
