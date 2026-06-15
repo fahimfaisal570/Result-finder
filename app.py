@@ -15,7 +15,7 @@ import cli_scraper as cs
 
 # --- Session State Initialization ---
 if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
+    st.session_state.is_admin = True
 
 # --- Helper: Logo Base64 ---
 def get_base64_logo(file_path):
@@ -566,13 +566,4 @@ else: # Saved Profiles Mode
 st.markdown("---")
 st.caption("Developed with ❤️ for Academic Excellence | Showcase Version")
 
-# Persistent Admin Access at the bottom of the sidebar
-with st.sidebar:
-    st.write("<div style='margin-top: 50px;'></div>", unsafe_allow_html=True)
-    with st.expander("🔒 Admin Access"):
-        admin_pw = st.text_input("Admin Password", type="password", key="admin_pw_global")
-        st.session_state.is_admin = (admin_pw == "admin123")
-        if st.session_state.is_admin:
-            st.success("Admin Mode Active")
-        elif admin_pw:
-            st.error("Invalid Password")
+# Persistent Admin Access removed
