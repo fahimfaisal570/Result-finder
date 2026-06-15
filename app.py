@@ -18,7 +18,7 @@ import ui_components as ui
 
 # --- Session State Initialization ---
 if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
+    st.session_state.is_admin = True
 
 # --- Helper: Logo Base64 ---
 def get_base64_logo(file_path):
@@ -440,14 +440,5 @@ else: # Saved Profiles Mode
                             st.rerun()
 
     st.markdown("---")
-with st.sidebar:
-    with st.expander("Admin Access"):
-        admin_pw = st.text_input("Admin Password", type="password")
-        import hashlib, os
-        expected_hash = os.environ.get("ADMIN_PASSWORD_HASH", 
-            "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9")  # sha256("admin123")
-        st.session_state.is_admin = (
-            hashlib.sha256(admin_pw.encode()).hexdigest() == expected_hash
-        ) if admin_pw else False
 
 ui.add_contact_section()

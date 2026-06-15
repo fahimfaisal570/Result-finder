@@ -16,6 +16,9 @@ ui.inject_essential_ui()
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import database as db
 
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = True
+
 # ---------------------------------------------------------------------------
 # Helper Logic
 # ---------------------------------------------------------------------------
@@ -519,12 +522,15 @@ with st.sidebar.expander("Exam Management", expanded=False):
 
   st.markdown("---")
   st.markdown("**⚠️ Danger Zone**")
-  confirm_delete = st.checkbox("Confirm — I want to delete this exam scan", key=f"del_confirm_{exam_id}")
-  if st.button("Delete This Exam Scan", type="primary", disabled=not confirm_delete):
-    db.delete_exam(profile_name, exam_id)
-    st.cache_data.clear()
-    st.success(f"Exam `{exam_id}` deleted. Student roster preserved.")
-    st.rerun()
+  if st.session_state.get("is_admin", False):
+    confirm_delete = st.checkbox("Confirm — I want to delete this exam scan", key=f"del_confirm_{exam_id}")
+    if st.button("Delete This Exam Scan", type="primary", disabled=not confirm_delete):
+      db.delete_exam(profile_name, exam_id)
+      st.cache_data.clear()
+      st.success(f"Exam `{exam_id}` deleted. Student roster preserved.")
+      st.rerun()
+  else:
+    st.info("🔒 Admin access required to manage exam scans.")
 
 # ---------------------------------------------------------------------------
 # Load data scoped to selected exam

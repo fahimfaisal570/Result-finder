@@ -996,8 +996,8 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
 
             # Fallback for missing GPA IFF it was truly omitted in the scrape
             if gpa == 0.0 and grades and (raw_gpa_str in ['-', '', 'None']):
-                total_points = sum(gp * ch for _, gp, ch in grades)
-                total_credits = sum(ch for _, _, ch in grades)
+                total_points = sum((gp or 0.0) * (ch if ch is not None else 3.0) for _, gp, ch in grades)
+                total_credits = sum((ch if ch is not None else 3.0) for _, _, ch in grades)
                 if total_credits > 0:
                     gpa = round(total_points / total_credits, 2)
 
@@ -1006,8 +1006,8 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
                 # Dynamically calculate the retake-aware CGPA up to this specific exam instance
                 best_grades = historical_grades_by_student.get(reg_no)
                 if best_grades:
-                    total_cgpa_points = sum(gp * ch for gp, ch in best_grades if ch > 0)
-                    total_cgpa_credits = sum(ch for gp, ch in best_grades if ch > 0)
+                    total_cgpa_points = sum((gp or 0.0) * (ch if ch is not None else 3.0) for gp, ch in best_grades if ch is None or ch > 0)
+                    total_cgpa_credits = sum((ch if ch is not None else 3.0) for gp, ch in best_grades if ch is None or ch > 0)
                     if total_cgpa_credits > 0:
                         cgpa = round(total_cgpa_points / total_cgpa_credits, 2)
 
@@ -1067,21 +1067,20 @@ def get_semester_from_code(code: str, dept: str) -> int:
     Civil uses 3-digit codes: DEPT-XYZ → semester = X
     Returns 0 if unable to parse.
     """
-    parts = code.strip().upper().replace(' ', '-').split('-')
-    if len(parts) != 2:
+    import re
+    match = re.match(r'^([A-Z]{2,6})[-\s]?(\d{3,4})\**$', code.strip().upper())
+    if not match:
         return 0
-    num_str = parts[1].rstrip('*')  # strip trailing asterisks
-    if not num_str or not num_str[0].isdigit():
-        return 0
+    _, num_str = match.groups()
 
     if dept.strip().lower() == "civil":
-        # Civil: 3-digit codes like CE-101 → first digit = semester
+        # Civil: 3-digit codes like CE-101 or CE101 → first digit = semester
         try:
             return int(num_str[0])
         except (ValueError, IndexError):
             return 0
     else:
-        # CSE/EEE: 4-digit codes like CSE-1101 → (digit1-1)*2 + digit2
+        # CSE/EEE: 4-digit codes like CSE-1101 or CSE1101 → (digit1-1)*2 + digit2
         if len(num_str) < 2:
             return 0
         try:

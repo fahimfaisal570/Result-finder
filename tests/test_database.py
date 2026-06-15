@@ -599,5 +599,54 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertTrue(res_adj["required_avg_gpa"] < res["required_avg_gpa"])
 
 
+    def test_get_semester_from_code_unhyphenated(self):
+        # Test that unhyphenated subject codes are parsed correctly
+        self.assertEqual(database.get_semester_from_code("CSE1101", "CSE"), 1)
+        self.assertEqual(database.get_semester_from_code("CSE-1101", "CSE"), 1)
+        self.assertEqual(database.get_semester_from_code("CSE 1101", "CSE"), 1)
+        self.assertEqual(database.get_semester_from_code("CE101", "civil"), 1)
+        self.assertEqual(database.get_semester_from_code("CE-101", "civil"), 1)
+        self.assertEqual(database.get_semester_from_code("CE 101", "civil"), 1)
+        self.assertEqual(database.get_semester_from_code("CSE1101**", "CSE"), 1)
+
+    def test_fallback_calculations_with_null_credits(self):
+        # Seed student record with a missing GPA/CGPA and None/null credit_hours in subject_grades
+        results = [
+            {
+                "Registration No": 1001,
+                "Name": "Test Student",
+                "CGPA": "-",
+                "GPA": "-",
+                "Result": "Promoted",
+                "_sess_id": SESS_ID,
+                "_exam_id": EXAM_ID,
+                "Subjects": [
+                    {"code": "CS101", "name": "Intro CS", "grade": "A", "gp": "4.00"},
+                    {"code": "MA101", "name": "Math",     "grade": "B", "gp": "3.00"},
+                ],
+            }
+        ]
+        # We need to save the profile first so foreign key constraints pass
+        with database.get_connection() as conn:
+            conn.execute("INSERT INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, 0)", (PROFILE, PRO_ID, SESS_ID))
+            conn.commit()
+            
+        database.save_profile_and_results(PROFILE, PRO_ID, SESS_ID, results, EXAM_ID, EXAM_NM)
+        
+        # Now we manually update the credit_hours of the subject grades to None/NULL to simulate unmapped subjects
+        with database.get_connection() as conn:
+            conn.execute("UPDATE subject_grades SET credit_hours = NULL WHERE profile_name=? AND reg_no=?", (PROFILE, 1001))
+            conn.commit()
+
+        # Call get_student_data_for_exam which triggers GPA & CGPA fallbacks
+        student_data = database.get_student_data_for_exam(PROFILE, EXAM_ID)
+        self.assertEqual(len(student_data), 1)
+        # Fallback credit hour is 3.0.
+        # GPA = (4.0 * 3.0 + 3.0 * 3.0) / (3.0 + 3.0) = 3.50
+        # CGPA = same = 3.50
+        self.assertAlmostEqual(student_data[0]["gpa"], 3.50, places=2)
+        self.assertAlmostEqual(student_data[0]["cgpa"], 3.50, places=2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
