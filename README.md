@@ -1,62 +1,73 @@
 # Result Finder PRO (main)
 
-> **Automated Scraper & Reporting Pipeline**  
-> *Production-ready academic data extraction and automated email delivery.*
+> **Academic Scraper & Automated Reporting Pipeline**  
+> *Production-ready academic data extraction, automated email alerts, and lightweight dashboard.*
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-![JSON](https://img.shields.io/badge/Storage-JSON-lightgrey)
-![Automation](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
-![Lines of Code](https://img.shields.io/badge/Lines_of_Code-2000%2B-blue)
+![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
+![Storage](https://img.shields.io/badge/Storage-JSON-lightgrey)
+![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
 ## 🎯 The Vision
 
-The `main` branch serves as the **lightweight, production-grade automated scraper**. While the `v2` branch acts as a full interactive dashboard with SQLite persistence, `main` focuses on core reliability: scraping raw results, generating clean HTML/PDF reports, and delivering them automatically to department heads via email.
+University portals typically show results one student at a time, making cohort-wide review slow and manual. 
 
-*(Looking for the full interactive Streamlit dashboard with SQLite and GPA simulation? Switch to the [`v2` branch](https://github.com/fahimfaisal570/Result-finder/tree/v2).)*
+The `main` branch serves as the **lightweight, production-grade automated scraper and reporting system**. It handles result scraping via high-speed connection pools, parses structured content, generates offline HTML transcripts or PDF reports, and can automatically deliver them to department heads via email alerts. Additionally, it offers a lightweight interactive Streamlit dashboard backed by flat JSON file storage.
+
+*(Looking for the database-backed version with SQLite persistence, advanced OLAP analytics, connection pre-warming, and a full GPA projection simulator? Switch to the [`v2` branch](https://github.com/fahimfaisal570/Result-finder/tree/v2).)*
 
 ---
 
-## ⚡ Core Features (main branch)
+## ⚡ Core Features (main)
 
-### 🕵️‍♂️ Robust Scraping Engine
-- **100-Connection HTTP Pool:** Uses persistent keep-alive connections to bypass TLS handshake overhead, speeding up scraping by 3x.
+### 🕵️‍♂️ Concurrent CLI Scraper (`cli_scraper.py`)
+- **HTTP Connection Pool:** Uses persistent connections to bypass TLS handshake overhead, speeding up scraping by 3x.
 - **Stealth & Resilience:** Implements dynamic User-Agent rotation, cookie pinning (PHPSESSID tracking), and exponential backoff to handle portal rate limits smoothly.
 - **Regex Parsing:** Employs 40+ resilient regex patterns to structure messy HTML tables across 3 different department formats without relying on heavy DOM parsers like BeautifulSoup.
 
-### 🤖 Automation Pipeline
-- **GitHub Actions Integration:** Runs an `exam_monitor` cron job that periodically checks the university portal for new exam publications.
-- **Automated Delivery:** When a new exam is detected, the system matches it to a saved batch profile, runs a full extraction, generates a formatted PDF, and automatically emails it to the respective Department Head via SMTP.
+### 📊 Lightweight Streamlit Dashboard (`app.py`)
+A fast, lightweight interactive dashboard using simple JSON storage:
+- **Interactive Scans (`app.py`):** Define student registration ranges and run batch scans directly from the UI.
+- **Saved Profiles:** View, rename, and manage cohort lists stored in `saved_profiles.json`.
+- **Roster Views (`pages/results.py`):** Display search lists and student status.
+- **Transcripts (`pages/transcript.py`):** View complete academic records with formatted historical tables.
 
-### 📄 Lightweight JSON Storage & Reporting
-- **JSON Persistence:** Simple, portable `saved_profiles.json` storage without the overhead of a relational database.
-- **HTML Transcripts:** Generates clean, offline-readable HTML records for full student academic histories.
+### 🤖 Monitoring & Automation (`exam_monitor/`)
+- **Portal Watching (`monitor.py`):** Periodically queries the portal for new exam publications.
+- **Automated Delivery (`auto_pdf_mailer.py`):** Once a new exam is found, it crawls the cohort, generates a formatted PDF, and delivers it via SMTP.
+- **GitHub Actions Integration:** Pre-configured cron job configuration (`exam_monitor.yml`) to run checking schedules in the cloud automatically.
 
 ---
 
-## 🏗️ Architecture
+## 📁 Repository Structure
 
-```mermaid
-flowchart TD
-    Cron[GitHub Actions\nCron Job] --> |Triggers| Monitor[exam_monitor.py]
-    Monitor --> |New Exam Detected| Scraper[Scraper Engine\nscraper_core/network.py]
-    
-    Portal[University Portal HTML] --> |Keep-Alive Pool| Scraper
-    Scraper --> |Regex extraction| Parser[scraper_core/parser.py]
-    Parser --> |Persist| JSON[(saved_profiles.json)]
-    
-    Parser --> |Generate| Report[scraper_core/reports.py]
-    Report --> |HTML/PDF Output| SMTP[auto_pdf_mailer.py]
-    SMTP --> |Email| Faculty[Department Heads]
-```
+- `app.py`: Streamlit dashboard entry point.
+- `cli_scraper.py`: Core scraper script and thread runner.
+- `saved_profiles.json`: Lightweight JSON profile storage database.
+- `requirements.txt`: Project dependencies.
+- `college_logo.png` & `favicon.ico`: UI branding assets.
+- `pages/`: Multi-page streamlit dashboards (`results.py` and `transcript.py`).
+- `scraper_core/`: Core modules encapsulating the scraper logic:
+  - `network.py`: Connection pooling, retries, and request wrappers.
+  - `parser.py`: HTML regex search extraction and data structuring.
+  - `profiles.py`: Roster saving, profiles loader, and files manager.
+  - `reports.py`: Data aggregation and HTML transcript generation.
+- `exam_monitor/`: Monitoring scripts and alert components:
+  - `monitor.py`: Exam watcher script checking DUCMC.
+  - `auto_pdf_mailer.py`: PDF aggregator, scraper wrapper, and SMTP alert mailer.
+  - `find_latest.py`: Latest published exam checking utility.
+  - `sync_state.py`: Syncs cache states.
+  - `known_exams.json`: Tracked exams database.
+- `tests/`: Automated test suite (`test_exam_monitor_workflow.py`).
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Requirements
+### 1. Installation
 Ensure you have Python 3.10+ installed.
 
 ```bash
@@ -65,29 +76,26 @@ cd Result-finder
 pip install -r requirements.txt
 ```
 
-### 2. Run the CLI Scraper
-You can run the scraper directly from the command line (or Pydroid 3 on Android):
+### 2. Launch Streamlit Dashboard
+```bash
+streamlit run app.py
+```
 
+### 3. Run Scraper via CLI
+You can execute scans directly from the terminal:
 ```bash
 python cli_scraper.py
 ```
 
-### 3. Configure Automated Monitoring
-To enable the GitHub Actions automated mailer, set the following repository secrets:
-- `EMAIL_USER`: Sending email address
-- `EMAIL_PASS`: SMTP app password
-- `RECEIVER_EMAIL`: System administrator email
-- `CSE_HEAD_EMAIL` / `EEE_HEAD_EMAIL` / `CIVIL_HEAD_EMAIL`: Target department recipients
-
 ---
 
-## 🧱 Code Structure
+## 🧪 Testing
 
-- `scraper_core/network.py`: HTTP pooling, retry logic, stealth measures.
-- `scraper_core/parser.py`: HTML regex extraction and data normalization.
-- `scraper_core/profiles.py`: Batch data management and JSON storage.
-- `scraper_core/reports.py`: Data aggregation and HTML transcript generation.
-- `exam_monitor/`: Automated detection and SMTP alerting pipeline.
+Run the automated monitoring workflow tests:
+
+```bash
+python -m unittest tests/test_exam_monitor_workflow.py -v
+```
 
 ---
 
