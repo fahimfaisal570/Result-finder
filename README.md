@@ -1,73 +1,73 @@
 # Result Finder PRO (v2)
 
-> **Academic Data Pipeline & Analytics Platform**  
+> **Academic Data Platform & Analytics Platform**  
 > *From manual result-checking to automated intelligence — built for real university operations.*
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 ![SQLite](https://img.shields.io/badge/Database-SQLite-003B57?logo=sqlite&logoColor=white)
-![Lines of Code](https://img.shields.io/badge/Lines_of_Code-6700%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
 ## 🎯 The Vision
 
-University portals typically show results one student at a time. No batch queries. No analytics. No longitudinal export. Faculty members used to spend hours manually checking cohorts every semester. 
+University portals typically show results one student at a time, lacking batch queries, analytics, or longitudinal exports. 
+**Result Finder PRO** automates result scraping and structures the data into a relational database to enable interactive analysis.
 
-**Result Finder PRO replaces a manual 3-hour process with a 90-second automated pipeline.**
-
-This `v2` branch is the **full data platform rewrite**, transitioning the project from a simple scraper to an intelligent academic management system. It introduces persistent database storage, OLAP-style analytics, and comprehensive academic planning features.
+This `v2` branch is a complete data platform rewrite, introducing persistent database storage, OLAP-style analytics, and academic planning features.
 
 *(Looking for the production CLI scraper & email automation? Switch to the [`main` branch](https://github.com/fahimfaisal570/Result-finder/tree/main).)*
 
 ---
 
-## ⚡ Core Features (v2 Exclusive)
+## ⚡ Core Features (v2)
 
-### 📊 Advanced Streamlit Dashboard
+### 📊 Advanced Multi-Page Streamlit Dashboard
 A multi-page interface replacing command-line output with rich, interactive visualizations.
-- **Batch Scanning:** Ingest full cohorts into the database with a single click.
-- **Analytics Hub:** View cross-batch benchmarks, grade distributions, and merit rankings.
-- **GPA Projection & Simulator:** Calculate precise graduation trajectories with retake-aware simulation and elective credit mapping.
+- **Home Dashboard (`app.py` & `ui_components.py`):** Program and session configuration, interactive scraper runs, and batch roster previews.
+- **Roster & Exam Results (`pages/results.py`):** Dynamic result cards showing GPAs, CGPA standings, and fail/promotion status.
+- **Academic Transcripts (`pages/transcript.py`):** Full chronological student grade history with interactive visualizations.
+- **Analytics & Projections (`pages/analytics.py`):** Merit list rankings, cross-batch comparisons, GPA projections with a simulator supporting elective check-boxes, and retake simulations.
 
-### 🛡️ ACID-Compliant Persistence (SQLite)
-Moved from flat JSON files to a relational SQLite database (WAL mode) with 6 normalized tables.
-- **Idempotent Upserts:** Run scans as many times as you want; unique constraints guarantee zero duplicate records.
-- **Schema Migrations:** Automated versioning (`v1` → `v2` → `v3`) without data loss.
+### 🗄️ Normalized Database Storage (`database.py`)
+Relational SQLite database running in WAL mode with compound indices (`idx_subject_grades_exam`, `idx_exam_results_exam`) for page load optimization.
+- **Idempotent Upserts:** Safe double-saves with unique constraint rules.
+- **Schema Migrations:** Integrated, versioned migrations (v2 through v5) run automatically on startup.
+- **Connection Pooling:** A thread-local SQLite connection pool keyed by database path.
 
-### 🧠 Intelligent Academic Analytics
-- **Shadow GPA Audit:** Detects and flags university portal rounding errors by validating every GPA against a local database of 300+ official subject credits.
-- **Retake-Aware CGPA Engine:** Evaluates complete student history and picks the *best* grade for repeated courses, computing true cumulative standing.
-- **Readmission Resolution:** "Latest exam wins" semantics automatically merge histories for students repeating years across different batches.
+### 🧠 Intelligent Analytics & Scraper (`cli_scraper.py`)
+- **SSL Connection Pre-Warming:** Pre-establishes TCP/TLS handshakes concurrently using thread pools, reducing dashboard scan start latency from 20s to under 3s.
+- **Shadow GPA Audit:** Validates portal-calculated GPAs against a local database of official course credits (`credit_mapping.json`) to detect rounding drift.
+- **Retake-Aware CGPA Engine:** Chronologically resolves repeated courses to compute true cumulative standings using window functions.
+
+### 🤖 Monitoring & Automation Suites
+- **Exam Publication Watcher (`exam_monitor/`):** Regularly checks the DUCMC portal for newly published results, maps them to saved batches, and delivers PDF reports to faculty via SMTP.
+- **Portal Health Monitoring (`portal_monitor/`):** Decooupled whitelist-based uptime check verifying server signatures and notifying administrators of portal transitions.
 
 ---
 
-## 🏗️ Architecture
+## 📁 Repository Structure
 
-```mermaid
-flowchart TD
-    Portal[University Portal HTML] --> |100-connection HTTP pool| Scraper[Scraper Engine\ncli_scraper.py]
-    Scraper --> |Regex extraction| DB[(SQLite Database\ndatabase.py)]
-    DB --> |Retake-aware CGPA\nShadow GPA Audit| Analytics[Analytics Engine]
-    Analytics --> UI[Streamlit UI\napp.py]
-    
-    subgraph UI System
-        UI --> Dashboard
-        UI --> Results
-        UI --> Transcripts
-        UI --> Projections
-    end
-    
-    Automator[Automation\nauto_pdf_main.py] --> |Scheduled Scan| Scraper
-    Automator --> |Generate PDF| SMTP[Email Delivery]
-```
+- `app.py`: Streamlit entry point.
+- `database.py`: Database operations, connection pool, and migrations.
+- `cli_scraper.py`: Concurrent scraper engine, TLS pre-warming, and cohort classification.
+- `ui_components.py`: Injected HTML/CSS styling and common UI headers.
+- `credit_mapping.json`: Official department curriculum course codes and credit weights.
+- `v2_auto_sync.py` & `auto_pdf_main.py`: Automated scanning and sync drivers.
+- `pdf_extractor.py`: PDF parser utility.
+- `config.py`: Local configuration settings.
+- `pages/`: Multi-page streamlit dashboards (`analytics.py`, `results.py`, `transcript.py`).
+- `exam_monitor/`: Auto scan, PDF generation, and SMTP notifier scripts.
+- `portal_monitor/`: DUCMC uptime health check suite.
+- `scripts/`: Development and database investigation utilities (e.g., college boundary detection, database inspectors).
+- `tests/`: Unit and integration testing suite.
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Requirements
+### 1. Installation
 Ensure you have Python 3.10+ installed.
 
 ```bash
@@ -76,17 +76,14 @@ cd Result-finder
 pip install -r requirements.txt
 ```
 
-### 2. Run the Dashboard
-Fire up the full interactive web application:
-
+### 2. Launch Streamlit UI
 ```bash
 streamlit run app.py
 ```
-*The app will automatically initialize the database schema (`result_finder.db`) on first run.*
+*The database schema (`result_finder.db`) will initialize automatically on first run.*
 
-### 3. Automated Monitoring (Optional)
-Configure background syncing by setting your SMTP credentials, then run:
-
+### 3. Run Automated Syncing (Optional)
+Ensure SMTP variables are configured, then execute:
 ```bash
 python v2_auto_sync.py
 ```
@@ -95,7 +92,7 @@ python v2_auto_sync.py
 
 ## 🧪 Testing
 
-The platform includes a robust unit testing suite covering database idempotency, schema integrity, and the retake-aware CGPA math.
+Run the test suite covering database ACID logic, migrations, and calculations:
 
 ```bash
 python -m unittest tests/test_database.py -v
