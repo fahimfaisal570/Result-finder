@@ -157,6 +157,18 @@ Started: Wed May 27 16:05:00 2026
 - **Learnings for future iterations:**
   - Standard white-list verification (Positive Verification) is infinitely more reliable than error-pattern black-listing for health checks, as it encapsulates all possible timeout, gateway, WAF, or blank page errors under a single expected healthy signature.
   - Using Actions Cache with dynamic restore-keys allows storing mutable operational state (like JSON status files) in GitHub Actions workflows without generating high-volume Git history noise.
+---
+## 2026-06-28 17:30 - Diagnosis and Restoration of Missing CSE 08 4-1 Exam
+- Diagnosed database sync gap: The CSE 08 4-1 results (Exam ID `1769`) were successfully auto-synced to the database on May 21 (`233f7e4`) but subsequently clobbered on June 1 (`88c41cf` and `134be22`) when an outdated database was committed and pushed locally.
+- Restored missing CSE 08 4-1 results back into `result_finder.db` by manually queueing the task in the temp directory and running `v2_auto_sync.py`.
+- Flushed the SQLite Write-Ahead Log (WAL) to disk via checkpointing to ensure the modifications are saved directly to `result_finder.db` and tracked by Git.
+- Ran offline database comparison against commit `233f7e4` to verify that no other historical exam data was lost.
+- Verified that all 27 unit and system tests pass successfully.
+- Modified files: `result_finder.db`, `.coderabbit/review_report.md`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Committing binary database files (`result_finder.db`) directly can easily clobber remote changes if local checkouts are out of sync. Always pull before pushing, and verify remote database state.
+  - SQLite Write-Ahead Logging (WAL) writes modifications to the temporary `-wal` file. Running `PRAGMA wal_checkpoint(TRUNCATE)` is necessary to merge and save those changes into the main `.db` file for Git tracking.
+
 
 
 
