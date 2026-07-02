@@ -2435,59 +2435,6 @@ def get_cross_batch_comparison(profile_names: list[str], semester_pattern: str) 
 
 
 # ---------------------------------------------------------------------------
-# Legacy migration helpers
-# ---------------------------------------------------------------------------
-
-def migrate_legacy_json():
-    """One-time migration from saved_profiles.json → SQLite. Runs only if DB is empty."""
-    json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_profiles.json")
-    if not os.path.exists(json_path):
-        return
-
-    with get_connection() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]
-    if count > 0:
-        return  # Already migrated
-
-    logger.info("Migrating legacy profiles from JSON...")
-    try:
-        with open(json_path, "r") as f:
-            legacy = json.load(f)
-
-        for name, data in legacy.items():
-            pro_id = str(data.get('pro_id', ''))
-            sess_id = str(data.get('sess_id', ''))
-            ts = data.get('timestamp', time.time())
-
-            if not sess_id and data.get('regs'):
-                first = data['regs'][0]
-                if isinstance(first, list) and len(first) > 1:
-                    sess_id = str(first[1])
-
-            with get_connection() as conn:
-                conn.execute(
-                    "INSERT OR IGNORE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)",
-                    (name, pro_id, sess_id, ts)
-                )
-                conn.commit()
-
-            for r_item in data.get('regs', []):
-                if isinstance(r_item, list):
-                    r_no = int(r_item[0])
-                    s_id = str(r_item[1]) if len(r_item) > 1 else sess_id
-                    s_name = str(r_item[2]) if len(r_item) > 2 else 'Unknown'
-                else:
-                    r_no = int(r_item)
-                    s_id = sess_id
-                    s_name = 'Unknown'
-                upsert_student(name, r_no, s_name, s_id)
-
-        os.rename(json_path, json_path + ".backup")
-        logger.info("Legacy JSON migration complete.")
-    except Exception as e:
-        logger.error("Legacy migration failed: %s", e)
-
-# ---------------------------------------------------------------------------
 # Cache Helpers
 # ---------------------------------------------------------------------------
 
@@ -2542,7 +2489,6 @@ def _bootstrap():
     migrate_schema_v3()
     migrate_schema_v4()
     migrate_schema_v5()
-    migrate_legacy_json()
     _bootstrapped = True
 
 _bootstrap()
