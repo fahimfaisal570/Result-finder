@@ -17,7 +17,6 @@ import re
 import subprocess
 import collections
 import random
-import urllib.request as urllib_req
 import urllib.parse as urllib_parse
 import queue
 input_func = input
