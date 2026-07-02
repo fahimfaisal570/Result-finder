@@ -1,5 +1,7 @@
-streamlit
-pandas
-numpy
-altair
-requests
+streamlit==1.58.0
+pandas==3.0.3
+numpy==2.5.0
+altair==6.2.2
+requests==2.34.2
+pypdf==6.14.2
+pdfkit==1.0.0

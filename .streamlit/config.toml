@@ -4,9 +4,6 @@
 [client]
 showSidebarNavigation = false
 
-[ui]
-favicon = "favicon.ico"
-
 [server]
 enableStaticServing = false
 
