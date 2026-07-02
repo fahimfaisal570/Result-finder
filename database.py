@@ -1652,6 +1652,102 @@ def compute_graduation_projection(
     }
 
 
+def build_special_exam_lookup(dept: str) -> dict:
+    """
+    Returns {sem_key: [2021, 2022, 2023, ...]} for all main exams
+    with published results for the given department.
+    sem_key is like "1-1", "2-2", etc.
+    """
+    # ponytail: O(N) scan over distinct exams, database queries are cached/fast enough for standard analytics
+    import re
+    sem_pattern = re.compile(r'(\d+)(?:st|nd|rd|th)\s+year\s+(\d+)(?:st|nd|rd|th)\s+semester', re.IGNORECASE)
+    year_pattern = re.compile(r'of\s+(\d{4})')
+    
+    ret_dict = {}
+    dept_lower = dept.strip().lower()
+    with get_connection() as conn:
+        cur = conn.execute("""
+            SELECT DISTINCT er.exam_id, er.exam_name
+            FROM exam_results er
+            JOIN scan_log sl ON er.profile_name = sl.profile_name AND er.exam_id = sl.exam_id
+            WHERE LOWER(er.exam_name) NOT LIKE '%retake%'
+              AND LOWER(er.exam_name) NOT LIKE '%re-take%'
+              AND LOWER(er.exam_name) NOT LIKE '%improvement%'
+              AND LOWER(er.exam_name) NOT LIKE '%special%'
+              AND LOWER(er.exam_name) NOT LIKE '%make-up%'
+              AND LOWER(er.exam_name) NOT LIKE '%makeup%'
+              AND LOWER(er.exam_name) NOT LIKE '%supplementary%'
+        """)
+        for _, exam_name in cur.fetchall():
+            ename_lower = exam_name.lower()
+            if dept_lower == 'cse' and 'computer' not in ename_lower:
+                continue
+            elif dept_lower == 'eee' and 'electrical' not in ename_lower:
+                continue
+            elif dept_lower == 'civil' and 'civil' not in ename_lower:
+                continue
+                
+            sem_m = sem_pattern.search(exam_name)
+            yr_m = year_pattern.search(exam_name)
+            if sem_m and yr_m:
+                sem_key = f"{sem_m.group(1)}-{sem_m.group(2)}"
+                year = int(yr_m.group(1))
+                if sem_key not in ret_dict:
+                    ret_dict[sem_key] = set()
+                ret_dict[sem_key].add(year)
+                
+    for k in ret_dict:
+        ret_dict[k] = sorted(list(ret_dict[k]))
+    return ret_dict
+
+
+def get_batch_first_participation_years(profile_name: str) -> dict:
+    """
+    Returns {sem_num: calendar_year} for the given batch.
+    e.g. for 'cse 09': {1: 2022, 2: 2022, 3: 2023, 4: 2023, 5: 2024}
+    """
+    # ponytail: Selects the exam per semester with the highest student count (COUNT(reg_no)) to avoid readmitted student data skew.
+    import re
+    sem_pattern = re.compile(r'(\d+)(?:st|nd|rd|th)\s+year\s+(\d+)(?:st|nd|rd|th)\s+semester', re.IGNORECASE)
+    year_pattern = re.compile(r'of\s+(\d{4})')
+    
+    ret_dict = {}
+    with get_connection() as conn:
+        cur = conn.execute("""
+            SELECT exam_id, exam_name, COUNT(reg_no) AS student_count
+            FROM exam_results
+            WHERE profile_name = ?
+              AND LOWER(exam_name) NOT LIKE '%retake%'
+              AND LOWER(exam_name) NOT LIKE '%re-take%'
+              AND LOWER(exam_name) NOT LIKE '%improvement%'
+              AND LOWER(exam_name) NOT LIKE '%special%'
+              AND LOWER(exam_name) NOT LIKE '%make-up%'
+              AND LOWER(exam_name) NOT LIKE '%makeup%'
+              AND LOWER(exam_name) NOT LIKE '%supplementary%'
+            GROUP BY exam_id, exam_name
+        """, (profile_name,))
+        
+        sem_exams = {}
+        for exam_id_str, exam_name, count in cur.fetchall():
+            sem_m = sem_pattern.search(exam_name)
+            if not sem_m:
+                continue
+            
+            yr = int(sem_m.group(1))
+            sem_in_yr = int(sem_m.group(2))
+            sem_num = (yr - 1) * 2 + sem_in_yr
+            
+            if sem_num not in sem_exams or count > sem_exams[sem_num][0]:
+                sem_exams[sem_num] = (count, exam_name)
+                
+        for sem_num, (_, exam_name) in sem_exams.items():
+            yr_m = year_pattern.search(exam_name)
+            if yr_m:
+                ret_dict[sem_num] = int(yr_m.group(1))
+                
+    return ret_dict
+
+
 def compute_advanced_projection(
     deep_result: dict,
     effective_grades: dict,
@@ -1659,6 +1755,8 @@ def compute_advanced_projection(
     profile_name: str = '',
     retake_clear_gp: float = 2.0,
     improvement_target_gp: float | None = None,
+    special_exam_lookup: dict | None = None,
+    batch_first_years: dict | None = None,
 ) -> dict:
     """
     Computes advanced projection details including retake clears and improvement eligibility.
@@ -1702,13 +1800,23 @@ def compute_advanced_projection(
         subj_name = g.get('name', '')
         sem_num = get_semester_from_code(code, dept)
 
+        # Determine is_special
+        is_special = False
+        if special_exam_lookup and batch_first_years:
+            first_year = batch_first_years.get(sem_num)
+            sem_key = f"{(sem_num - 1) // 2 + 1}-{1 if sem_num % 2 == 1 else 2}"
+            if first_year and sem_key in special_exam_lookup:
+                subsequent = sum(1 for y in special_exam_lookup[sem_key] if y > first_year)
+                is_special = (subsequent >= 2)
+
         if curr_gp < 2.0:
             # --- Still failing ---
             simulated_gp = retake_clear_gp
             cgpa_impact = ((simulated_gp - curr_gp) * credit) / total_credits if total_credits > 0 else 0
             pending_retakes.append({
                 'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
-                'simulated_gp': simulated_gp, 'cgpa_impact': cgpa_impact, 'semester': sem_num
+                'simulated_gp': simulated_gp, 'cgpa_impact': cgpa_impact, 'semester': sem_num,
+                'is_special': is_special
             })
             projected_points_retakes += (simulated_gp - curr_gp) * credit
             projected_points_all += (simulated_gp - curr_gp) * credit
@@ -1729,7 +1837,8 @@ def compute_advanced_projection(
             # --- Eligible for improvement (regardless of past attempts) ---
             improvement_candidates.append({
                 'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
-                'max_potential_gp': 4.0, 'source': source, 'semester': sem_num
+                'max_potential_gp': 4.0, 'source': source, 'semester': sem_num,
+                'is_special': is_special
             })
             if improvement_target_gp is not None:
                 simulated_gp = max(curr_gp, improvement_target_gp)

@@ -1593,11 +1593,20 @@ with tabs[5]:
               del st.session_state._deep_cache[cache_key]
               st.rerun(scope="fragment")
         else:
+          # ponytail: cache special lookup in session_state per dept to avoid redundant DB queries during paging
+          dept = db.get_dept_from_profile(profile_name)
+          if f'_special_lookup_{dept}' not in st.session_state:
+            st.session_state[f'_special_lookup_{dept}'] = db.build_special_exam_lookup(dept)
+          special_lookup = st.session_state[f'_special_lookup_{dept}']
+          batch_first_years = db.get_batch_first_participation_years(profile_name)
+
           adv_proj = db.compute_advanced_projection(
             deep_result=deep_res,
             effective_grades=deep_res.get('effective_grades', {}),
             retake_records=deep_res.get('retake_records', []),
             profile_name=profile_name,
+            special_exam_lookup=special_lookup,
+            batch_first_years=batch_first_years,
           )
           
           # --- Semester label helper ---
@@ -1722,7 +1731,9 @@ with tabs[5]:
             for sem_num, group in groupby(items, key=lambda x: x.get('semester', 0)):
               group_list = list(group)
               if sem_num > 0:
-                st.markdown(f"**━━ Semester {_semester_label(sem_num)} ━━**")
+                has_special = any(item.get('is_special') for item in group_list)
+                special_suffix = " :red[(Special)]" if has_special else ""
+                st.markdown(f"**━━ Semester {_semester_label(sem_num)}{special_suffix} ━━**")
               else:
                 st.markdown("**━━ Other ━━**")
               for item in group_list:

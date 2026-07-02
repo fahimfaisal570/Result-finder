@@ -169,9 +169,17 @@ Started: Wed May 27 16:05:00 2026
   - Committing binary database files (`result_finder.db`) directly can easily clobber remote changes if local checkouts are out of sync. Always pull before pushing, and verify remote database state.
   - SQLite Write-Ahead Logging (WAL) writes modifications to the temporary `-wal` file. Running `PRAGMA wal_checkpoint(TRUNCATE)` is necessary to merge and save those changes into the main `.db` file for Git tracking.
 
-
-
-
-
-
-
+## 2026-07-03 05:25 - US-015: Special Exam Indicators with Readmitted Student Fix
+- Implemented `build_special_exam_lookup(dept)` in `database.py` returning published main exam years per semester.
+- Refactored `get_batch_first_participation_years(profile_name)` in `database.py` to select the exam per semester with the highest student count (`COUNT(reg_no)`), preventing readmitted students' historical exam records from skewing the batch's baseline participation year.
+- Updated `compute_advanced_projection()` to calculate and attach `is_special` to both pending retakes and improvement candidates.
+- Integrated lookup calls at `analytics.py` call site, caching the results per department in Streamlit session state to maximize paging performance.
+- Modified `_render_semester_grouped()` in `analytics.py` to append `:red[(Special)]` to the group semester headers if any candidate requires special application.
+- Added a comprehensive unit test `test_get_batch_first_participation_years_highest_count` in `tests/test_full_system.py`.
+- Conducted Code Rabbit code review and generated `.coderabbit/review_report.md`.
+- Verified that all 22 tests in the test suite pass successfully.
+- Modified files: `database.py`, `pages/analytics.py`, `tests/test_full_system.py`, `.coderabbit/review_report.md`, `prd.json`, `progress.txt`.
+- **Learnings for future iterations:**
+  - Grouping by `exam_id, exam_name` and using `COUNT(reg_no)` is a robust way to identify the true main exam for a batch cohort, filtering out outlier records from readmitted students in single SQL queries.
+  - Streamlit `:color[text]` markup syntax allows adding colored labels (like red badges) to section headers without needing raw HTML rendering flags.
+---

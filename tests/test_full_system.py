@@ -149,6 +149,27 @@ class TestFullSystem(unittest.TestCase):
         unique_regs = list(dict.fromkeys(raw_regs))
         self.assertEqual(unique_regs, [2024731669, 2024531670])
 
+    def test_get_batch_first_participation_years_highest_count(self):
+        """Verify that get_batch_first_participation_years selects the exam with the highest student count."""
+        profile = "SkewTest"
+        
+        # Exam 1: 1st year 1st semester, Year 2022, student count = 1
+        exam1_results = [
+            {"Registration No": 1001, "Name": "Alice", "Subjects": []}
+        ]
+        db.save_profile_and_results(profile, "14", "22", exam1_results, "500", "B.Sc. in Computer Science 1st year 1st Semester Examination of 2022")
+        
+        # Exam 2: 1st year 1st semester, Year 2023, student count = 2
+        exam2_results = [
+            {"Registration No": 1002, "Name": "Bob", "Subjects": []},
+            {"Registration No": 1003, "Name": "Charlie", "Subjects": []}
+        ]
+        db.save_exam_analytics_only(profile, "600", "B.Sc. in Computer Science 1st year 1st Semester Examination of 2023", exam2_results)
+        
+        years = db.get_batch_first_participation_years(profile)
+        # Should pick the one with highest student count (2023), not the one with lower count (2022)
+        self.assertEqual(years.get(1), 2023)
+
     def tearDown(self):
         # We don't manually delete the file here to avoid PermissionError on Windows.
         # Temp files are cleaned up by OS eventually or when the process ends.
