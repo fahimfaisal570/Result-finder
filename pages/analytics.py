@@ -1235,13 +1235,18 @@ with tabs[1]:
     else:
       import ml_predictor
       
-      # 1. Student selection
-      student_roster_df = df_longitudinal.drop_duplicates(subset=['reg_no'])
-      student_names = sorted(student_roster_df['name'].unique().tolist())
-      selected_student_name = st.selectbox("Select Student for Prediction:", student_names, key="ml_student_select")
+      # 1. Student selection (sorted by reg_no ascending, prefixed with serial numbers, reg_no hidden)
+      student_roster_df = df_longitudinal.drop_duplicates(subset=['reg_no']).sort_values('reg_no')
+      student_options = []
+      student_map = {}
+      for i, (idx, row) in enumerate(student_roster_df.iterrows(), 1):
+        opt = f"{i}. {row['name']}"
+        student_options.append(opt)
+        student_map[opt] = row
+        
+      selected_option = st.selectbox("Select Student for Prediction:", student_options, key="ml_student_select")
+      student_row = student_map[selected_option]
       
-      # Map selected student name to details
-      student_row = student_roster_df[student_roster_df['name'] == selected_student_name].iloc[0]
       target_reg = int(student_row['reg_no'])
       target_sess = student_row.get('sess_id', 'AUTO')
       if not target_sess or target_sess == 'AUTO':
@@ -1352,13 +1357,13 @@ with tabs[1]:
           if len(X_train) < 2:
             st.error("Insufficient historical training samples available in this batch to build models.")
           else:
-            models = ml_predictor.train_ensemble(X_train, y_train)
+            models, scaler = ml_predictor.train_ensemble(X_train, y_train)
             
             target_key = f"{profile_name}_{target_reg}_{target_sess}"
             target_deep = st.session_state._deep_cache.get(target_key)
             
             if target_deep is None:
-              st.error(f"Could not retrieve academic history for the selected student: {selected_student_name}.")
+              st.error(f"Could not retrieve academic history for the selected student: {student_row['name']}.")
             else:
               effective_grades = target_deep.get("effective_grades", {})
               current_semester = target_deep.get("current_semester", 0)
@@ -1379,6 +1384,7 @@ with tabs[1]:
               
               forecast_results = ml_predictor.forecast_to_graduation(
                 models=models,
+                scaler=scaler,
                 completed_gpas=completed_gpas,
                 completed_credits=completed_credits,
                 completed_backlogs=completed_backlogs,

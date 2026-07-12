@@ -4,6 +4,8 @@ import re
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.neighbors import KNeighborsRegressor
+from sklearn.svm import SVR
+from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import database as db
 
@@ -137,23 +139,32 @@ def engineer_features(
 ) -> np.ndarray:
     """
     Constructs a fixed-width feature vector representing the student's history up to target_sem.
+    Applies Winsorization/clipping to backlogs and momentum to manage outliers.
     """
     # 1. Last GPA
     last_gpa = gpa_history[-1] if gpa_history else 0.0
     
-    # 2. Prior CGPA (credit-weighted)
+    # 2. Prior CGPA (credit-weighted of all completed semesters 1..target_sem-1)
     total_points = sum(g * c for g, c in zip(gpa_history, credits_history))
     total_credits = sum(credits_history)
     prior_cgpa = total_points / total_credits if total_credits > 0 else 0.0
     
-    # 3. GPA Momentum
-    gpa_momentum = last_gpa - prior_cgpa
+    # 3. GPA Momentum (last_gpa - CGPA of semesters 1..target_sem-2, clipped to [-2.0, 2.0])
+    if len(gpa_history) > 1:
+        prev_points = sum(g * c for g, c in zip(gpa_history[:-1], credits_history[:-1]))
+        prev_credits = sum(credits_history[:-1])
+        prior_cgpa_before_last = prev_points / prev_credits if prev_credits > 0 else 0.0
+        raw_momentum = last_gpa - prior_cgpa_before_last
+    else:
+        raw_momentum = 0.0
+    gpa_momentum = float(np.clip(raw_momentum, -2.0, 2.0))
     
     # 4. Semester Difficulty Index (batch average for target_sem)
     difficulty = batch_sem_averages.get(target_sem, 3.00)
     
-    # 5. Backlog Count at the start of target_sem
-    backlog_count = backlogs_history[-1] if backlogs_history else 0
+    # 5. Backlog Count at the start of target_sem (clipped to max 6)
+    raw_backlog = backlogs_history[-1] if backlogs_history else 0
+    backlog_count = int(np.clip(raw_backlog, 0, 6))
     
     return np.array([
         last_gpa,
@@ -175,7 +186,6 @@ def build_training_data(
     X_list = []
     y_list = []
     
-    # First, let's extract each student's semester breakdown
     student_histories = {}
     for key, deep_result in deep_cache.items():
         if not key.startswith(f"{profile_name}_") or deep_result is None:
@@ -202,7 +212,6 @@ def build_training_data(
             'backlogs': backlog_history
         }
         
-    # Compute batch average GPAs for each semester
     batch_sem_gpas = {i: [] for i in range(1, 9)}
     for key, history in student_histories.items():
         for sem in history['breakdown']:
@@ -220,7 +229,6 @@ def build_training_data(
         else:
             batch_sem_averages[sem] = dept_averages.get(sem, 3.00)
             
-    # Now build the training samples using a sliding window
     for key, history in student_histories.items():
         breakdown = history['breakdown']
         backlogs = history['backlogs']
@@ -245,26 +253,36 @@ def build_training_data(
         
     return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32), batch_sem_averages
 
-def train_ensemble(X: np.ndarray, y: np.ndarray) -> list[dict]:
+def train_ensemble(X: np.ndarray, y: np.ndarray) -> tuple[list[dict], RobustScaler]:
     """
-    Trains 6 models and computes cross-validation metrics.
+    Trains 7 models, utilizing RobustScaler to manage scale-sensitive models.
+    Returns: (list of trained model dictionaries, fitted RobustScaler)
     """
+    scaler = RobustScaler()
+    if len(X) > 0:
+        X_scaled = scaler.fit_transform(X)
+    else:
+        X_scaled = X
+        
     models_config = [
-        ("Linear Regression", LinearRegression()),
-        ("Ridge Regression", Ridge(alpha=1.0)),
-        ("Lasso Regression", Lasso(alpha=0.01)),
-        ("Random Forest", RandomForestRegressor(n_estimators=50, max_depth=5, random_state=42)),
-        ("Gradient Boosting", GradientBoostingRegressor(n_estimators=50, max_depth=3, random_state=42)),
-        ("KNN Regressor", KNeighborsRegressor(n_neighbors=min(5, max(2, len(X) // 10)) if len(X) > 0 else 5))
+        ("Linear Regression", LinearRegression(), True),
+        ("Ridge Regression", Ridge(alpha=1.0), True),
+        ("Lasso Regression", Lasso(alpha=0.01), True),
+        ("SVR (RBF)", SVR(kernel='rbf', C=1.0, epsilon=0.1), True),
+        ("KNN Regressor", KNeighborsRegressor(n_neighbors=min(5, max(2, len(X) // 10)) if len(X) > 0 else 5), True),
+        ("Random Forest", RandomForestRegressor(n_estimators=50, max_depth=5, random_state=42), False),
+        ("Gradient Boosting", GradientBoostingRegressor(n_estimators=50, max_depth=3, random_state=42), False)
     ]
     
     trained_models = []
     num_samples = len(X)
     folds = min(5, num_samples) if num_samples >= 2 else 2
     
-    for name, model in models_config:
+    for name, model, needs_scaling in models_config:
+        X_train_data = X_scaled if needs_scaling else X
+        
         if num_samples > 0:
-            model.fit(X, y)
+            model.fit(X_train_data, y)
             
         cv_maes = []
         cv_rmses = []
@@ -286,10 +304,18 @@ def train_ensemble(X: np.ndarray, y: np.ndarray) -> list[dict]:
                 X_tr, y_tr = X[train_idx], y[train_idx]
                 X_te, y_te = X[test_idx], y[test_idx]
                 
+                fold_scaler = RobustScaler()
+                if needs_scaling:
+                    X_tr_data = fold_scaler.fit_transform(X_tr)
+                    X_te_data = fold_scaler.transform(X_te)
+                else:
+                    X_tr_data = X_tr
+                    X_te_data = X_te
+                    
                 from sklearn.base import clone
                 temp_model = clone(model)
-                temp_model.fit(X_tr, y_tr)
-                preds = temp_model.predict(X_te)
+                temp_model.fit(X_tr_data, y_tr)
+                preds = temp_model.predict(X_te_data)
                 
                 cv_maes.append(mean_absolute_error(y_te, preds))
                 cv_rmses.append(np.sqrt(mean_squared_error(y_te, preds)))
@@ -303,7 +329,7 @@ def train_ensemble(X: np.ndarray, y: np.ndarray) -> list[dict]:
             r2 = float(np.mean(cv_r2s)) if cv_r2s else 0.0
         else:
             if num_samples > 0:
-                preds = model.predict(X)
+                preds = model.predict(X_train_data)
                 mae = mean_absolute_error(y, preds)
                 rmse = np.sqrt(mean_squared_error(y, preds))
                 try:
@@ -318,13 +344,15 @@ def train_ensemble(X: np.ndarray, y: np.ndarray) -> list[dict]:
             'model': model,
             'mae': mae,
             'rmse': rmse,
-            'r2': r2
+            'r2': r2,
+            'needs_scaling': needs_scaling
         })
         
-    return trained_models
+    return trained_models, scaler
 
 def forecast_to_graduation(
     models: list[dict],
+    scaler: RobustScaler,
     completed_gpas: list[float],
     completed_credits: list[float],
     completed_backlogs: list[int],
@@ -356,10 +384,17 @@ def forecast_to_graduation(
     for target_sem in range(start_sem, total_sems + 1):
         features = engineer_features(current_gpas, credits[:target_sem-1], current_backlogs, batch_sem_averages, target_sem)
         
+        features_2d = features.reshape(1, -1)
+        features_scaled = scaler.transform(features_2d)
+        
         preds = []
         for idx, m_dict in enumerate(models):
             m = m_dict['model']
-            p = float(m.predict(features.reshape(1, -1))[0])
+            needs_scaling = m_dict['needs_scaling']
+            
+            input_features = features_scaled if needs_scaling else features_2d
+            
+            p = float(m.predict(input_features)[0])
             p = float(np.clip(p, 0.0, 4.0))
             model_forecasts[m_dict['name']][target_sem] = p
             preds.append(p)
