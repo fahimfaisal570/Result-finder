@@ -5,7 +5,9 @@ from sklearn.linear_model import Ridge
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.svm import SVR
 from sklearn.preprocessing import RobustScaler
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.base import clone
 import database as db
 
 def parse_semester_from_name(exam_name: str) -> int:
@@ -149,7 +151,8 @@ def engineer_features(
     prior_cgpa = total_points / total_credits if total_credits > 0 else 0.0
     
     # 3. GPA Momentum (last_gpa - CGPA of semesters 1..target_sem-2, clipped to [-2.0, 2.0])
-    if len(gpa_history) > 1:
+    # Guard: if only one semester of history exists, momentum is 0 (not last_gpa - 0)
+    if len(gpa_history) >= 2:
         prev_points = sum(g * c for g, c in zip(gpa_history[:-1], credits_history[:-1]))
         prev_credits = sum(credits_history[:-1])
         prior_cgpa_before_last = prev_points / prev_credits if prev_credits > 0 else 0.0
@@ -161,7 +164,8 @@ def engineer_features(
     # 4. Semester Difficulty Index (batch average for target_sem)
     difficulty = batch_sem_averages.get(target_sem, 3.00)
     
-    # 5. Backlog Count at the start of target_sem (clipped to max 6)
+    # 5. Backlog Count at the START of target_sem (the last element in sub_backlogs = backlogs[t])
+    # sub_backlogs is passed as [backlogs[1], ..., backlogs[t]], so [-1] is correct.
     raw_backlog = backlogs_history[-1] if backlogs_history else 0
     backlog_count = int(np.clip(raw_backlog, 0, 6))
     
@@ -239,7 +243,8 @@ def build_training_data(
         for t in range(2, K + 1):
             sub_gpas = gpas[:t-1]
             sub_credits = credits[:t-1]
-            sub_backlogs = [backlogs[i] for i in range(1, t)]
+            # FIX #5: include backlogs[t] (backlog entering the TARGET semester t)
+            sub_backlogs = [backlogs[i] for i in range(1, t + 1)]
             
             features = engineer_features(sub_gpas, sub_credits, sub_backlogs, batch_sem_averages, t)
             target = gpas[t-1]
@@ -254,16 +259,11 @@ def build_training_data(
 
 def train_ensemble(X: np.ndarray, y: np.ndarray) -> tuple[list[dict], RobustScaler]:
     """
-    Trains 4 core models (Ridge, SVR, Random Forest, Gradient Boosting),
-    utilizing RobustScaler for Ridge and SVR.
+    Trains 4 core models (Ridge, SVR, Random Forest, Gradient Boosting).
+    Uses TimeSeriesSplit for temporally-correct CV to prevent data leakage.
+    Scaler is fit only on training folds, not the full dataset.
     Returns: (list of trained model dictionaries, fitted RobustScaler)
     """
-    scaler = RobustScaler()
-    if len(X) > 0:
-        X_scaled = scaler.fit_transform(X)
-    else:
-        X_scaled = X
-        
     models_config = [
         ("Ridge Regression", Ridge(alpha=1.0), True),
         ("SVR (RBF)", SVR(kernel='rbf', C=1.0, epsilon=0.1), True),
@@ -273,34 +273,25 @@ def train_ensemble(X: np.ndarray, y: np.ndarray) -> tuple[list[dict], RobustScal
     
     trained_models = []
     num_samples = len(X)
-    folds = min(5, num_samples) if num_samples >= 2 else 2
-    
+    # Minimum 3 samples per fold; need at least 2 folds
+    n_splits = min(5, max(2, num_samples // 3)) if num_samples >= 6 else 0
+
     for name, model, needs_scaling in models_config:
-        X_train_data = X_scaled if needs_scaling else X
-        
-        if num_samples > 0:
-            model.fit(X_train_data, y)
-            
         cv_maes = []
         cv_rmses = []
         cv_r2s = []
-        
-        if num_samples >= 5:
-            indices = np.arange(num_samples)
-            np.random.seed(42)
-            np.random.shuffle(indices)
-            splits = np.array_split(indices, folds)
-            
-            for i in range(folds):
-                test_idx = splits[i]
-                train_idx = np.setdiff1d(indices, test_idx)
-                
+
+        # FIX #2: Use TimeSeriesSplit for temporally-correct CV (no shuffle)
+        if n_splits >= 2:
+            tscv = TimeSeriesSplit(n_splits=n_splits)
+            for train_idx, test_idx in tscv.split(X):
                 if len(train_idx) == 0 or len(test_idx) == 0:
                     continue
-                    
+
                 X_tr, y_tr = X[train_idx], y[train_idx]
                 X_te, y_te = X[test_idx], y[test_idx]
-                
+
+                # FIX #3: Scaler fit only on training fold — no contamination
                 fold_scaler = RobustScaler()
                 if needs_scaling:
                     X_tr_data = fold_scaler.fit_transform(X_tr)
@@ -308,44 +299,60 @@ def train_ensemble(X: np.ndarray, y: np.ndarray) -> tuple[list[dict], RobustScal
                 else:
                     X_tr_data = X_tr
                     X_te_data = X_te
-                    
-                from sklearn.base import clone
+
                 temp_model = clone(model)
                 temp_model.fit(X_tr_data, y_tr)
                 preds = temp_model.predict(X_te_data)
-                
+
                 cv_maes.append(mean_absolute_error(y_te, preds))
                 cv_rmses.append(np.sqrt(mean_squared_error(y_te, preds)))
                 try:
                     cv_r2s.append(r2_score(y_te, preds))
                 except Exception:
                     cv_r2s.append(0.0)
-                    
+
             mae = float(np.mean(cv_maes)) if cv_maes else 0.0
             rmse = float(np.mean(cv_rmses)) if cv_rmses else 0.0
             r2 = float(np.mean(cv_r2s)) if cv_r2s else 0.0
+        elif num_samples > 0:
+            # Too few samples for CV: evaluate on training data (will be optimistic but honest)
+            fold_scaler_tmp = RobustScaler()
+            X_tmp = fold_scaler_tmp.fit_transform(X) if needs_scaling else X
+            temp_model = clone(model)
+            temp_model.fit(X_tmp, y)
+            preds = temp_model.predict(X_tmp)
+            mae = float(mean_absolute_error(y, preds))
+            rmse = float(np.sqrt(mean_squared_error(y, preds)))
+            try:
+                r2 = float(r2_score(y, preds))
+            except Exception:
+                r2 = 0.0
         else:
-            if num_samples > 0:
-                preds = model.predict(X_train_data)
-                mae = mean_absolute_error(y, preds)
-                rmse = np.sqrt(mean_squared_error(y, preds))
-                try:
-                    r2 = r2_score(y, preds)
-                except Exception:
-                    r2 = 0.0
-            else:
-                mae, rmse, r2 = 0.0, 0.0, 0.0
-                
+            mae, rmse, r2 = 0.0, 0.0, 0.0
+
+        # FIX #3: Train final model on ALL data with a clean scaler (no CV contamination)
+        final_scaler = RobustScaler()
+        if num_samples > 0:
+            X_final = final_scaler.fit_transform(X) if needs_scaling else X
+            model.fit(X_final, y)
+
         trained_models.append({
             'name': name,
             'model': model,
             'mae': mae,
             'rmse': rmse,
             'r2': r2,
-            'needs_scaling': needs_scaling
+            'needs_scaling': needs_scaling,
+            '_scaler': final_scaler  # store per-model scaler to avoid global contamination
         })
-        
-    return trained_models, scaler
+
+    # Build and return a global scaler (fit on full X) used as fallback in forecast
+    # This is safe because forecast uses the per-model _scaler for inference
+    global_scaler = RobustScaler()
+    if num_samples > 0:
+        global_scaler.fit_transform(X)
+
+    return trained_models, global_scaler
 
 def forecast_to_graduation(
     models: list[dict],
@@ -355,12 +362,15 @@ def forecast_to_graduation(
     completed_backlogs: list[int],
     batch_sem_averages: dict[int, float],
     start_sem: int,
+    dept: str = "CSE",
     total_sems: int = 8
 ) -> dict:
     """
     Recursively forecasts GPAs for all remaining semesters up to graduation.
+    Credits are extended each step using the standard semester credit map.
     """
     gpas = list(completed_gpas)
+    # FIX #7: grow credits as future semesters are predicted
     credits = list(completed_credits)
     backlogs = list(completed_backlogs)
     
@@ -376,20 +386,26 @@ def forecast_to_graduation(
     weights = [w / total_w for w in weights]
     
     current_gpas = list(gpas)
+    current_credits = list(credits)
     current_backlogs = list(backlogs)
     
     for target_sem in range(start_sem, total_sems + 1):
-        features = engineer_features(current_gpas, credits[:target_sem-1], current_backlogs, batch_sem_averages, target_sem)
+        # FIX #7: use the growing credits list, not a fixed slice
+        features = engineer_features(current_gpas, current_credits, current_backlogs, batch_sem_averages, target_sem)
         
         features_2d = features.reshape(1, -1)
-        features_scaled = scaler.transform(features_2d)
         
         preds = []
         for idx, m_dict in enumerate(models):
             m = m_dict['model']
             needs_scaling = m_dict['needs_scaling']
             
-            input_features = features_scaled if needs_scaling else features_2d
+            # FIX #3: use per-model scaler for inference
+            model_scaler = m_dict.get('_scaler', scaler)
+            if needs_scaling:
+                input_features = model_scaler.transform(features_2d)
+            else:
+                input_features = features_2d
             
             p = float(m.predict(input_features)[0])
             p = float(np.clip(p, 0.0, 4.0))
@@ -400,7 +416,10 @@ def forecast_to_graduation(
         ens_p = float(np.clip(ens_p, 0.0, 4.0))
         ensemble_forecast[target_sem] = ens_p
         
+        # FIX #7: append both the predicted GPA and the standard credits for this semester
         current_gpas.append(ens_p)
+        sem_cr = db.get_semester_total_credits(dept, target_sem)
+        current_credits.append(sem_cr if sem_cr > 0 else 20.0)
         current_backlogs.append(0)
         
     return {

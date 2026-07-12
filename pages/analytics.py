@@ -1345,6 +1345,7 @@ with tabs[1]:
                 completed_backlogs=completed_backlogs,
                 batch_sem_averages=batch_sem_averages,
                 start_sem=current_semester + 1,
+                dept=dept,
                 total_sems=8
               )
               
