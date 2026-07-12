@@ -1,9 +1,8 @@
 import numpy as np
 import pandas as pd
 import re
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.linear_model import Ridge
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.neighbors import KNeighborsRegressor
 from sklearn.svm import SVR
 from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -255,7 +254,8 @@ def build_training_data(
 
 def train_ensemble(X: np.ndarray, y: np.ndarray) -> tuple[list[dict], RobustScaler]:
     """
-    Trains 7 models, utilizing RobustScaler to manage scale-sensitive models.
+    Trains 4 core models (Ridge, SVR, Random Forest, Gradient Boosting),
+    utilizing RobustScaler for Ridge and SVR.
     Returns: (list of trained model dictionaries, fitted RobustScaler)
     """
     scaler = RobustScaler()
@@ -265,11 +265,8 @@ def train_ensemble(X: np.ndarray, y: np.ndarray) -> tuple[list[dict], RobustScal
         X_scaled = X
         
     models_config = [
-        ("Linear Regression", LinearRegression(), True),
         ("Ridge Regression", Ridge(alpha=1.0), True),
-        ("Lasso Regression", Lasso(alpha=0.01), True),
         ("SVR (RBF)", SVR(kernel='rbf', C=1.0, epsilon=0.1), True),
-        ("KNN Regressor", KNeighborsRegressor(n_neighbors=min(5, max(2, len(X) // 10)) if len(X) > 0 else 5), True),
         ("Random Forest", RandomForestRegressor(n_estimators=50, max_depth=5, random_state=42), False),
         ("Gradient Boosting", GradientBoostingRegressor(n_estimators=50, max_depth=3, random_state=42), False)
     ]

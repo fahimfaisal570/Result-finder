@@ -120,7 +120,7 @@ def test_build_training_data_and_ensemble():
     assert X.shape[1] == 6
     
     models, scaler = ml_predictor.train_ensemble(X, y)
-    assert len(models) == 7
+    assert len(models) == 4
     assert isinstance(scaler, RobustScaler)
     
     # Verify SVR is present
