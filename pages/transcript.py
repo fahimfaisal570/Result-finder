@@ -4,7 +4,7 @@ Invoked when user clicks a student name on the main dashboard.
 Runs CLI Exhaustive Scan and renders the transcript HTML (Student Record).
 """
 import streamlit as st
-import sys, os, json, queue, threading, time, re
+import sys, os
 import ui_components as ui
 
 # Add parent dir to path for imports
@@ -89,41 +89,14 @@ def update_progress(current, total, status_text=None):
         progress_bar.progress(val, text=f"Processed {current}/{total} exams.")
         status_msg.caption(f"Processed {current}/{total} exams.")
 
-# --- Smart Scope Hardening ---
-# 1. Resolve the student's start year from their pinned session name
-#    e.g. "Session 2022-2023" -> start_search_year = 2022
-start_search_year = 0
-if sess_id and sess_id != "AUTO":
-    sess_name = sessions.get(sess_id, "")
-    y_match = re.search(r"20(\d{2})", sess_name)
-    if y_match:
-        start_search_year = int("20" + y_match.group(1))
-
-# 2. Filter the exam list: only probe exams from the student's cohort year onward
-#    A 1-year buffer is applied to catch any edge cases (readd students may appear
-#    in an exam published slightly before their own session year).
-EXAM_YEAR_PATTERN = re.compile(r'\b(20\d{2})\b')
-
-def _extract_exam_year(exam_name: str) -> int:
-    """Extracts the publication year from an exam name string."""
-    matches = EXAM_YEAR_PATTERN.findall(exam_name)
-    # The last 4-digit year in the name is typically the publication year
-    return int(matches[-1]) if matches else 0
-
-filtered_exam_ids = []
-for eid, ename in all_exams.items():
-    if start_search_year:
-        ey = _extract_exam_year(ename)
-        if ey and ey < (start_search_year - 1):  # 1-year buffer for overlaps
-            continue
-    filtered_exam_ids.append(eid)
+filtered_exam_ids = cs.get_relevant_exams(sess_id, sessions, all_exams)
 
 # 3. Build tasks with PINNED sess_id for 100% accuracy
 #    This prevents pulling results for a different student with the same reg_no in another batch.
 exam_tasks = [(st_reg, sess_id, eid) for eid in filtered_exam_ids]
 
 # --- Absolute CLI-Native Exhaustive Scan ---
-status_msg.info(f"Deep Probing {len(filtered_exam_ids)} relevant examinations from {start_search_year or 'all years'}...")
+status_msg.info(f"Deep Probing {len(filtered_exam_ids)} relevant examinations...")
 history = cs.run_batch_scan_engine(
     tasks=exam_tasks,
     pro_id=pro_id,

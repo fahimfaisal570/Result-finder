@@ -1,20 +1,13 @@
 import streamlit as st
-import pandas as pd
 import os
 import base64
-import sys
 import time
 import re
-import ssl
-import collections
-import random
-import threading
-import queue
-import urllib.request as urllib_req
 import json
 import cli_scraper as cs
 import database as db
 import ui_components as ui
+
 
 # --- Session State Initialization ---
 if "is_admin" not in st.session_state:
@@ -44,53 +37,6 @@ st.set_page_config(page_title="Result Finder", page_icon="favicon.ico", layout="
 ui.inject_essential_ui()
 
 # --- Logic Blocks ---
-def fetch_programs_and_sessions():
-    html = make_request(BASE_URL)
-    if not html: return {}, {}
-    programs = collections.OrderedDict()
-    sessions = collections.OrderedDict()
-    select_blocks = re.findall(r'<select.*?</select>', html, re.DOTALL | re.IGNORECASE)
-    for block in select_blocks:
-        options = extract_options_from_html(block)
-        if not options: continue
-        first_opt_text = options[0][1].lower() if options else ""
-        if 'session' in first_opt_text:
-            for val, text in options: sessions[val] = text
-        elif 'course name' in first_opt_text:
-            categories = [o[0] for o in options if o[0] != "0"]
-            for cat_id in categories:
-                cat_url = f"{BASE_URL}ajax/get_program_by_course.php?course_id={cat_id}"
-                cat_html = make_request(cat_url)
-                if cat_html:
-                    p_opts = extract_options_from_html(cat_html)
-                    for p_val, p_text in p_opts:
-                        if p_val != "0": programs[p_val] = p_text
-    
-    if programs:
-        whitelist = ["computer science", "civil engineering", "electrical and electronic"]
-        filtered = {k: v for k, v in programs.items() if "b.sc." in v.lower() and any(w in v.lower() for w in whitelist)}
-        programs = collections.OrderedDict(sorted(filtered.items(), key=lambda x: x[1]))
-    
-    if sessions:
-        formatted = []
-        for sid, sname in sessions.items():
-            year_match = re.search(r"(20\d{2})", sname)
-            if year_match:
-                start_year = int(year_match.group(1))
-                if start_year >= 2016:
-                    formatted.append((sid, sname)) 
-        
-        formatted.sort(key=lambda x: x[1], reverse=True)
-        sessions = collections.OrderedDict(formatted)
-        SESSIONS_CACHE.update(sessions) 
-
-    return programs, sessions
-
-class BatchManager:
-    def load_profiles(self):
-        return db.get_profiles()
-
-batch_manager = BatchManager()
 
 # --- Header ---
 st.title("Result Finder")
@@ -98,7 +44,7 @@ st.write("A premium, high-performance web dashboard for academic result analytic
 
 if 'programs' not in st.session_state:
     with st.spinner("Connecting..."):
-        st.session_state.programs, st.session_state.sessions = fetch_programs_and_sessions()
+        st.session_state.programs, st.session_state.sessions = cs.fetch_programs_and_sessions()
 
 # --- Sidebar ---
 with st.sidebar:
@@ -170,7 +116,6 @@ if mode == "Interactive Scan":
         st.rerun()
 
     if exam_id and (main_range or st.session_state.ra_items):
-        import json, base64
         from urllib.parse import quote as _quote
         payload = []
         if main_range: payload.append([main_range, sess_id])
@@ -271,7 +216,6 @@ else: # Saved Profiles Mode
                             st.warning("❌ No results found on portal yet for this exam.")
                         else:
                             st.success("✅ Results found on portal! Redirecting to scraper...")
-                            import base64, json
                             payload = [[f"{p_regs[0][0]}-{p_regs[-1][0]}", active_sess_id]]
                             payload_str = base64.b64encode(json.dumps(payload).encode()).decode()
                             from urllib.parse import quote as _quote
@@ -302,7 +246,7 @@ else: # Saved Profiles Mode
             mains_dict, others_dict = classify_exams(exams_raw, active_sess_name, probe_regs=probe_regs, pro_id=profile_data.get('pro_id'))
             
             from urllib.parse import quote as _quote
-            st.markdown(f"<div style='text-align: center; color: #8b949e; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase;'>Main Batch Exams</div>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center; color: #8b949e; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase;'>Main Batch Exams</div>", unsafe_allow_html=True)
             for eid, ename in mains_dict.items():
                 url = f"/results?profile={_quote(p_selected)}&exam_id={eid}&exam_name={_quote(ename)}"
                 st.markdown(f"• **[{ename}]({url})**")
@@ -310,7 +254,6 @@ else: # Saved Profiles Mode
             # --- NEW: Batch Scan Feature ---
             if mains_dict:
                 st.write("")
-                import json, base64
                 # Prepare batch payload: list of [id, name]
                 batch_payload = [[eid, ename] for eid, ename in mains_dict.items()]
                 batch_b64 = base64.b64encode(json.dumps(batch_payload).encode()).decode()

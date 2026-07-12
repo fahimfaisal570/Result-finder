@@ -1,5 +1,5 @@
 import streamlit as st
-import sys, os, json, queue, threading, time, base64
+import sys, os, json, time, base64
 import ui_components as ui
 
 # Add parent dir to path for imports
@@ -214,7 +214,7 @@ else:
     if results:
         st.write("---")
         if profile_name and profile_name != "Manual Scan":
-            st.markdown(f"### Save Analytics to database")
+            st.markdown("### Save Analytics to database")
             st.caption(f"Save these exam grades to **'{profile_name}'** to visualize them on the Analytics Dashboard.")
             if st.button("Save Exam Analytics", width='stretch'):
                 try:

@@ -180,7 +180,7 @@ class BatchManager:
                 print(f"\n  Multiple entries found for reg {reg}:")
                 for i, (sid, sname) in enumerate(variants, 1):
                     print(f"    [{i}] {sname} (session: {sid})")
-                print(f"    [A] Remove ALL")
+                print("    [A] Remove ALL")
                 choice = input_func(f"  Which one to remove? (1-{len(variants)} or A): ").strip()
                 if choice.upper() == 'A':
                     for sid, _ in variants:
@@ -256,6 +256,31 @@ def make_request(url, data=None, headers=None, retries=4):
             
     return None
 
+def get_relevant_exams(sess_id, sessions, all_exams):
+    """
+    Consolidated cohort exam year filtering logic.
+    Given a session ID, matches the start year and filters exams
+    to only probe exams from the student's cohort year onward (with a 1-year buffer).
+    """
+    import re
+    start_search_year = 0
+    if sess_id and sess_id != "AUTO":
+        sess_name = sessions.get(sess_id, "")
+        y_match = re.search(r"20(\d{2})", sess_name)
+        if y_match:
+            start_search_year = int("20" + y_match.group(1))
+
+    EXAM_YEAR_PATTERN = re.compile(r'\b(20\d{2})\b')
+    filtered_exam_ids = []
+    for eid, ename in all_exams.items():
+        if start_search_year:
+            matches = EXAM_YEAR_PATTERN.findall(ename)
+            ey = int(matches[-1]) if matches else 0
+            if ey and ey < (start_search_year - 1):
+                continue
+        filtered_exam_ids.append(eid)
+    return filtered_exam_ids
+
 def format_session(sess_id):
     """Transforms session notation into the standard '21-22' format."""
     # Handle already formatted strings or session names
@@ -304,7 +329,6 @@ def fetch_programs_and_sessions():
     
     programs = collections.OrderedDict()
     sessions = collections.OrderedDict()
-    categories = []
     
     select_blocks = re.findall(r'<select.*?</select>', html, re.DOTALL | re.IGNORECASE)
     for block in select_blocks:
@@ -320,25 +344,6 @@ def fetch_programs_and_sessions():
              for val, text in options: 
                  if val != "0": programs[val] = text
                 
-    # Parallelize category crawl for programs
-    if categories:
-        print("[*] Pre-loading programs from {} categories...".format(len(categories)))
-        prog_lock = threading.Lock()
-        def fetch_cat_progs(cat_id):
-            cat_url = "{0}ajax/get_program_by_course.php?course_id={1}".format(BASE_URL, cat_id)
-            cat_html = make_request(cat_url)
-            if cat_html:
-                p_opts = extract_options_from_html(cat_html)
-                with prog_lock:
-                    for p_val, p_text in p_opts:
-                        if p_val != "0": programs[p_val] = p_text
-
-        threads = []
-        for cat_id in categories:
-            t = threading.Thread(target=fetch_cat_progs, args=(cat_id,))
-            t.daemon = True; t.start(); threads.append(t)
-        for t in threads: t.join()
-        
     # Apply Sorting, Formatting, and Discipline Filtering
     if programs:
         whitelist = ["computer science", "civil engineering", "electrical and electronic"]
@@ -402,13 +407,6 @@ def run_batch_scan_engine(tasks, pro_id, exam_id="0", all_sessions=None, progres
     if progress_callback:
         try: progress_callback(0, len(tasks), "Engine firing up... Probing portal.")
         except: pass
-    
-    # Capture Streamlit context if available
-    try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx, add_report_ctx
-        ctx = get_script_run_ctx()
-    except ImportError:
-        ctx = add_report_ctx = None
     
     results_lock = threading.Lock()
     print_lock = threading.Lock()

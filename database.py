@@ -432,8 +432,6 @@ def upsert_subject_grades(profile_name: str, reg_no: int, exam_id: str, subjects
             s['code'] = str(s['code']).strip().upper().replace(' ', '-')
 
     scraped_codes = {s['code'] for s in subjects if s.get('code')}
-    dept = get_dept_from_profile(profile_name)
-    dept_map = _credit_map.get(dept, {})
     
     # Identify "Hidden Failures" (In syllabus but not in scrape)
     # CRITICAL: We only infer failure if the subject was found in OTHER students in THIS scan.

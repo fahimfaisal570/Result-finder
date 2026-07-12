@@ -15,6 +15,7 @@ ui.inject_essential_ui()
 # Add parent dir for database import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import database as db
+import cli_scraper as cs
 
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = True
@@ -86,9 +87,6 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
   # 2. Dynamic Thresholds (Percentile Quartiles)
   p75_gpa = features['gpa'].quantile(0.75)
   p50_gpa = features['gpa'].quantile(0.50)
-  
-  rising_threshold = 0.15
-  slipping_threshold = -0.15
 
   # 3. Compound Labeling Heuristic
   def get_compound_status(row):
@@ -270,7 +268,6 @@ def render_provisional_simulator(profile_name):
             all_semesters.append({"semester": sem_n, "credits": cr})
     
     # Required avg GPA for target (with 0 credits completed)
-    total_remaining_cr = sum(s["credits"] for s in all_semesters)
     required_avg = round(target_cgpa, 2)  # With 0 credits done, required = target itself
     
     if target_cgpa > 4.00:
@@ -613,7 +610,6 @@ if _incomplete_students:
       )
       _fix_key = f"fix_{profile_name}_{_s['reg_no']}"
       if _col2.button("Scan & Fix", key=_fix_key, type="primary"):
-        import cli_scraper as cs
 
         st.info(f"🔍 Scanning full academic history for **{_s['name']}** ({_s['reg_no']})…")
 
@@ -627,23 +623,7 @@ if _incomplete_students:
         else:
           # Smart Scope: filter exams to the student's cohort year
           _sess_id = _s.get("sess_id", "AUTO") or "AUTO"
-          _start_year = 0
-          if _sess_id and _sess_id != "AUTO":
-            _sname = _sessions.get(_sess_id, "")
-            _ym = re.search(r"20(\d{2})", _sname)
-            if _ym:
-              _start_year = int("20" + _ym.group(1))
-
-          _YEAR_PAT = re.compile(r'\b(20\d{2})\b')
-          _filtered_eids = []
-          for _eid, _ename in _all_exams.items():
-            if _start_year:
-              _ey_matches = _YEAR_PAT.findall(_ename)
-              _ey = int(_ey_matches[-1]) if _ey_matches else 0
-              if _ey and _ey < (_start_year - 1):
-                continue
-            _filtered_eids.append(_eid)
-
+          _filtered_eids = cs.get_relevant_exams(_sess_id, _sessions, _all_exams)
           _tasks = [(_s['reg_no'], _sess_id, _eid) for _eid in _filtered_eids]
 
           _prog_bar = st.progress(0, text=f"Scanning {len(_filtered_eids)} exams…")
@@ -727,7 +707,6 @@ if _pro_id_init:
 
 def _run_deep_analysis(reg_no, stu_name, sess_id):
   """Fetch full student record from portal and compute precise analysis."""
-  import cli_scraper as cs
 
   _p_data = profiles.get(profile_name, {})
   _pro_id = _p_data.get("pro_id", "")
@@ -743,23 +722,7 @@ def _run_deep_analysis(reg_no, stu_name, sess_id):
     return None
 
   # Smart Scope: filter exams to student's cohort year
-  _start_year = 0
-  if _sess_id and _sess_id != "AUTO":
-    _sname = _sessions.get(_sess_id, "")
-    _ym = re.search(r"20(\d{2})", _sname)
-    if _ym:
-      _start_year = int("20" + _ym.group(1))
-
-  _YEAR_PAT = re.compile(r'\b(20\d{2})\b')
-  _filtered_eids = []
-  for _eid, _ename in _all_exams.items():
-    if _start_year:
-      _ey_matches = _YEAR_PAT.findall(_ename)
-      _ey = int(_ey_matches[-1]) if _ey_matches else 0
-      if _ey and _ey < (_start_year - 1):
-        continue
-    _filtered_eids.append(_eid)
-
+  _filtered_eids = cs.get_relevant_exams(_sess_id, _sessions, _all_exams)
   _tasks = [(int(reg_no), _sess_id, _eid) for _eid in _filtered_eids]
 
   # Run scan
@@ -793,7 +756,7 @@ def _render_deep_result(result, reg, name="", sess_id="AUTO"):
     with cols_err[1]:
       st.caption("⚠ Could not fetch records — portal may be busy or student not found.")
     with cols_err[2]:
-      if st.button("Retry", key=retry_key, help=f"Re-run deep analysis for this student"):
+      if st.button("Retry", key=retry_key, help="Re-run deep analysis for this student"):
         del st.session_state._deep_cache[cache_key]
         st.rerun()
     return
@@ -905,7 +868,7 @@ if show_strategic_brief:
               # Successful — show results
               _render_deep_result(cached, reg, name, sess_id)
           else:
-            if st.button(f"Deep Analysis", key=btn_key, help=f"Fetch full record for {name} and compute precise CGPA, target, and pending retakes"):
+            if st.button("Deep Analysis", key=btn_key, help=f"Fetch full record for {name} and compute precise CGPA, target, and pending retakes"):
               with st.spinner(f"Scanning full academic history for {name} ({reg})… This takes 1-2 minutes."):
                 result = _run_deep_analysis(reg, name, sess_id)
               st.session_state._deep_cache[cache_key] = result
@@ -1277,7 +1240,6 @@ with tabs[1]:
               
           if missing_students:
             st.info(f"Scanning and analyzing portal history for {len(missing_students)} uncached student(s) in this batch...")
-            import cli_scraper as cs
             _programs, _sessions = cs.fetch_programs_and_sessions()
             _p_data = profiles.get(profile_name, {})
             _pro_id = _p_data.get("pro_id", "")
@@ -1286,30 +1248,14 @@ with tabs[1]:
               _all_exams = cs.fetch_exams(_pro_id)
               # Build list of all tasks
               all_tasks = []
-              _YEAR_PAT = re.compile(r'\b(20\d{2})\b')
               
               for s in missing_students:
-                _start_year = 0
-                if s['sess_id'] and s['sess_id'] != "AUTO":
-                  _sname = _sessions.get(s['sess_id'], "")
-                  _ym = re.search(r"20(\d{2})", _sname)
-                  if _ym:
-                    _start_year = int("20" + _ym.group(1))
-
-                _filtered_eids = []
-                for _eid, _ename in _all_exams.items():
-                  if _start_year:
-                    _ey_matches = _YEAR_PAT.findall(_ename)
-                    _ey = int(_ey_matches[-1]) if _ey_matches else 0
-                    if _ey and _ey < (_start_year - 1):
-                      continue
-                  _filtered_eids.append(_eid)
-
+                _filtered_eids = cs.get_relevant_exams(s['sess_id'], _sessions, _all_exams)
                 for _eid in _filtered_eids:
                   all_tasks.append((int(s['reg_no']), s['sess_id'], _eid))
                   
               if all_tasks:
-                _prog_bar = st.progress(0, text=f"Scraping batch results...")
+                _prog_bar = st.progress(0, text="Scraping batch results...")
                 
                 def _batch_progress(cur, tot, txt=None):
                   _prog_bar.progress(cur / tot if tot else 0, text=txt or f"Scanned {cur}/{tot}")
@@ -1746,7 +1692,7 @@ with tabs[5]:
           with cols_err[2]:
             if st.button("Retry", key=retry_key, help="Re-run deep analysis for this student"):
               del st.session_state._deep_cache[cache_key]
-              st.rerun(scope="fragment")
+              st.rerun()
         else:
           # ponytail: cache special lookup in session_state per dept to avoid redundant DB queries during paging
           dept = db.get_dept_from_profile(profile_name)
@@ -2004,7 +1950,7 @@ with tabs[5]:
               else:
                 st.metric("Required Avg GPA",
                      f"{proj['required_avg_gpa']:.2f}",
-                     delta=f"per semester on avg")
+                     delta="per semester on avg")
             with p_c2:
               st.metric("Adjusted CGPA", f"{adj_cgpa:.2f}",
                    delta=f"+{cgpa_gain:.2f} from targets" if cgpa_gain > 0 else None)

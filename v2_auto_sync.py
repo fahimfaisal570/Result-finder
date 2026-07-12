@@ -243,7 +243,7 @@ def main():
                     
                     with open(notify_file, "w") as nf:
                         json.dump(notif_data, nf, indent=4)
-                    print(f"  [Readd] Saved notification data for dashboard.")
+                    print("  [Readd] Saved notification data for dashboard.")
                 except Exception as e:
                     print(f"  [Readd] Failed to save notification: {e}")
     finally:
