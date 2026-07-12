@@ -43,6 +43,15 @@ def load_exams(profile_name):
 def load_retake_stats(profile_name):
   return db.get_retake_success_stats(profile_name)
 
+@st.cache_data(ttl=300)
+def load_batch_max_semester(profile_name):
+  val = db.get_batch_max_semester(profile_name)
+  return val if val > 0 else None
+
+@st.cache_data(ttl=300)
+def load_longitudinal(profile_name, max_semester):
+  return db.get_longitudinal_data(profile_name, max_semester)
+
 def get_promotion_rules(exam_label):
   promo_target = None
   is_even_sem = False
@@ -535,11 +544,9 @@ with st.sidebar.expander("Exam Management", expanded=False):
 df_raw   = load_base_df(profile_name, exam_id)
 df_sub_raw = load_subject_df(profile_name, exam_id)
 
-@st.cache_data(ttl=300)
-def load_longitudinal(profile_name):
-  return db.get_longitudinal_data(profile_name)
+max_semester = load_batch_max_semester(profile_name)
 
-_longitudinal_raw = load_longitudinal(profile_name)
+_longitudinal_raw = load_longitudinal(profile_name, max_semester)
 if _longitudinal_raw:
   df_longitudinal = pd.DataFrame([
     {**entry,'reg_no': reg}
@@ -1090,6 +1097,8 @@ with tabs[1]:
     st.info("No longitudinal data available for this profile. Try scanning more semesters.")
   else:
     # Section 3.1: Batch GPA Trajectory Chart
+    if max_semester:
+      st.caption(f"ℹ️ **Batch Progress Cap:** Showing data up to Semester {max_semester} (excluding future results of readmitted students)")
     st.markdown("#### Batch GPA Trajectory")
     
     median_df = df_longitudinal.groupby('semester_num')['gpa'].median().reset_index()

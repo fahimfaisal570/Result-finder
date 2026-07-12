@@ -2277,10 +2277,88 @@ def rename_profile(old_name: str, new_name: str):
 # Advanced Analytics (Trends & Grade Distribution)
 # ---------------------------------------------------------------------------
 
-def get_longitudinal_data(profile_name: str) -> dict:
+def get_batch_max_semester(profile_name: str) -> int:
+    """
+    Determines the maximum semester number that the batch as a whole has published results for.
+    It counts how many students have results for each semester_num, and returns the highest
+    semester_num that has at least a significant portion of the cohort.
+    """
+    RETAKE_KEYWORDS = [
+        "retake", "re-take", "improvement", "special",
+        "make-up", "makeup", "supplementary"
+    ]
+    SEM_PATTERN = re.compile(
+        r'(\d+(?:st|nd|rd|th)\s+year\s+\d+(?:st|nd|rd|th)\s+semester)',
+        re.IGNORECASE
+    )
+
+    with get_connection() as conn:
+        cur = conn.execute("""
+            SELECT e.reg_no, e.exam_name
+            FROM exam_results e
+            JOIN students s ON e.profile_name = s.profile_name
+                           AND e.reg_no = s.reg_no
+                           AND e.sess_id = s.sess_id
+            WHERE e.profile_name = ?
+              AND LOWER(e.exam_name) NOT LIKE '%retake%'
+              AND LOWER(e.exam_name) NOT LIKE '%re-take%'
+              AND LOWER(e.exam_name) NOT LIKE '%improvement%'
+              AND LOWER(e.exam_name) NOT LIKE '%special%'
+              AND LOWER(e.exam_name) NOT LIKE '%make-up%'
+              AND LOWER(e.exam_name) NOT LIKE '%makeup%'
+              AND LOWER(e.exam_name) NOT LIKE '%supplementary%'
+        """, (profile_name,))
+        rows = cur.fetchall()
+
+    if not rows:
+        return 0
+
+    sem_counts = defaultdict(set)
+    for reg_no, exam_name in rows:
+        safe_exam_name = str(exam_name) if exam_name is not None and exam_name == exam_name else ""
+        if any(kw in safe_exam_name.lower() for kw in RETAKE_KEYWORDS):
+            continue
+
+        m = SEM_PATTERN.search(safe_exam_name)
+        sem_label = m.group(1).title().strip() if m else safe_exam_name.title().strip()
+
+        # Attempt to parse semester num from label
+        sem_num = 0
+        yr_match = re.search(r'(\d)[a-z]{2}\s*Yr', sem_label, re.IGNORECASE)
+        sem_match = re.search(r'(\d)[a-z]{2}\s*Sem', sem_label, re.IGNORECASE)
+        if not yr_match:
+            yr_match = re.search(r'(\d)[a-z]{2}\s*Year', sem_label, re.IGNORECASE)
+        if not sem_match:
+            sem_match = re.search(r'(\d)[a-z]{2}\s*Semester', sem_label, re.IGNORECASE)
+
+        if yr_match and sem_match:
+            yr = int(yr_match.group(1))
+            sem_in_yr = int(sem_match.group(1))
+            if sem_in_yr > 2:
+                sem_num = sem_in_yr
+            else:
+                sem_num = (yr - 1) * 2 + sem_in_yr
+        elif sem_match:
+            sem_num = int(sem_match.group(1))
+
+        if sem_num > 0:
+            sem_counts[sem_num].add(reg_no)
+
+    if not sem_counts:
+        return 0
+
+    max_cohort_size = max(len(regs) for regs in sem_counts.values())
+    threshold = min(5, max(1, max_cohort_size // 2))
+
+    valid_sems = [sem for sem, regs in sem_counts.items() if len(regs) >= threshold]
+    return max(valid_sems) if valid_sems else 0
+
+
+def get_longitudinal_data(profile_name: str, max_semester: int = None) -> dict:
     """
     Retrieves longitudinal data for all students in a profile, filtering out
-    retake exams and ensuring "latest exam_id wins" for readmitted students.
+    retake exams, ensuring "latest exam_id wins" for readmitted students,
+    and optionally capping at a max_semester to filter future semester data.
     Returns: dict mapping reg_no -> list of semester records (sorted by semester_num)
     """
     RETAKE_KEYWORDS = [
@@ -2384,7 +2462,7 @@ def get_longitudinal_data(profile_name: str) -> dict:
         if not sem_dict:
             continue
         sorted_records = sorted(
-            (r for r in sem_dict.values() if r['semester_num'] > 0),
+            (r for r in sem_dict.values() if r['semester_num'] > 0 and (max_semester is None or r['semester_num'] <= max_semester)),
             key=lambda x: (x['semester_num'], x['exam_id'])
         )
         if sorted_records:

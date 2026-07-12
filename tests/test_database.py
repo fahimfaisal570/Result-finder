@@ -647,6 +647,91 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertAlmostEqual(student_data[0]["gpa"], 3.50, places=2)
         self.assertAlmostEqual(student_data[0]["cgpa"], 3.50, places=2)
 
+    def test_get_batch_max_semester_and_filtering(self):
+        batch_profile = "batch_test_profile"
+        with database.get_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO profiles (name, pro_id, sess_id, timestamp) VALUES (?, ?, ?, ?)",
+                (batch_profile, "91", SESS_ID, time.time())
+            )
+            conn.commit()
+
+        # Seed student roster properly (Alice: 1001, Bob: 1002, Readmitted: 1003)
+        with database.get_connection() as conn:
+            conn.execute("INSERT OR IGNORE INTO students (profile_name, reg_no, name, sess_id) VALUES (?, ?, ?, ?)", (batch_profile, 1001, "Alice", SESS_ID))
+            conn.execute("INSERT OR IGNORE INTO students (profile_name, reg_no, name, sess_id) VALUES (?, ?, ?, ?)", (batch_profile, 1002, "Bob", SESS_ID))
+            conn.execute("INSERT OR IGNORE INTO students (profile_name, reg_no, name, sess_id) VALUES (?, ?, ?, ?)", (batch_profile, 1003, "Readd", SESS_ID))
+            conn.commit()
+
+        # Add exam results
+        # Sem 1: Alice, Bob, Readd have results
+        # Sem 2: Alice, Bob, Readd have results
+        # Sem 3: Alice, Bob, Readd have results
+        # Sem 4 (Future): Only Readd has results
+        with database.get_connection() as conn:
+            # Sem 1
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1001, "101", "1st Year 1st Semester Exam", 3.0, 3.0, "Promoted", SESS_ID))
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1002, "101", "1st Year 1st Semester Exam", 3.1, 3.1, "Promoted", SESS_ID))
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1003, "101", "1st Year 1st Semester Exam", 3.2, 3.2, "Promoted", SESS_ID))
+            
+            # Sem 2
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1001, "102", "1st Year 2nd Semester Exam", 3.0, 3.0, "Promoted", SESS_ID))
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1002, "102", "1st Year 2nd Semester Exam", 3.1, 3.1, "Promoted", SESS_ID))
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1003, "102", "1st Year 2nd Semester Exam", 3.2, 3.2, "Promoted", SESS_ID))
+            
+            # Sem 3
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1001, "103", "2nd Year 1st Semester Exam", 3.0, 3.0, "Promoted", SESS_ID))
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1002, "103", "2nd Year 1st Semester Exam", 3.1, 3.1, "Promoted", SESS_ID))
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1003, "103", "2nd Year 1st Semester Exam", 3.2, 3.2, "Promoted", SESS_ID))
+            
+            # Sem 4 (Only Readd student)
+            conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, 1003, "104", "2nd Year 2nd Semester Exam", 3.2, 3.2, "Promoted", SESS_ID))
+            conn.commit()
+
+        # Max semester should be 3 (since only 1 student has Sem 4, which is less than the threshold of min(5, max_cohort_size // 2) = min(5, 3 // 2) = 1... wait, max_cohort_size is 3. 3 // 2 is 1. max(1, 1) = 1. min(5, 1) = 1.
+        # Oh, if max_cohort_size is 3, threshold is min(5, max(1, 3//2)) = min(5, 1) = 1.
+        # If threshold is 1, then Sem 4 (which has 1 student) would be considered valid!
+        # Wait, is that true? Let's check:
+        # If cohort size is 3, a readmitted student makes up 1/3 of the batch.
+        # Wait, if we want readmitted students to be filtered out, we want threshold to be:
+        # max(2, max_cohort_size // 2) or something?
+        # Let's think: what if cohort size is small (e.g. 3 or 5)?
+        # Let's see: in a real department, cohort size is at least 30-60 students. A cohort size of 3 is a test case.
+        # For a real batch of e.g. 50 students, cohort size is 50, threshold = min(5, 25) = 5. So it requires 5 students.
+        # Let's write a test where Alice, Bob, and 5 other students (say, total 7 students) are in the batch, and only 1 student (the readmitted one) has Sem 4.
+        # In that case, max_cohort_size = 7. Threshold = min(5, max(1, 7//2)) = min(5, 3) = 3.
+        # Since only 1 student has Sem 4, 1 < 3, so Sem 4 will be correctly filtered out!
+        # Let's write the test case with a slightly larger cohort to test the threshold behavior properly.
+
+        # Let's register 7 students (1001-1007)
+        with database.get_connection() as conn:
+            for i in range(1004, 1008):
+                conn.execute("INSERT OR IGNORE INTO students (profile_name, reg_no, name, sess_id) VALUES (?, ?, ?, ?)", (batch_profile, i, f"Student {i}", SESS_ID))
+            conn.commit()
+
+        # And insert Sem 1-3 results for all 7 students
+        with database.get_connection() as conn:
+            for i in range(1004, 1008):
+                conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, i, "101", "1st Year 1st Semester Exam", 3.0, 3.0, "Promoted", SESS_ID))
+                conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, i, "102", "1st Year 2nd Semester Exam", 3.0, 3.0, "Promoted", SESS_ID))
+                conn.execute("INSERT INTO exam_results (profile_name, reg_no, exam_id, exam_name, gpa, cgpa, result_status, sess_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (batch_profile, i, "103", "2nd Year 1st Semester Exam", 3.0, 3.0, "Promoted", SESS_ID))
+            conn.commit()
+
+        max_sem = database.get_batch_max_semester(batch_profile)
+        self.assertEqual(max_sem, 3, "Batch max semester should be 3, since only 1 student has semester 4 results out of 7 total cohort size")
+
+        # Verify longitudinal data filtering
+        data_all = database.get_longitudinal_data(batch_profile)
+        data_filtered = database.get_longitudinal_data(batch_profile, max_semester=max_sem)
+
+        # In data_all, Readd (1003) has 4 semesters
+        self.assertEqual(len(data_all[1003]), 4)
+        self.assertEqual(data_all[1003][-1]['semester_num'], 4)
+
+        # In data_filtered, Readd (1003) should only have 3 semesters
+        self.assertEqual(len(data_filtered[1003]), 3)
+        self.assertEqual(data_filtered[1003][-1]['semester_num'], 3)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
