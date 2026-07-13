@@ -140,42 +140,22 @@ def engineer_features(
 ) -> np.ndarray:
     """
     Constructs a fixed-width feature vector representing the student's history up to target_sem.
-    Applies Winsorization/clipping to backlogs and momentum to manage outliers.
+    Applies Winsorization/clipping to backlogs to manage outliers.
     """
     # 1. Last GPA
     last_gpa = gpa_history[-1] if gpa_history else 0.0
     
-    # 2. Prior CGPA (credit-weighted of all completed semesters 1..target_sem-1)
-    total_points = sum(g * c for g, c in zip(gpa_history, credits_history))
-    total_credits = sum(credits_history)
-    prior_cgpa = total_points / total_credits if total_credits > 0 else 0.0
-    
-    # 3. GPA Momentum (last_gpa - CGPA of semesters 1..target_sem-2, clipped to [-2.0, 2.0])
-    # Guard: if only one semester of history exists, momentum is 0 (not last_gpa - 0)
-    if len(gpa_history) >= 2:
-        prev_points = sum(g * c for g, c in zip(gpa_history[:-1], credits_history[:-1]))
-        prev_credits = sum(credits_history[:-1])
-        prior_cgpa_before_last = prev_points / prev_credits if prev_credits > 0 else 0.0
-        raw_momentum = last_gpa - prior_cgpa_before_last
-    else:
-        raw_momentum = 0.0
-    gpa_momentum = float(np.clip(raw_momentum, -2.0, 2.0))
-    
-    # 4. Semester Difficulty Index (batch average for target_sem)
+    # 2. Semester Difficulty Index (batch average for target_sem)
     difficulty = batch_sem_averages.get(target_sem, 3.00)
     
-    # 5. Backlog Count at the START of target_sem (the last element in sub_backlogs = backlogs[t])
-    # sub_backlogs is passed as [backlogs[1], ..., backlogs[t]], so [-1] is correct.
+    # 3. Backlog Count at the START of target_sem
     raw_backlog = backlogs_history[-1] if backlogs_history else 0
     backlog_count = int(np.clip(raw_backlog, 0, 6))
     
     return np.array([
         last_gpa,
-        prior_cgpa,
-        gpa_momentum,
         difficulty,
-        float(backlog_count),
-        float(target_sem)
+        float(backlog_count)
     ], dtype=np.float32)
 
 def build_training_data(
@@ -253,7 +233,7 @@ def build_training_data(
             y_list.append(target)
             
     if not X_list:
-        return np.empty((0, 6)), np.empty((0,)), batch_sem_averages
+        return np.empty((0, 3)), np.empty((0,)), batch_sem_averages
         
     return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32), batch_sem_averages
 

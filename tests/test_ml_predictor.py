@@ -21,8 +21,7 @@ def test_parse_semester_from_name():
     assert ml_predictor.parse_semester_from_name(None) == 0
 
 def test_engineer_features_clipping():
-    # Test clipping: momentum (3.5 -> 2.0), backlogs (10 -> 6.0)
-    gpa_history = [2.0, 4.0]  # last is 4.0, prior cgpa is 2.0. Raw momentum = 4.0 - 2.0 = 2.0
+    gpa_history = [2.0, 4.0]
     credits_history = [20.0, 20.0]
     backlogs_history = [0, 10]  # Raw backlog is 10, should clip to 6
     batch_sem_averages = {3: 3.1}
@@ -35,35 +34,10 @@ def test_engineer_features_clipping():
         target_sem=3
     )
     
-    assert features.shape == (6,)
+    assert features.shape == (3,)
     assert features[0] == 4.0  # last_gpa
-    assert features[1] == 3.0  # prior_cgpa: (2.0*20 + 4.0*20)/40 = 3.0
-    assert features[2] == 2.0  # momentum: 4.0 - 2.0 = 2.0 (no clipping needed here)
-    assert features[3] == 3.1  # difficulty
-    assert features[4] == 6.0  # backlog count: 10 clipped to 6.0
-    assert features[5] == 3.0  # semester_num
-
-    # Test extreme positive momentum clipping
-    gpa_history_2 = [1.0, 4.0]  # last is 4.0, prior is 1.0. Raw momentum = 4.0 - 1.0 = 3.0 -> clipped to 2.0
-    features_2 = ml_predictor.engineer_features(
-        gpa_history=gpa_history_2,
-        credits_history=credits_history,
-        backlogs_history=[0, 0],
-        batch_sem_averages=batch_sem_averages,
-        target_sem=3
-    )
-    assert features_2[2] == 2.0  # momentum: 3.0 clipped to 2.0
-
-    # Test extreme negative momentum clipping
-    gpa_history_3 = [4.0, 1.0]  # last is 1.0, prior is 4.0. Raw momentum = 1.0 - 4.0 = -3.0 -> clipped to -2.0
-    features_3 = ml_predictor.engineer_features(
-        gpa_history=gpa_history_3,
-        credits_history=credits_history,
-        backlogs_history=[0, 0],
-        batch_sem_averages=batch_sem_averages,
-        target_sem=3
-    )
-    assert features_3[2] == -2.0  # momentum: -3.0 clipped to -2.0
+    assert features[1] == 3.1  # difficulty
+    assert features[2] == 6.0  # backlog count: 10 clipped to 6.0
 
 def test_compute_backlog_history():
     effective_grades = {
@@ -117,7 +91,7 @@ def test_build_training_data_and_ensemble():
     
     assert len(X) == 4
     assert len(y) == 4
-    assert X.shape[1] == 6
+    assert X.shape[1] == 3
     
     models, scaler = ml_predictor.train_ensemble(X, y)
     assert len(models) == 4
@@ -148,7 +122,7 @@ def test_forecast_to_graduation():
     
     scaler = RobustScaler()
     # Fit scaler on dummy data
-    scaler.fit(np.random.randn(10, 6))
+    scaler.fit(np.random.randn(10, 3))
     
     completed_gpas = [3.5, 3.8]
     completed_credits = [20.0, 20.0]
