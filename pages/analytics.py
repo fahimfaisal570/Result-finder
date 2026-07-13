@@ -1193,230 +1193,7 @@ with tabs[1]:
        'trajectory': traj
       })
       
-    metrics_df = pd.DataFrame(metrics).sort_values('consistency', ascending=False)
     st.dataframe(metrics_df, hide_index=True, width='stretch')
-
-    # ---------------------------------------------------------------------------
-    # Future GPA & Graduation Prediction Section
-    # ---------------------------------------------------------------------------
-    st.divider()
-    st.subheader("Future GPA & Graduation Prediction")
-
-    if df_longitudinal is None or df_longitudinal.empty or len(df_longitudinal['semester_num'].unique()) < 2:
-      st.info("Not enough data. GPA prediction requires at least two semesters of history for this batch.")
-    else:
-      import ml_predictor
-      
-      # 1. Student selection (sorted by reg_no ascending, prefixed with serial numbers, reg_no hidden)
-      student_roster_df = df_longitudinal.drop_duplicates(subset=['reg_no']).sort_values('reg_no')
-      student_options = []
-      student_map = {}
-      for i, (idx, row) in enumerate(student_roster_df.iterrows(), 1):
-        opt = f"{i}. {row['name']}"
-        student_options.append(opt)
-        student_map[opt] = row
-        
-      selected_option = st.selectbox("Select Student for Prediction:", student_options, key="ml_student_select")
-      student_row = student_map[selected_option]
-      
-      target_reg = int(student_row['reg_no'])
-      target_sess = student_row.get('sess_id', 'AUTO')
-      if not target_sess or target_sess == 'AUTO':
-        with db.get_connection() as conn:
-          row = conn.execute("SELECT sess_id FROM students WHERE profile_name=? AND reg_no=? LIMIT 1", (profile_name, target_reg)).fetchone()
-          target_sess = row[0] if row else 'AUTO'
-
-      # Button to predict
-      if st.button("Predict"):
-        with st.spinner("Processing prediction..."):
-          # Compile the list of all students in the batch roster who have some data
-          roster = []
-          for idx, r in student_roster_df.iterrows():
-            reg = int(r['reg_no'])
-            sess = r.get('sess_id', 'AUTO')
-            if not sess or sess == 'AUTO':
-              with db.get_connection() as conn:
-                db_row = conn.execute("SELECT sess_id FROM students WHERE profile_name=? AND reg_no=? LIMIT 1", (profile_name, reg)).fetchone()
-                sess = db_row[0] if db_row else 'AUTO'
-            roster.append({'reg_no': reg, 'sess_id': sess, 'name': r['name']})
-            
-          # Find missing students from cache
-          missing_students = []
-          for s in roster:
-            cache_key = f"{profile_name}_{s['reg_no']}_{s['sess_id']}"
-            if cache_key not in st.session_state._deep_cache or st.session_state._deep_cache[cache_key] is None:
-              missing_students.append(s)
-              
-          if missing_students:
-            st.info(f"Scanning and analyzing portal history for {len(missing_students)} uncached student(s) in this batch...")
-            _programs, _sessions = cs.fetch_programs_and_sessions()
-            _p_data = profiles.get(profile_name, {})
-            _pro_id = _p_data.get("pro_id", "")
-            
-            if _pro_id:
-              _all_exams = cs.fetch_exams(_pro_id)
-              # Build list of all tasks
-              all_tasks = []
-              
-              for s in missing_students:
-                _filtered_eids = cs.get_relevant_exams(s['sess_id'], _sessions, _all_exams)
-                for _eid in _filtered_eids:
-                  all_tasks.append((int(s['reg_no']), s['sess_id'], _eid))
-                  
-              if all_tasks:
-                _prog_bar = st.progress(0, text="Scraping batch results...")
-                
-                def _batch_progress(cur, tot, txt=None):
-                  _prog_bar.progress(cur / tot if tot else 0, text=txt or f"Scanned {cur}/{tot}")
-                  
-                _history = cs.run_batch_scan_engine(
-                  tasks=all_tasks,
-                  pro_id=_pro_id,
-                  exam_id="0",
-                  all_sessions=_sessions,
-                  progress_callback=_batch_progress,
-                  num_threads=20
-                )
-                _prog_bar.empty()
-                
-                if _history:
-                  for rec in _history:
-                    eid = rec.get('_exam_id')
-                    if eid and eid in _all_exams:
-                      rec['_exam_name'] = _all_exams[eid]
-                      
-                  history_by_student = {}
-                  for rec in _history:
-                    reg = int(rec.get("Registration No", 0) or 0)
-                    if reg:
-                      if reg not in history_by_student:
-                        history_by_student[reg] = []
-                      history_by_student[reg].append(rec)
-                      
-                  for s in missing_students:
-                    reg = s['reg_no']
-                    cache_key = f"{profile_name}_{reg}_{s['sess_id']}"
-                    stu_history = history_by_student.get(reg, [])
-                    if stu_history:
-                      deep_res = db.compute_deep_analysis(stu_history, profile_name, selected_label)
-                      st.session_state._deep_cache[cache_key] = deep_res
-                      
-          # Build training data dynamically
-          dept = db.get_dept_from_profile(profile_name)
-          X_train, y_train, batch_sem_averages = ml_predictor.build_training_data(
-            deep_cache=st.session_state._deep_cache,
-            profile_name=profile_name,
-            dept=dept
-          )
-          
-          if len(X_train) < 2:
-            st.error("Insufficient historical training samples available in this batch to build models.")
-          else:
-            models, scaler = ml_predictor.train_ensemble(X_train, y_train)
-            
-            target_key = f"{profile_name}_{target_reg}_{target_sess}"
-            target_deep = st.session_state._deep_cache.get(target_key)
-            
-            if target_deep is None:
-              st.error(f"Could not retrieve academic history for the selected student: {student_row['name']}.")
-            else:
-              effective_grades = target_deep.get("effective_grades", {})
-              current_semester = target_deep.get("current_semester", 0)
-              official_records = target_deep.get("official_semester_records", {})
-              
-              breakdown = db.compute_per_semester_breakdown(
-                effective_grades=effective_grades,
-                dept=dept,
-                current_semester=current_semester,
-                official_records=official_records
-              )
-              
-              completed_gpas = [sem['computed_gpa'] for sem in breakdown]
-              completed_credits = [sem['credits'] for sem in breakdown]
-              
-              backlogs_history = ml_predictor.compute_backlog_history(effective_grades, dept, current_semester)
-              completed_backlogs = [backlogs_history.get(i, 0) for i in range(1, current_semester + 1)]
-              
-              forecast_results = ml_predictor.forecast_to_graduation(
-                models=models,
-                scaler=scaler,
-                completed_gpas=completed_gpas,
-                completed_credits=completed_credits,
-                completed_backlogs=completed_backlogs,
-                batch_sem_averages=batch_sem_averages,
-                start_sem=current_semester + 1,
-                dept=dept,
-                total_sems=8
-              )
-              
-              ensemble_forecast = forecast_results['ensemble_forecast']
-              model_forecasts = forecast_results['model_forecasts']
-              
-              total_points_pred = sum(g * c for g, c in zip(completed_gpas, completed_credits))
-              total_credits_pred = sum(completed_credits)
-              
-              predicted_semesters_display = []
-              for sem_num in range(current_semester + 1, 9):
-                pred_gpa = ensemble_forecast.get(sem_num)
-                if pred_gpa is not None:
-                  sem_cr = db.get_semester_total_credits(dept, sem_num)
-                  if sem_cr <= 0:
-                    sem_cr = 20.0
-                  total_points_pred += pred_gpa * sem_cr
-                  total_credits_pred += sem_cr
-                  predicted_semesters_display.append((sem_num, pred_gpa))
-                  
-              pred_grad_cgpa = total_points_pred / total_credits_pred if total_credits_pred > 0 else 0.0
-              curr_cgpa = target_deep.get("true_cgpa", 0.0)
-              
-              st.markdown("##### Predictions")
-              
-              metric_col1, metric_col2 = st.columns(2)
-              delta_cgpa = pred_grad_cgpa - curr_cgpa
-              metric_col1.metric(
-                label="Predicted Graduation CGPA",
-                value=f"{pred_grad_cgpa:.2f}",
-                delta=f"{delta_cgpa:+.2f} from current true CGPA" if abs(delta_cgpa) >= 0.01 else "No change"
-              )
-              
-              if predicted_semesters_display:
-                pred_sem_text = ", ".join([f"Sem {s}: {g:.2f}" for s, g in predicted_semesters_display])
-                metric_col2.markdown("**Predicted Semester GPAs:**")
-                metric_col2.info(pred_sem_text)
-              else:
-                metric_col2.success("Student has already completed all 8 semesters.")
-                
-              with st.expander("Model Predictions and Error Metrics", expanded=False):
-                model_rows = []
-                for m in models:
-                  m_name = m['name']
-                  m_forecast = model_forecasts.get(m_name, {})
-                  
-                  model_total_points = sum(g * c for g, c in zip(completed_gpas, completed_credits))
-                  model_total_credits = sum(completed_credits)
-                  
-                  model_sem_preds = []
-                  for sem_num in range(current_semester + 1, 9):
-                    p_val = m_forecast.get(sem_num)
-                    if p_val is not None:
-                      sem_cr = db.get_semester_total_credits(dept, sem_num)
-                      if sem_cr <= 0:
-                        sem_cr = 20.0
-                      model_total_points += p_val * sem_cr
-                      model_total_credits += sem_cr
-                      model_sem_preds.append(f"S{sem_num}: {p_val:.2f}")
-                      
-                  m_grad_cgpa = model_total_points / model_total_credits if model_total_credits > 0 else 0.0
-                  model_rows.append({
-                    'Model': m_name,
-                    'Predicted Semester GPAs': ", ".join(model_sem_preds) if model_sem_preds else "Completed",
-                    'Predicted Graduation CGPA': round(m_grad_cgpa, 2),
-                    'MAE': round(m['mae'], 3),
-                    'RMSE': round(m['rmse'], 3),
-                    'R²': round(m['r2'], 3)
-                  })
-                
-                st.dataframe(pd.DataFrame(model_rows), hide_index=True, width='stretch')
 
 
 
@@ -1836,6 +1613,27 @@ with tabs[5]:
                     _adj_diff = f" :{_color}[({_delta:+.2f})]"
                 _row[4].markdown(f"{_sb['computed_cgpa']:.2f}{_adj_diff}")
                 _row[5].markdown(f"{_sb['credits']:.2f}")
+
+          # --- ML Future GPA Prediction ---
+          import ml_predictor
+          pred_results = ml_predictor.predict_future_gpas(deep_res, _dept, overrides=overrides)
+          if pred_results:
+            with st.expander("🔮 Future GPA Forecast (ML-driven)", expanded=False):
+              p_c1, p_c2 = st.columns(2)
+              delta_cgpa = pred_results['predicted_grad_cgpa'] - adj_cgpa
+              trend_icon = "📈" if pred_results['trend_slope'] > 0 else "📉" if pred_results['trend_slope'] < 0 else "➡️"
+              trend_text = "Improving" if pred_results['trend_slope'] > 0.05 else "Declining" if pred_results['trend_slope'] < -0.05 else "Stable"
+              
+              p_c1.metric(
+                label="Predicted Graduation CGPA",
+                value=f"{pred_results['predicted_grad_cgpa']:.2f}",
+                delta=f"{delta_cgpa:+.2f} vs current Adjusted" if abs(delta_cgpa) >= 0.01 else "No change"
+              )
+              p_c2.markdown(f"**Trajectory Trend:** {trend_icon} **{trend_text}** (Slope: {pred_results['trend_slope']:.4f})")
+              
+              # Show predicted remaining semesters
+              pred_text = ", ".join([f"Sem {s}: {g:.2f}" for s, g in pred_results['predictions'].items()])
+              st.info(f"**Forecasted Semesters:** {pred_text}")
 
           def _render_semester_grouped(items, render_fn):
             from itertools import groupby
