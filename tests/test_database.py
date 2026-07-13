@@ -743,7 +743,7 @@ class TestSchemaAndAcid(unittest.TestCase):
             {'reg_no': 1001, 'name': 'Alice', 'gpa': 3.5, 'cgpa': 3.25, 'sess_id': '42'},
             {'reg_no': 1002, 'name': 'Bob', 'gpa': 3.8, 'cgpa': 3.65, 'sess_id': '42'},
             {'reg_no': 1003, 'name': 'Charlie', 'gpa': 1.5, 'cgpa': 1.75, 'sess_id': '42'},
-            {'reg_no': 1004, 'name': 'David', 'gpa': 3.3, 'cgpa': 3.25, 'sess_id': '42'},
+            {'reg_no': 1004, 'name': 'David', 'gpa': 3.3, 'cgpa': 2.10, 'sess_id': '42'},
         ])
         
         archetypes = database.get_performance_archetypes(df_pivot, df_main, promo_target=2.00, promo_yr=1)
@@ -752,7 +752,8 @@ class TestSchemaAndAcid(unittest.TestCase):
         
         self.assertEqual(archetypes.loc[1001]['Detailed_Status'], 'On-Track')
         self.assertEqual(archetypes.loc[1002]['Detailed_Status'], 'Exceeding')
-        self.assertEqual(archetypes.loc[1003]['Detailed_Status'], 'At-Risk')
+        self.assertEqual(archetypes.loc[1003]['Detailed_Status'], 'Critical')
+        self.assertEqual(archetypes.loc[1004]['Detailed_Status'], 'At-Risk')
         
         df_sub = pd.DataFrame([
             {'subject_code': 'CSE-1101', 'subject_name': 'Intro CS', 'gp': 3.0, 'reg_no': 1001},
@@ -760,8 +761,8 @@ class TestSchemaAndAcid(unittest.TestCase):
         ])
         insights = database.get_strategic_insights(df_main, df_sub, df_pivot, archetypes)
         
-        self.assertEqual(insights['risk_count'], 1)
-        self.assertEqual(len(insights['risk_students']), 1)
+        self.assertEqual(insights['risk_count'], 2) # Charlie and David
+        self.assertEqual(len(insights['risk_students']), 2)
         self.assertEqual(insights['risk_students'][0][0], 1003)
 
 

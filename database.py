@@ -2709,6 +2709,8 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
             
         threshold = promo_target if promo_target is not None else 2.00
         if row['cgpa'] < threshold:
+            status = "Critical"
+        elif promo_target is not None and row['cgpa'] <= (promo_target + 0.15):
             status = "At-Risk"
         elif row['cgpa'] >= 3.50:
             status = "Exceeding"
@@ -2748,7 +2750,7 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
         insights['honours_pct'] = (insights['honours_count'] / len(valid_main)) * 100
         
     if archetypes is not None:
-        risk_mask = archetypes['Detailed_Status'] == "At-Risk"
+        risk_mask = archetypes['Detailed_Status'].isin(["At-Risk", "Critical"])
         insights['risk_count'] = risk_mask.sum()
         insights['improving_count'] = archetypes['Archetype'].str.contains("Improving", case=False).sum()
         

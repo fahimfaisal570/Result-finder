@@ -1076,10 +1076,13 @@ with tabs[2]:
           "On-Track": "#3b82f6",
           "On-Track ↑ (Improving)": "#60a5fa",
           "On-Track ↓ (Declining)": "#1e40af",
+          "At-Risk": "#f59e0b",  # Amber/Orange
+          "At-Risk ↑ (Improving)": "#fcd34d",
+          "At-Risk ↓ (Declining)": "#b45309",
           
-          "At-Risk": "#ef4444",
-          "At-Risk ↑ (Improving)": "#f87171",
-          "At-Risk ↓ (Declining)": "#991b1b"
+          "Critical": "#ef4444",  # Red
+          "Critical ↑ (Improving)": "#fca5a5",
+          "Critical ↓ (Declining)": "#7f1d1d"
         }
 
         # Filter the color map to only include active legends
@@ -1090,7 +1093,7 @@ with tabs[2]:
             active_domains.append(k)
             active_ranges.append(v)
 
-        danger_archetypes = [a for a in active_domains if "At-Risk" in a]
+        danger_archetypes = [a for a in active_domains if "Critical" in a]
         
         base_scatter = alt.Chart(clust_df).mark_circle(size=250).encode(
           x=alt.X(f'{x_col}:Q', title=x_title, 
