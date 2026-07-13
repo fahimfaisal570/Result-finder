@@ -1193,6 +1193,7 @@ with tabs[1]:
        'trajectory': traj
       })
       
+    metrics_df = pd.DataFrame(metrics).sort_values('consistency', ascending=False)
     st.dataframe(metrics_df, hide_index=True, width='stretch')
 
 
