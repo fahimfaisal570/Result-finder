@@ -73,163 +73,6 @@ def get_promotion_rules(exam_label):
     
   return promo_target, is_even_sem, yr
 
-def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem=False, is_first_sem=False, promo_yr=None):
-  """
-  Identifies academic personas based on State (current), Pattern (variance), and Trend (trajectory).
-  """
-  if df_pivot.empty or df_main.empty: return None
-  
-  # 1. Merge Pivot (variance) with Main (gpa, cgpa)
-  # Do not drop NA here. Senior batches have electives, so NaNs are expected.
-  data = df_pivot.copy()
-  if len(data) < 4: return None # Statistical minimum
-
-  # Features: Mean (Strength) and Variance (Consistency)
-  features = pd.DataFrame(index=data.index)
-  features['std_gp'] = data.std(axis=1).fillna(0)
-  
-  # Merge with df_main to get GPA & CGPA for momentum/state
-  features = features.merge(df_main[['reg_no','gpa','cgpa']], left_index=True, right_on='reg_no', how='left')
-  features.set_index('reg_no', inplace=True)
-  features['momentum'] = features['gpa'] - features['cgpa'] if not is_first_sem else 0.0
-  
-  # 2. Dynamic Thresholds (Percentile Quartiles)
-  p75_gpa = features['gpa'].quantile(0.75)
-  p50_gpa = features['gpa'].quantile(0.50)
-
-  # 3. Compound Labeling Heuristic
-  def get_compound_status(row):
-    base = "Average"
-    detail = "Average"
-    target_gpa = 0.0
-
-    if promo_target is not None and promo_yr is not None:
-      sem_index = (promo_yr * 2) - 1
-      # Calculate target GPA to reach promo_target by end of year
-      # Inverse of: max_possible_cgpa = ((row['cgpa'] * sem_index) + (S * 1.1)) / (sem_index + 1.1)
-      target_gpa = (promo_target * (sem_index + 1.1) - row['cgpa'] * sem_index) / 1.1
-      target_gpa = max(0.0, round(target_gpa, 2))
-    
-    # Promotion overrides define the lowest tier
-    if promo_target is not None:
-      if promo_yr == 4:
-        if row['cgpa'] < promo_target:
-          base = "Critical (Graduation Risk)"
-          detail = base
-        elif row['cgpa'] <= (promo_target + 0.15):
-          base = "At-Risk (Graduation)"
-          detail = base
-      else:
-        if row['cgpa'] < promo_target:
-          if is_even_sem:
-            base = "Non-Promoted (Failed)"
-          else:
-            if promo_yr is not None:
-              sem_index = (promo_yr * 2) - 1
-              max_possible_cgpa = ((row['cgpa'] * sem_index) + (4.00 * 1.1)) / (sem_index + 1.1)
-              if max_possible_cgpa < promo_target:
-                base = "Readd"
-              else:
-                base = "Critical (Action Req.)"
-            else:
-              base = "Critical (Action Req.)"
-          detail = base
-        elif row['cgpa'] <= (promo_target + 0.15):
-          base = "At-Risk (Promotion)"
-          detail = base
-        
-    # If not overridden by the absolute promotion system, assign relative batch percentile state
-    if detail == "Average":
-      if row['gpa'] >= p75_gpa or row['cgpa'] >= 3.5:
-        base = "Top"
-        detail = "Top"
-      elif row['gpa'] >= p50_gpa:
-        base = "Steady"
-        detail = "Steady"
-      else:
-        base = "Average"
-        detail = "Average"
-        
-    trend = ""
-    if not is_first_sem and row['cgpa'] > 0:
-      variance_ratio = (row['gpa'] - row['cgpa']) / row['cgpa']
-      if variance_ratio >= 0.05:
-        trend =" ↑ (Improving)"
-      elif variance_ratio <= -0.05:
-        trend =" ↓ (Declining)"
-      
-    return pd.Series([f"{base}{trend}", detail, target_gpa])
-
-  features[['Archetype','Detailed_Status','Target_GPA']] = features.apply(get_compound_status, axis=1)
-  return features[['Archetype','Detailed_Status','std_gp','Target_GPA']]
-
-def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=False):
-  """
-  Generates high-level leadership insights for the Department Head.
-  """
-  insights = {}
-  
-  # 1. Performance & Honours
-  valid_main = df_main[df_main['gpa'] > 0].copy()
-  if not valid_main.empty:
-    if is_first_sem:
-      insights['mean_gpa'] = valid_main['gpa'].mean().round(2)
-    else:
-      insights['batch_momentum'] = (valid_main['gpa'].mean() - valid_main['cgpa'].mean()).round(2)
-      
-    insights['honours_count'] = len(valid_main[valid_main['cgpa'] >= 3.5 if not is_first_sem else valid_main['gpa'] >= 3.5])
-    insights['honours_pct'] = (insights['honours_count'] / len(valid_main)) * 100
-  
-  # 2. Risk Tally
-  if archetypes is not None:
-    risk_mask = archetypes['Archetype'].str.contains("At Risk", case=False)
-    insights['risk_count'] = risk_mask.sum()
-    insights['improving_count'] = archetypes['Archetype'].str.contains("Improving", case=False).sum()
-    
-    # Promotion specific trackers mapped via Detailed_Status
-    insights['promo_risk_count'] = archetypes['Detailed_Status'].str.contains(r"At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False).sum()
-    insights['critical_count'] = archetypes['Detailed_Status'].str.contains("Critical", case=False).sum()
-    insights['math_fail_count'] = archetypes['Detailed_Status'].str.contains("Readd", case=False).sum()
-    insights['failed_count'] = archetypes['Detailed_Status'].str.contains(r"Non-Promoted \(Failed\)", case=False).sum()
-
-    # Collect student reg_no + name lists for each alert category
-    arc_with_info = archetypes.merge(df_main[['reg_no','name','sess_id']], left_index=True, right_on='reg_no', how='left').set_index('reg_no')
-    def _student_list(mask_series):
-      regs = archetypes[mask_series].index.tolist()
-      rows = arc_with_info.loc[arc_with_info.index.isin(regs), ['name','Target_GPA','sess_id']].reset_index()
-      return [(r['reg_no'], r['name'], r['Target_GPA'], r['sess_id']) for _, r in rows.iterrows()]
-    
-    insights['readd_students']  = _student_list(archetypes['Detailed_Status'].str.contains("Readd", case=False))
-    insights['failed_students']  = _student_list(archetypes['Detailed_Status'].str.contains(r"Non-Promoted \(Failed\)", case=False))
-    insights['critical_students'] = _student_list(archetypes['Detailed_Status'].str.contains("Critical", case=False))
-    insights['risk_students']   = _student_list(archetypes['Detailed_Status'].str.contains(r"At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False))
-
-  # 3. Subject Bottlenecks (The "Killer" Subject)
-  if not df_sub.empty:
-    sub_stats = df_sub[df_sub['gp'] >= 0].groupby(['subject_code','subject_name'])['gp'].mean().reset_index()
-    if not sub_stats.empty:
-      bottleneck = sub_stats.iloc[sub_stats['gp'].idxmin()]
-      star = sub_stats.iloc[sub_stats['gp'].idxmax()]
-      insights['bottleneck'] = f"{bottleneck['subject_code']} ({bottleneck['subject_name']})"
-      insights['bottleneck_gp'] = bottleneck['gp'].round(2)
-      insights['star'] = f"{star['subject_code']} ({star['subject_name']})"
-      insights['star_gp'] = star['gp'].round(2)
-
-  # 4. Synergy Detection (Correlations)
-  if not df_pivot.empty and len(df_pivot.columns) > 1:
-    corr_matrix = df_pivot.corr()
-    corr_matrix.index.name ='s1'
-    corr_matrix.columns.name ='s2'
-    corr = corr_matrix.unstack().reset_index()
-    corr.columns = ['s1','s2','coeff']
-    
-    corr = corr[corr['s1'] != corr['s2']] # Remove self-correlation
-    if not corr.empty:
-      top_corr = corr.sort_values('coeff', ascending=False).iloc[0]
-      insights['synergy'] = (top_corr['s1'], top_corr['s2'], top_corr['coeff'].round(2))
-
-  return insights
-
 # ---------------------------------------------------------------------------
 # UI Setup
 # ---------------------------------------------------------------------------
@@ -806,8 +649,8 @@ def _render_deep_result(result, reg, name="", sess_id="AUTO"):
 
 if show_strategic_brief:
   # Pre-calculate personas for the brief
-  archetypes = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
-  insights = get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=is_first_sem)
+  archetypes = db.get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
+  insights = db.get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=is_first_sem)
   
   with st.container(border=True):
     st.subheader("Strategic Analysis Brief")
@@ -845,15 +688,8 @@ if show_strategic_brief:
     with b_col1:
       st.markdown("##### Academic Pressures")
       
-      # Promotion Warning Injections
-      m_ct = insights.get('math_fail_count', 0)
-      f_ct = insights.get('failed_count', 0)
-      c_ct = insights.get('critical_count', 0)
-      r_ct = insights.get('promo_risk_count', 0)
-      
       def _render_student_list(student_data):
         for reg, name, target, sess_id in student_data:
-          # Hide target after even semesters unless it's impossible (>4.0)
           show_target = not is_even_sem or target > 4.0
           
           if show_target:
@@ -869,10 +705,8 @@ if show_strategic_brief:
           if cache_key in st.session_state._deep_cache:
             cached = st.session_state._deep_cache[cache_key]
             if cached is None:
-              # Failed last time — show error + retry button
               _render_deep_result(None, reg, name, sess_id)
             else:
-              # Successful — show results
               _render_deep_result(cached, reg, name, sess_id)
           else:
             if st.button("Deep Analysis", key=btn_key, help=f"Fetch full record for {name} and compute precise CGPA, target, and pending retakes"):
@@ -881,23 +715,15 @@ if show_strategic_brief:
               st.session_state._deep_cache[cache_key] = result
               st.rerun()
 
-      if m_ct > 0:
-        st.error(f"** {m_ct} Student(s) Readd Alert:** Deficit too high to reach Year {promo_yr} **{promo_target} CGPA** threshold even with perfect GPA next semester.")
-        _render_student_list(insights.get('readd_students', []))
-      if f_ct > 0:
-        st.error(f"** {f_ct} Student(s) Failed Promotion:** Did not meet the Year {promo_yr} **{promo_target} CGPA** threshold.")
-        _render_student_list(insights.get('failed_students', []))
-      if c_ct > 0:
-        st.error(f"** {c_ct} Student(s) Critically At-Risk:** Falling below the {promo_target} threshold mid-year. High probability of failing promotion.")
-        _render_student_list(insights.get('critical_students', []))
-      if r_ct > 0:
-        st.warning(f"**⚠ {r_ct} Student(s) At-Risk:** Hovering dangerously close (+0.15 margin) to the {promo_target} year-end cutoff.")
-        _render_student_list(insights.get('risk_students', []))
+      risk_students = insights.get('risk_students', [])
+      if risk_students:
+        st.warning(f"**⚠ {len(risk_students)} Student(s) At-Risk:** Falling below the {promo_target if promo_target else 2.00} CGPA threshold.")
+        _render_student_list(risk_students)
       
-      if'bottleneck' in insights:
+      if 'bottleneck' in insights:
         st.warning(f"**Bottleneck Identified:** The subject **{insights['bottleneck']}** has the lowest cohort average (**{insights['bottleneck_gp']} GP**).")
       
-      if'synergy' in insights:
+      if 'synergy' in insights:
         s1, s2, val = insights['synergy']
         st.info(f"**Syllabus Synergy:** High performance correlation (**{val}**) detected between **{s1}** and **{s2}**.")
 
@@ -907,15 +733,7 @@ if show_strategic_brief:
         st.info("**Initial Talent Discovery:** This is the baseline semester. Use this scan to identify the natural technical aptitude of the new cohort.")
       else:
         momentum = insights.get('batch_momentum', 0)
-        if momentum > 0.1:
-          st.success(f"**Positive Shift:** The batch performed **{momentum} GP points** better than their historical baseline.")
-        elif momentum < -0.1:
-          st.error(f"**Fatigue Alert:** Batch performance is **{abs(momentum)} points below** historical averages.")
-        else:
-          st.info("**Steady State:** The cohort is maintaining their historical GPA standards.")
-      
-      if not is_first_sem and insights.get('improving_count', 0) > 5:
-        st.success("**Excellence Rotation:** A high number of'Rising Stars' detected, suggesting a healthy, competitive environment.")
+        st.info(f"**Batch Momentum:** {momentum:+.2f} GP points shift compared to historical CGPA.")
 
 st.divider()
 
@@ -1236,13 +1054,12 @@ with tabs[2]:
     st.markdown("#### Performance Personas (Strategic Quadrant)")
     if not df_pivot.empty:
       # Use the new compound persona logic
-      clusters = get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
+      clusters = db.get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
       if clusters is not None:
         clust_df = df_main.merge(clusters, left_on='reg_no', right_index=True)
         clust_df['momentum'] = (clust_df['gpa'] - clust_df['cgpa']).round(2) if not is_first_sem else 0.0
         
-        # Innovative Visualization: Strategic Quadrant (Y: Performance, X: Momentum/Variance)
-        # Fallback: In 1st sem, plot vs Subject Variance (Consistency) since momentum is 0
+        # Strategic Quadrant (Y: Performance, X: Momentum/Variance)
         x_col ='momentum' if not is_first_sem else'std_gp'
         x_title ='Academic Momentum' if not is_first_sem else'Subject Variance (Lower = More Consistent)'
         
@@ -1250,35 +1067,19 @@ with tabs[2]:
         student_list = ["None"] + sorted(clust_df['name'].unique().tolist())
         spotlight_student = st.selectbox("Spotlight Focus (Find Student)", student_list, index=0)
         
-        # High-Contrast Color Mapping for subcategories (Neon=Improving, Base=Solid, Dark/Muted=Declining)
+        # 3-State Visual Color Mapping grouped by status
         color_map = {
-          "Top": "#2563eb",      # Solid Royal Blue
-          "Top ↑ (Improving)": "#06b6d4", # Bright Cyan (Total distinction)
-          "Top ↓ (Declining)": "#1e3a8a", # Deep Dark Navy
+          "Exceeding": "#22c55e",
+          "Exceeding ↑ (Improving)": "#4ade80",
+          "Exceeding ↓ (Declining)": "#166534",
           
-          "Steady": "#16a34a",     # Solid Medium Green
-          "Steady ↑ (Improving)": "#bef264", # Neon Lime Green
-          "Steady ↓ (Declining)": "#14532d", # Dark Forest Green
+          "On-Track": "#3b82f6",
+          "On-Track ↑ (Improving)": "#60a5fa",
+          "On-Track ↓ (Declining)": "#1e40af",
           
-          "Average": "#eab308",    # Solid Yellow
-          "Average ↑ (Improving)": "#fef08a", # Pale Bright Yellow
-          "Average ↓ (Declining)": "#78350f", # Dark Muddy Brown
-          
-          "At-Risk (Promotion)": "#f43f5e",         # Solid Rose
-          "At-Risk (Promotion) ↑ (Improving)": "#fda4af",  # Light Rose Pink
-          "At-Risk (Promotion) ↓ (Declining)": "#9f1239",  # Dark Rose
-          
-          "Critical (Action Req.)": "#9333ea",       # Solid Purple
-          "Critical (Action Req.) ↑ (Improving)": "#d8b4fe",# Bright Lilac
-          "Critical (Action Req.) ↓ (Declining)": "#581c87",# Deep Purple
-          
-          "Non-Promoted (Failed)": "#ef4444",        # Pure Red
-          "Non-Promoted (Failed) ↑ (Improving)": "#fca5a5", # Bright Light Red
-          "Non-Promoted (Failed) ↓ (Declining)": "#7f1d1d", # Near-Black Red
-          
-          "Readd": "#b91c1c",     # Darker Red
-          "Readd ↑ (Improving)": "#f87171",
-          "Readd ↓ (Declining)": "#450a0a"
+          "At-Risk": "#ef4444",
+          "At-Risk ↑ (Improving)": "#f87171",
+          "At-Risk ↓ (Declining)": "#991b1b"
         }
 
         # Filter the color map to only include active legends
@@ -1289,7 +1090,7 @@ with tabs[2]:
             active_domains.append(k)
             active_ranges.append(v)
 
-        danger_archetypes = [a for a in active_domains if "Readd" in a or "Non-Promoted" in a]
+        danger_archetypes = [a for a in active_domains if "At-Risk" in a]
         
         base_scatter = alt.Chart(clust_df).mark_circle(size=250).encode(
           x=alt.X(f'{x_col}:Q', title=x_title, 
@@ -1850,15 +1651,7 @@ with tabs[5]:
 
                 if _use_detailed:
                   # --- Detailed per-course input ---
-                  try:
-                    _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
-                  except TypeError:
-                    import importlib
-                    try:
-                      importlib.reload(db)
-                      _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
-                    except Exception:
-                      _courses = db.get_semester_courses(_dept, _sem_n)
+                  _courses = db.get_semester_courses(_dept, _sem_n, include_all_electives=True)
                   _course_grades = []
                   _det_points = 0.0
                   _det_credits = 0.0

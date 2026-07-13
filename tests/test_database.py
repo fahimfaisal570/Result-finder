@@ -732,6 +732,38 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertEqual(len(data_filtered[1003]), 3)
         self.assertEqual(data_filtered[1003][-1]['semester_num'], 3)
 
+    def test_get_performance_archetypes_and_insights_three_states(self):
+        import pandas as pd
+        df_pivot = pd.DataFrame(
+            [[3.0, 3.5], [3.5, 3.8], [2.0, 1.5], [3.2, 3.3]],
+            index=[1001, 1002, 1003, 1004],
+            columns=['CSE-1101', 'CSE-1201']
+        )
+        df_main = pd.DataFrame([
+            {'reg_no': 1001, 'name': 'Alice', 'gpa': 3.5, 'cgpa': 3.25, 'sess_id': '42'},
+            {'reg_no': 1002, 'name': 'Bob', 'gpa': 3.8, 'cgpa': 3.65, 'sess_id': '42'},
+            {'reg_no': 1003, 'name': 'Charlie', 'gpa': 1.5, 'cgpa': 1.75, 'sess_id': '42'},
+            {'reg_no': 1004, 'name': 'David', 'gpa': 3.3, 'cgpa': 3.25, 'sess_id': '42'},
+        ])
+        
+        archetypes = database.get_performance_archetypes(df_pivot, df_main, promo_target=2.00, promo_yr=1)
+        self.assertIsNotNone(archetypes)
+        self.assertEqual(len(archetypes), 4)
+        
+        self.assertEqual(archetypes.loc[1001]['Detailed_Status'], 'On-Track')
+        self.assertEqual(archetypes.loc[1002]['Detailed_Status'], 'Exceeding')
+        self.assertEqual(archetypes.loc[1003]['Detailed_Status'], 'At-Risk')
+        
+        df_sub = pd.DataFrame([
+            {'subject_code': 'CSE-1101', 'subject_name': 'Intro CS', 'gp': 3.0, 'reg_no': 1001},
+            {'subject_code': 'CSE-1101', 'subject_name': 'Intro CS', 'gp': 2.0, 'reg_no': 1003},
+        ])
+        insights = database.get_strategic_insights(df_main, df_sub, df_pivot, archetypes)
+        
+        self.assertEqual(insights['risk_count'], 1)
+        self.assertEqual(len(insights['risk_students']), 1)
+        self.assertEqual(insights['risk_students'][0][0], 1003)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

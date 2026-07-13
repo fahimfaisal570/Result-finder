@@ -2678,3 +2678,106 @@ def _bootstrap():
 
 _bootstrap()
 
+def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem=False, is_first_sem=False, promo_yr=None):
+    """
+    Identifies academic personas based on State (current), Pattern (variance), and Trend (trajectory).
+    Simplified to 3 states: Exceeding, On-Track, and At-Risk.
+    """
+    import pandas as pd
+    import numpy as np
+    
+    if df_pivot.empty or df_main.empty: 
+        return None
+    
+    data = df_pivot.copy()
+    if len(data) < 4: 
+        return None
+
+    features = pd.DataFrame(index=data.index)
+    features['std_gp'] = data.std(axis=1).fillna(0)
+    
+    features = features.merge(df_main[['reg_no','gpa','cgpa']], left_index=True, right_on='reg_no', how='left')
+    features.set_index('reg_no', inplace=True)
+    features['momentum'] = features['gpa'] - features['cgpa'] if not is_first_sem else 0.0
+    
+    def get_simplified_status(row):
+        target_gpa = 0.0
+        if promo_target is not None and promo_yr is not None:
+            sem_index = (promo_yr * 2) - 1
+            target_gpa = (promo_target * (sem_index + 1.1) - row['cgpa'] * sem_index) / 1.1
+            target_gpa = max(0.0, round(target_gpa, 2))
+            
+        threshold = promo_target if promo_target is not None else 2.00
+        if row['cgpa'] < threshold:
+            status = "At-Risk"
+        elif row['cgpa'] >= 3.50:
+            status = "Exceeding"
+        else:
+            status = "On-Track"
+            
+        trend = ""
+        if not is_first_sem and row['cgpa'] > 0:
+            variance_ratio = (row['gpa'] - row['cgpa']) / row['cgpa']
+            if variance_ratio >= 0.05:
+                trend = " ↑ (Improving)"
+            elif variance_ratio <= -0.05:
+                trend = " ↓ (Declining)"
+                
+        return pd.Series([f"{status}{trend}", status, target_gpa])
+
+    features[['Archetype', 'Detailed_Status', 'Target_GPA']] = features.apply(get_simplified_status, axis=1)
+    return features[['Archetype', 'Detailed_Status', 'std_gp', 'Target_GPA']]
+
+
+def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=False):
+    """
+    Generates high-level leadership insights for the Department Head.
+    """
+    import pandas as pd
+    
+    insights = {}
+    
+    valid_main = df_main[df_main['gpa'] > 0].copy()
+    if not valid_main.empty:
+        if is_first_sem:
+            insights['mean_gpa'] = valid_main['gpa'].mean().round(2)
+        else:
+            insights['batch_momentum'] = (valid_main['gpa'].mean() - valid_main['cgpa'].mean()).round(2)
+            
+        insights['honours_count'] = len(valid_main[valid_main['cgpa'] >= 3.5 if not is_first_sem else valid_main['gpa'] >= 3.5])
+        insights['honours_pct'] = (insights['honours_count'] / len(valid_main)) * 100
+        
+    if archetypes is not None:
+        risk_mask = archetypes['Detailed_Status'] == "At-Risk"
+        insights['risk_count'] = risk_mask.sum()
+        insights['improving_count'] = archetypes['Archetype'].str.contains("Improving", case=False).sum()
+        
+        arc_with_info = archetypes.merge(df_main[['reg_no','name','sess_id']], left_index=True, right_on='reg_no', how='left').set_index('reg_no')
+        
+        regs = archetypes[risk_mask].index.tolist()
+        rows = arc_with_info.loc[arc_with_info.index.isin(regs), ['name','Target_GPA','sess_id']].reset_index()
+        insights['risk_students'] = [(r['reg_no'], r['name'], r['Target_GPA'], r['sess_id']) for _, r in rows.iterrows()]
+        
+    if not df_sub.empty:
+        sub_stats = df_sub[df_sub['gp'] >= 0].groupby(['subject_code','subject_name'])['gp'].mean().reset_index()
+        if not sub_stats.empty:
+            bottleneck = sub_stats.iloc[sub_stats['gp'].idxmin()]
+            star = sub_stats.iloc[sub_stats['gp'].idxmax()]
+            insights['bottleneck'] = f"{bottleneck['subject_code']} ({bottleneck['subject_name']})"
+            insights['bottleneck_gp'] = bottleneck['gp'].round(2)
+            insights['star'] = f"{star['subject_code']} ({star['subject_name']})"
+            insights['star_gp'] = star['gp'].round(2)
+            
+    if not df_pivot.empty and len(df_pivot.columns) > 1:
+        corr_matrix = df_pivot.corr()
+        corr_matrix.index.name ='s1'
+        corr_matrix.columns.name ='s2'
+        corr = corr_matrix.unstack().reset_index()
+        corr.columns = ['s1','s2','coeff']
+        
+        corr = corr[corr['s1'] != corr['s2']]
+        if not corr.empty:
+            top_corr = corr.sort_values('coeff', ascending=False).iloc[0]
+            insights['synergy'] = (top_corr['s1'], top_corr['s2'], top_corr['coeff'].round(2))
+            
+    return insights
