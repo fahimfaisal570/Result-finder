@@ -1582,7 +1582,7 @@ with tabs[5]:
           )
 
           if _sem_breakdown:
-            with st.expander("📊 Semester-wise GPA & CGPA Breakdown", expanded=False):
+            with st.expander("Semester-wise GPA & CGPA Breakdown", expanded=False):
               _hdr = st.columns([1, 1.2, 1.2, 1.2, 1.2, 0.8])
               _hdr[0].markdown("**Semester**")
               _hdr[1].markdown("**Official GPA**")
@@ -1619,10 +1619,9 @@ with tabs[5]:
           import ml_predictor
           pred_results = ml_predictor.predict_future_gpas(deep_res, _dept, overrides=overrides)
           if pred_results:
-            with st.expander("🔮 Future GPA Forecast (ML-driven)", expanded=False):
+            with st.expander("Future GPA Forecast (ML-driven)", expanded=False):
               p_c1, p_c2 = st.columns(2)
               delta_cgpa = pred_results['predicted_grad_cgpa'] - adj_cgpa
-              trend_icon = "📈" if pred_results['trend_slope'] > 0 else "📉" if pred_results['trend_slope'] < 0 else "➡️"
               trend_text = "Improving" if pred_results['trend_slope'] > 0.05 else "Declining" if pred_results['trend_slope'] < -0.05 else "Stable"
               
               p_c1.metric(
@@ -1630,7 +1629,7 @@ with tabs[5]:
                 value=f"{pred_results['predicted_grad_cgpa']:.2f}",
                 delta=f"{delta_cgpa:+.2f} vs current Adjusted" if abs(delta_cgpa) >= 0.01 else "No change"
               )
-              p_c2.markdown(f"**Trajectory Trend:** {trend_icon} **{trend_text}** (Slope: {pred_results['trend_slope']:.4f})")
+              p_c2.markdown(f"**Trajectory Trend:** **{trend_text}** (Slope: {pred_results['trend_slope']:.4f})")
               
               # Show predicted remaining semesters
               pred_text = ", ".join([f"Sem {s}: {g:.2f}" for s, g in pred_results['predictions'].items()])
