@@ -770,7 +770,25 @@ tabs = st.tabs(["Baseline Insight", "Trends", "Advanced Patterns", "Cube Pivot",
 with tabs[0]:
   st.subheader("High-Level Batch Stethoscope")
 
-  # Row 1: CGPA Distribution & First-Chance Pass Ratio
+  has_failed_count = int(df_main['first_chance_fail'].sum())
+  all_passed_count = len(df_main) - has_failed_count
+  pass_rate = (all_passed_count / len(df_main)) * 100 if not df_main.empty else 0
+
+  # High-End Metric Cards Row at the top
+  met1, met2, met3 = st.columns(3)
+  with met1:
+    if is_first_sem:
+      st.metric("Batch Mean GPA", f"{insights.get('mean_gpa', 0.0):.2f}")
+    else:
+      st.metric("Batch Momentum", f"{insights.get('batch_momentum', 0.0):+.2f} GP", help="Shift compared to historical baseline CGPA")
+  with met2:
+    st.metric("Honours Roster", f"{insights.get('honours_count', 0)} ({insights.get('honours_pct', 0.0):.1f}%)", help="Students with CGPA >= 3.50")
+  with met3:
+    st.metric("Overall Pass Rate (1st Attempt)", f"{pass_rate:.1f}%", help="Percentage of students who passed all subjects in their first attempt.")
+
+  st.divider()
+
+  # Row 1: GPA Distribution & First-Chance Pass Ratio aligned side-by-side
   row1_c1, row1_c2 = st.columns([1.6, 1])
 
   with row1_c1:
@@ -797,14 +815,6 @@ with tabs[0]:
 
   with row1_c2:
     st.markdown("#### ⭕ First-Chance Pass Ratio")
-    has_failed_count = int(df_main['first_chance_fail'].sum())
-    all_passed_count = len(df_main) - has_failed_count
-    
-    # Display the Overall Pass Rate as a high-leverage metric
-    pass_rate = (all_passed_count / len(df_main)) * 100 if not df_main.empty else 0
-    st.metric("Overall Pass Rate (1st Attempt)", f"{pass_rate:.1f}%", 
-         help="Percentage of students who passed all subjects in their first attempt.")
-
     status_df = pd.DataFrame({
      'Status': ['Passed (1st Chance)','Failed (Any Subject)'],
      'Count': [all_passed_count, has_failed_count]
@@ -816,7 +826,7 @@ with tabs[0]:
         range=['#10b981','#ef4444']
       ), legend=alt.Legend(orient="bottom")),
       tooltip=['Status','Count']
-    ).properties(height=300)
+    ).properties(height=300, width='container')
     st.altair_chart(pie, width='stretch')
     st.caption("Students who failed ≥1 subject in their main attempt are counted as Failed.")
 
