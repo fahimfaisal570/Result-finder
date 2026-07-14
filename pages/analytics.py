@@ -656,10 +656,11 @@ def _render_deep_result(result, reg, name="", sess_id="AUTO"):
 
   st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp; Analyzed {result['effective_grade_count']} subjects across {result['semesters_found']} semester(s)")
 
+# Pre-calculate personas and insights for the brief and tabs
+archetypes = db.get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
+insights = db.get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=is_first_sem)
+
 if show_strategic_brief:
-  # Pre-calculate personas for the brief
-  archetypes = db.get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
-  insights = db.get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=is_first_sem)
   
   with st.container(border=True):
     st.subheader("Strategic Analysis Brief")
