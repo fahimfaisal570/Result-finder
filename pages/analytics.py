@@ -795,7 +795,7 @@ with tabs[0]:
       mom_str = f"{mom_val:+.2f} GP" if round(mom_val, 2) != 0.0 else "0.00 GP"
       st.metric("Batch Momentum", mom_str, help="Shift compared to historical baseline CGPA")
   with met_row1[1]:
-    st.metric("Median GPA", f"{median_gpa:.2f}", help="Middle GPA value of this semester's results")
+    st.metric("Honours Roster", f"{insights.get('honours_count', 0)} ({insights.get('honours_pct', 0.0):.1f}%)", help="Students with CGPA >= 3.50")
   with met_row1[2]:
     st.metric("Active Students", f"{total_active_students}", help="Total students with active results in this semester")
 
@@ -804,7 +804,7 @@ with tabs[0]:
   with met_row2[0]:
     st.metric("Median CGPA", f"{median_cgpa:.2f}" if not is_first_sem else "N/A", help="Middle CGPA value of the batch up to this semester")
   with met_row2[1]:
-    st.metric("Honours Roster", f"{insights.get('honours_count', 0)} ({insights.get('honours_pct', 0.0):.1f}%)", help="Students with CGPA >= 3.50")
+    st.metric("Median GPA", f"{median_gpa:.2f}", help="Middle GPA value of this semester's results")
   with met_row2[2]:
     st.metric("Overall Pass Rate (1st Attempt)", f"{pass_rate:.1f}%", help="Percentage of students who passed all subjects in their first attempt.")
 

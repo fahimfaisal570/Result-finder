@@ -942,8 +942,8 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
         try:
             exam_id_int = int(exam_id)
             
-            # Fetch all exam_ids for this profile <= exam_id_int to preserve index seeks
-            cur = conn.execute("SELECT exam_id FROM scan_log WHERE profile_name=?", (profile_name,))
+            # Fetch all exam_ids globally <= exam_id_int to support cross-profile/readd historical lookups
+            cur = conn.execute("SELECT DISTINCT exam_id FROM scan_log")
             matched_ids = []
             for (eid,) in cur.fetchall():
                 try:
@@ -959,9 +959,9 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
                 hist_cur = conn.execute(f"""
                     SELECT reg_no, MAX(grade_point) as best_gp, credit_hours
                     FROM subject_grades
-                    WHERE profile_name=? AND exam_id IN ({placeholders})
+                    WHERE exam_id IN ({placeholders})
                     GROUP BY reg_no, subject_code
-                """, (profile_name,) + tuple(matched_ids))
+                """, tuple(matched_ids))
                 for r_no, best_gp, ch in hist_cur.fetchall():
                     historical_grades_by_student[r_no].append((best_gp, ch))
         except ValueError:
