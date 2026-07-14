@@ -858,31 +858,7 @@ with tabs[0]:
 
   st.divider()
 
-  # Row 3: Achievement Gradient (rank vs CGPA)
-  st.markdown("#### Achievement Gradient (Rank vs GPA)")
-  
-  # Adaptive Fallback: In 1st semester, CGPA is typically 0. Use GPA instead.
-  use_gpa_grad = df_main['cgpa'].sum() == 0
-  gpa_col ='gpa' if use_gpa_grad else'cgpa'
-  gpa_title = "Semester GPA (GPA)" if use_gpa_grad else "Cumulative GPA"
-  
-  rank_df = df_main[df_main[gpa_col] > 0].sort_values(gpa_col, ascending=False).copy()
-  rank_df['Rank'] = range(1, len(rank_df) + 1)
-  
-  # Adaptive Y-axis to prevent'distances taken too far'
-  gpa_min = rank_df[gpa_col].min() if not rank_df.empty else 0.0
-  y_start = max(0.0, float(gpa_min) - 0.2)
-  
-  line = alt.Chart(rank_df).mark_line(point=True, color="#8b5cf6").encode(
-    x=alt.X('Rank:Q', title='Student Rank'),
-    y=alt.Y(f'{gpa_col}:Q', title=gpa_title, scale=alt.Scale(domain=[y_start, 4.0], clamp=True)),
-    tooltip=['name', alt.Tooltip(f'{gpa_col}:Q', format='.2f', title=gpa_title),'Rank']
-  ).properties(height=350)
-  st.altair_chart(line, width='stretch')
-  if use_gpa_grad:
-    st.caption("ℹ First-semester fallback: Ranking based on **GPA** (Cumulative GPA not yet available).")
-
-  st.divider()
+  # End of Stethoscope baseline tab
 
   # Row 4: Grade Distribution Breakdown
   st.markdown("#### Grade Distribution Breakdown")
