@@ -41,6 +41,14 @@ def inject_essential_ui():
                 margin-bottom: 1rem !important;
             }
             .stMetric { margin-bottom: 20px !important; }
+            [data-testid="stMetricValue"] {
+                font-size: 1.5rem !important;
+                white-space: normal !important;
+                word-break: break-all !important;
+            }
+            [data-testid="stMetricLabel"] {
+                font-size: 0.65rem !important;
+            }
         }
 
         /* Metric Cards with Mint Accent */

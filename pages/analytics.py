@@ -772,8 +772,6 @@ tabs = st.tabs(["Baseline Insight", "Trends", "Advanced Patterns", "Cube Pivot",
 # TAB 1: BASELINE
 # =========================================================================
 with tabs[0]:
-  st.subheader("High-Level Batch Stethoscope")
-
   has_failed_count = int(df_main['first_chance_fail'].sum())
   all_passed_count = len(df_main) - has_failed_count
   pass_rate = (all_passed_count / len(df_main)) * 100 if not df_main.empty else 0
@@ -836,7 +834,7 @@ with tabs[0]:
     st.caption(f"Visualized spread from {axis_start:.2f} (Semester Minimum Focus)")
 
   with row1_c2:
-    st.markdown("#### ⭕ First-Chance Pass Ratio")
+    st.markdown("#### First-Chance Pass Ratio")
     status_df = pd.DataFrame({
      'Status': ['Passed (1st Chance)','Failed (Any Subject)'],
      'Count': [all_passed_count, has_failed_count]
