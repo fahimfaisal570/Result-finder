@@ -778,18 +778,34 @@ with tabs[0]:
   all_passed_count = len(df_main) - has_failed_count
   pass_rate = (all_passed_count / len(df_main)) * 100 if not df_main.empty else 0
 
-  # High-End Metric Cards Row at the top
-  met1, met2, met3 = st.columns(3)
-  with met1:
+  # Calculate medians and total active students
+  valid_gpas = df_main[df_main['gpa'] > 0]['gpa']
+  valid_cgpas = df_main[df_main['cgpa'] > 0]['cgpa']
+  median_gpa = valid_gpas.median() if not valid_gpas.empty else 0.0
+  median_cgpa = valid_cgpas.median() if not valid_cgpas.empty else 0.0
+  total_active_students = len(df_main)
+
+  # High-End Metric Cards Row 1
+  met_row1 = st.columns(3)
+  with met_row1[0]:
     if is_first_sem:
       st.metric("Batch Mean GPA", f"{insights.get('mean_gpa', 0.0):.2f}")
     else:
       mom_val = insights.get('batch_momentum', 0.0)
       mom_str = f"{mom_val:+.2f} GP" if round(mom_val, 2) != 0.0 else "0.00 GP"
       st.metric("Batch Momentum", mom_str, help="Shift compared to historical baseline CGPA")
-  with met2:
+  with met_row1[1]:
+    st.metric("Median GPA", f"{median_gpa:.2f}", help="Middle GPA value of this semester's results")
+  with met_row1[2]:
+    st.metric("Active Students", f"{total_active_students}", help="Total students with active results in this semester")
+
+  # High-End Metric Cards Row 2
+  met_row2 = st.columns(3)
+  with met_row2[0]:
+    st.metric("Median CGPA", f"{median_cgpa:.2f}" if not is_first_sem else "N/A", help="Middle CGPA value of the batch up to this semester")
+  with met_row2[1]:
     st.metric("Honours Roster", f"{insights.get('honours_count', 0)} ({insights.get('honours_pct', 0.0):.1f}%)", help="Students with CGPA >= 3.50")
-  with met3:
+  with met_row2[2]:
     st.metric("Overall Pass Rate (1st Attempt)", f"{pass_rate:.1f}%", help="Percentage of students who passed all subjects in their first attempt.")
 
   st.divider()
