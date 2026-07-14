@@ -1087,7 +1087,6 @@ with tabs[2]:
       clusters = db.get_performance_archetypes(df_pivot, df_main, promo_target=promo_target, is_even_sem=is_even_sem, is_first_sem=is_first_sem, promo_yr=promo_yr)
       if clusters is not None:
         clust_df = df_main.merge(clusters, left_on='reg_no', right_index=True)
-        clust_df['momentum'] = (clust_df['gpa'] - clust_df['cgpa']).round(2) if not is_first_sem else 0.0
         
         # Strategic Quadrant (Y: Performance, X: Momentum/Variance)
         x_col ='momentum' if not is_first_sem else'std_gp'

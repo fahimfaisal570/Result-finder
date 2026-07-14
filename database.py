@@ -968,6 +968,26 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
             # If exam_id is non-integer, historical query is skipped
             pass
 
+        # Bulk query 3: Retrieve prior CGPA from the most recent exam for each student globally
+        prev_cgpa_map = {}
+        try:
+            exam_id_int = int(exam_id)
+            prev_cur = conn.execute("""
+                SELECT er.reg_no, er.cgpa
+                FROM exam_results er
+                JOIN (
+                    SELECT reg_no, MAX(CAST(exam_id AS INTEGER)) as max_eid
+                    FROM exam_results
+                    WHERE CAST(exam_id AS INTEGER) < ?
+                    GROUP BY reg_no
+                ) latest ON er.reg_no = latest.reg_no AND CAST(er.exam_id AS INTEGER) = latest.max_eid
+            """, (exam_id_int,))
+            for r_no, p_cgpa in prev_cur.fetchall():
+                if p_cgpa and p_cgpa > 0:
+                    prev_cgpa_map[r_no] = p_cgpa
+        except (ValueError, TypeError):
+            pass
+
         for reg_no, name, gpa_col, cgpa, db_status, raw_json_str, sess_id in students:
             # Get grades from memory
             grades = grades_by_student.get(reg_no)
@@ -1009,6 +1029,14 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
                     if total_cgpa_credits > 0:
                         cgpa = round(total_cgpa_points / total_cgpa_credits, 2)
 
+            # Calculate momentum compared to previous CGPA
+            prev_cgpa = prev_cgpa_map.get(reg_no, 0.0)
+            has_prior = prev_cgpa > 0
+            if has_prior and gpa > 0:
+                momentum = round(float(gpa) - float(prev_cgpa), 2)
+            else:
+                momentum = 0.0
+
             # Robust status mapping
             db_status = str(db_status)
             if "Promoted" in db_status or "Passed" in db_status or db_status == "P":
@@ -1028,6 +1056,8 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
                 "improvement_count": improvement_count,
                 "retake_count":      retake_count,
                 "first_chance_fail": first_chance_fail,
+                "momentum":          momentum,
+                "has_prior":         has_prior,
             })
 
     results.sort(key=lambda x: x["cgpa"], reverse=True)
@@ -2769,7 +2799,11 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
         if is_first_sem:
             insights['mean_gpa'] = valid_main['gpa'].mean().round(2)
         else:
-            insights['batch_momentum'] = (valid_main['gpa'].mean() - valid_main['cgpa'].mean()).round(2)
+            valid_mom = valid_main[valid_main['has_prior'] == True]
+            if not valid_mom.empty:
+                insights['batch_momentum'] = valid_mom['momentum'].mean().round(2)
+            else:
+                insights['batch_momentum'] = 0.0
             
         insights['honours_count'] = len(valid_main[valid_main['cgpa'] >= 3.5 if not is_first_sem else valid_main['gpa'] >= 3.5])
         insights['honours_pct'] = (insights['honours_count'] / len(valid_main)) * 100
