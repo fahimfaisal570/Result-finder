@@ -673,9 +673,11 @@ if show_strategic_brief:
              delta="Initial Baseline")
     else:
       momentum = insights.get('batch_momentum', 0)
-      m_col1.metric("Batch Momentum", f"{momentum:+.2f}", 
-             delta="Improving" if momentum > 0 else "Declining",
-             delta_color="normal")
+      rounded_mom = round(momentum, 2)
+      delta_text = "Improving" if rounded_mom > 0 else ("Declining" if rounded_mom < 0 else "Steady")
+      m_col1.metric("Batch Momentum", f"{momentum:+.2f}" if rounded_mom != 0.0 else "0.00", 
+             delta=delta_text,
+             delta_color="normal" if rounded_mom != 0.0 else "off")
     
     # Metric 2: Honours Pipeline
     m_col2.metric("Honours Pipeline", f"{insights.get('honours_count', 0)}", 
@@ -756,7 +758,8 @@ if show_strategic_brief:
         st.info("**Initial Talent Discovery:** This is the baseline semester. Use this scan to identify the natural technical aptitude of the new cohort.")
       else:
         momentum = insights.get('batch_momentum', 0)
-        st.info(f"**Batch Momentum:** {momentum:+.2f} GP points shift compared to historical CGPA.")
+        mom_str = f"{momentum:+.2f}" if round(momentum, 2) != 0.0 else "0.00"
+        st.info(f"**Batch Momentum:** {mom_str} GP points shift compared to historical CGPA.")
 
 st.divider()
 
@@ -781,7 +784,9 @@ with tabs[0]:
     if is_first_sem:
       st.metric("Batch Mean GPA", f"{insights.get('mean_gpa', 0.0):.2f}")
     else:
-      st.metric("Batch Momentum", f"{insights.get('batch_momentum', 0.0):+.2f} GP", help="Shift compared to historical baseline CGPA")
+      mom_val = insights.get('batch_momentum', 0.0)
+      mom_str = f"{mom_val:+.2f} GP" if round(mom_val, 2) != 0.0 else "0.00 GP"
+      st.metric("Batch Momentum", mom_str, help="Shift compared to historical baseline CGPA")
   with met2:
     st.metric("Honours Roster", f"{insights.get('honours_count', 0)} ({insights.get('honours_pct', 0.0):.1f}%)", help="Students with CGPA >= 3.50")
   with met3:
