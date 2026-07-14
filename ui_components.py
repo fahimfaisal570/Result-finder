@@ -10,34 +10,30 @@ def inject_essential_ui():
     """
     minimal_css = """
     <style>
-        /* Import Google Fonts */
+        /* Google Fonts */
         @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap');
 
-        /* Base Typography */
+        /* Typography */
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif !important;
         }
-
-        /* Headings (Outfit) */
         h1, h2, h3, h4, h5, h6 {
             font-family: 'Outfit', sans-serif !important;
             font-weight: 600 !important;
             letter-spacing: -0.02em !important;
         }
-        
         h1 { font-weight: 700 !important; }
-
-        /* Monospace / Data (Fira Code) */
         code, pre, .st-key-reg_no, [data-testid="stMetricValue"] {
             font-family: 'Fira Code', monospace !important;
         }
 
-        /* [MAINTENANCE] Hide Streamlit Branding and Menus */
+        /* Hide Streamlit Branding */
         [data-testid="stHeader"] a { display: none !important; }
         #MainMenu { visibility: hidden !important; }
         footer { visibility: hidden !important; height: 0 !important; }
-        
-        /* [MAINTENANCE] Mobile Support: Column Stacking */
+        [data-testid="stSidebarNav"] { display: none !important; }
+
+        /* Responsive Grid Columns */
         @media screen and (max-width: 768px) {
             [data-testid="column"] {
                 width: 100% !important;
@@ -47,129 +43,79 @@ def inject_essential_ui():
             .stMetric { margin-bottom: 20px !important; }
         }
 
-        /* [MAINTENANCE] Sidebar Streamlining */
-        [data-testid="stSidebarNav"] { display: none !important; }
-
-        /* Premium Component Styling */
-        
-        /* Metrics */
+        /* Metric Cards with Mint Accent */
         [data-testid="stMetric"] {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background: var(--secondary-background-color) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-left: 3px solid #10b981 !important;
             border-radius: 12px;
             padding: 16px !important;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             transition: transform 0.2s ease;
         }
         [data-testid="stMetric"]:hover {
             transform: translateY(-2px);
         }
+        [data-testid="stMetricValue"] {
+            font-family: 'Fira Code', monospace !important;
+        }
         [data-testid="stMetricLabel"] {
             font-weight: 500 !important;
             opacity: 0.8;
-            font-family: 'Inter', sans-serif !important;
             text-transform: uppercase;
             font-size: 0.75rem !important;
             letter-spacing: 0.05em;
         }
-        
-        /* Expanders */
+
+        /* Expanders with Teal Accent */
         [data-testid="stExpander"] {
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-left: 3px solid rgba(6, 182, 212, 0.4) !important;
             border-radius: 8px !important;
-            background: rgba(255, 255, 255, 0.02) !important;
+            background: var(--secondary-background-color) !important;
         }
         [data-testid="stExpander"] summary {
             font-family: 'Outfit', sans-serif !important;
             font-weight: 500 !important;
         }
 
-        /* Inline Markdown Content (Course Listings, GP Labels) */
-        [data-testid="stExpander"] p,
-        [data-testid="stVerticalBlock"] p {
-            font-family: 'Inter', sans-serif !important;
-            font-size: 0.92rem !important;
-            line-height: 1.65 !important;
-            letter-spacing: 0.01em;
-        }
-        
-        /* Inline Code Tags (Course Codes like CE-601) */
+        /* Code Tags (Teal theme) */
         [data-testid="stExpander"] code,
         [data-testid="stVerticalBlock"] code {
             font-family: 'Fira Code', monospace !important;
             font-size: 0.82rem !important;
-            font-weight: 500 !important;
-            background: rgba(99, 102, 241, 0.12) !important;
-            color: rgba(165, 180, 252, 1) !important;
+            background: rgba(6, 182, 212, 0.12) !important;
+            color: #06b6d4 !important;
             padding: 2px 7px !important;
             border-radius: 5px !important;
-            border: 1px solid rgba(99, 102, 241, 0.15) !important;
-            letter-spacing: 0.03em;
+            border: 1px solid rgba(6, 182, 212, 0.15) !important;
         }
 
-        /* Strong/Bold inside markdown (Course Names) */
-        [data-testid="stExpander"] strong {
-            font-family: 'Inter', sans-serif !important;
-            font-weight: 600 !important;
-        }
-
-        /* Italic inside markdown (Subject Full Names) */
-        [data-testid="stExpander"] em {
-            font-family: 'Inter', sans-serif !important;
-            font-style: italic;
-            opacity: 0.85;
-        }
-
-        /* Number Inputs (GP Target Spinners) */
-        [data-testid="stNumberInput"] input {
-            font-family: 'Fira Code', monospace !important;
-            font-weight: 500 !important;
-            font-size: 0.9rem !important;
-            letter-spacing: 0.02em;
-        }
-
-        /* Bordered Containers (Student Cards) */
+        /* Bordered Containers (Cards) */
         [data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
-            border-radius: 10px !important;
+            background: var(--secondary-background-color) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 12px !important;
             transition: border-color 0.2s ease;
         }
-
-        /* Captions */
-        [data-testid="stCaptionContainer"] {
-            font-family: 'Inter', sans-serif !important;
-            font-size: 0.78rem !important;
-            letter-spacing: 0.02em;
-            opacity: 0.65;
+        [data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+            border-color: rgba(6, 182, 212, 0.3) !important;
         }
 
-        /* Slider Labels */
-        [data-testid="stSlider"] label {
-            font-family: 'Inter', sans-serif !important;
-            font-weight: 500 !important;
+        /* Buttons */
+        [data-testid="baseButton-secondary"] {
+            border-radius: 8px !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
         }
-        [data-testid="stSlider"] [data-testid="stThumbValue"] {
-            font-family: 'Fira Code', monospace !important;
+        [data-testid="baseButton-primary"] {
+            border-radius: 8px !important;
+            background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%) !important;
+            border: none !important;
+            box-shadow: 0 4px 6px -1px rgba(6, 182, 212, 0.3) !important;
         }
-
-        /* Text Inputs (Search Bar) */
-        [data-testid="stTextInput"] label {
-            font-family: 'Inter', sans-serif !important;
-            font-weight: 500 !important;
-        }
-        [data-testid="stTextInput"] input {
-            font-family: 'Inter', sans-serif !important;
-        }
-
-        /* Dividers */
-        [data-testid="stMarkdownContainer"] hr {
-            border-color: rgba(255, 255, 255, 0.06) !important;
-            margin: 1.5rem 0 !important;
-        }
-
-        /* Tabs */
-        [data-testid="stTabs"] button {
-            font-family: 'Outfit', sans-serif !important;
-            font-weight: 500 !important;
+        [data-testid="baseButton-primary"]:hover {
+            box-shadow: 0 6px 8px -1px rgba(6, 182, 212, 0.4) !important;
+            transform: translateY(-1px);
         }
 
         /* Links */
@@ -182,25 +128,6 @@ def inject_essential_ui():
         a:hover { 
             text-decoration: underline !important; 
             opacity: 0.8;
-        }
-        
-        /* Buttons */
-        [data-testid="baseButton-secondary"] {
-            font-family: 'Inter', sans-serif !important;
-            font-weight: 500 !important;
-            border-radius: 8px !important;
-        }
-        [data-testid="baseButton-primary"] {
-            font-family: 'Inter', sans-serif !important;
-            font-weight: 600 !important;
-            border-radius: 8px !important;
-            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
-            border: none !important;
-            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3) !important;
-        }
-        [data-testid="baseButton-primary"]:hover {
-            box-shadow: 0 6px 8px -1px rgba(37, 99, 235, 0.4) !important;
-            transform: translateY(-1px);
         }
     </style>
     """
@@ -225,9 +152,9 @@ def inject_essential_ui():
                      const isOpen = !!doc.querySelector('div[role="listbox"]');
                      
                      if (btn && !isOpen) {
-                         trigger(btn);
-                         selectbox.dataset.hoverLock = "true";
-                         setTimeout(() => { selectbox.dataset.hoverLock = ""; }, 500);
+                          trigger(btn);
+                          selectbox.dataset.hoverLock = "true";
+                          setTimeout(() => { selectbox.dataset.hoverLock = ""; }, 500);
                      }
                 }
             };
@@ -253,7 +180,6 @@ def add_contact_section():
         flex-direction: column;
         align-items: center;
         gap: 1.5rem;
-        animation: fadeIn 0.8s ease forwards;
     }
     .footer-socials {
         display: flex;
@@ -266,14 +192,15 @@ def add_contact_section():
         width: 44px;
         height: 44px;
         border-radius: 12px;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: rgba(255, 255, 255, 0.7) !important;
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--text-color) !important;
+        opacity: 0.7;
         transition: all 0.2s ease;
     }
     .social-btn:hover {
-        background: rgba(255, 255, 255, 0.1);
-        color: white !important;
+        background: var(--secondary-background-color);
+        opacity: 1;
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     }
@@ -285,12 +212,9 @@ def add_contact_section():
     .footer-text {
         font-family: 'Inter', sans-serif;
         font-size: 0.85rem;
-        color: rgba(255, 255, 255, 0.5);
+        color: var(--text-color);
+        opacity: 0.5;
         letter-spacing: 0.02em;
-    }
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
     }
     </style>
     <div class="premium-footer">

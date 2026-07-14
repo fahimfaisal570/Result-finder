@@ -99,7 +99,7 @@ if batch_exams_b64:
     try:
         batch_exams = json.loads(base64.b64decode(batch_exams_b64).decode())
     except:
-        st.error("❌ Failed to decode batch exams payload.")
+        st.error("Failed to decode batch exams payload.", icon=":material/error:")
         st.stop()
     
     st.title("Automated Batch Scan")
@@ -154,7 +154,7 @@ if batch_exams_b64:
             summary_data.append({"Exam": info["name"], "Students Found": len(info["data"]), "Status": "Ready for Analytics"})
         st.table(summary_data)
 
-        st.write("---")
+        st.divider()
         if st.button("Save All to Analytics Dashboard", width='stretch', type="primary"):
             success_count = 0
             with st.spinner("Persisting results to database..."):
@@ -212,7 +212,7 @@ else:
     st.html(html_out)
 
     if results:
-        st.write("---")
+        st.divider()
         if profile_name and profile_name != "Manual Scan":
             st.markdown("### Save Analytics to database")
             st.caption(f"Save these exam grades to **'{profile_name}'** to visualize them on the Analytics Dashboard.")

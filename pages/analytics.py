@@ -58,18 +58,27 @@ def get_promotion_rules(exam_label):
   yr = None
   
   yr_match = re.search(r"(\d)[a-z]{2}\s*Yr", exam_label, re.IGNORECASE)
+  if not yr_match:
+    yr_match = re.search(r"(\d)[a-z]{2}\s*Year", exam_label, re.IGNORECASE)
+    
   sem_match = re.search(r"(\d)[a-z]{2}\s*Sem", exam_label, re.IGNORECASE)
-  
-  if yr_match:
-    yr = int(yr_match.group(1))
-    if yr == 1: promo_target = 2.00
-    elif yr == 2: promo_target = 2.25
-    elif yr == 3: promo_target = 2.50
-    elif yr == 4: promo_target = 2.75
+  if not sem_match:
+    sem_match = re.search(r"(\d)[a-z]{2}\s*Semester", exam_label, re.IGNORECASE)
     
   if sem_match:
     sem = int(sem_match.group(1))
-    is_even_sem = (sem == 2)
+    is_even_sem = (sem % 2 == 0)
+    if not yr_match:
+      yr = (sem - 1) // 2 + 1
+      
+  if yr_match:
+    yr = int(yr_match.group(1))
+    
+  if yr is not None:
+    if yr == 1: promo_target = 2.00
+    elif yr == 2: promo_target = 2.25
+    elif yr == 3: promo_target = 2.50
+    elif yr == 4: promo_target = None  # No promotion threshold/graduation risk check for Year 4
     
   return promo_target, is_even_sem, yr
 
@@ -715,10 +724,23 @@ if show_strategic_brief:
               st.session_state._deep_cache[cache_key] = result
               st.rerun()
 
-      risk_students = insights.get('risk_students', [])
-      if risk_students:
-        st.warning(f"**⚠ {len(risk_students)} Student(s) At-Risk:** Falling below the {promo_target if promo_target else 2.00} CGPA threshold.")
-        _render_student_list(risk_students)
+      m_ct = len(insights.get('readd_students', []))
+      f_ct = len(insights.get('failed_students', []))
+      c_ct = len(insights.get('critical_students', []))
+      r_ct = len(insights.get('risk_students', []))
+
+      if m_ct > 0:
+        st.error(f"**Readd Alert:** {m_ct} Student(s) have too high of a credit/GP deficit to meet Year {promo_yr} {promo_target} CGPA threshold.")
+        _render_student_list(insights.get('readd_students', []))
+      if f_ct > 0:
+        st.error(f"**Failed Promotion:** {f_ct} Student(s) did not meet the Year {promo_yr} {promo_target} CGPA promotion threshold.")
+        _render_student_list(insights.get('failed_students', []))
+      if c_ct > 0:
+        st.error(f"**Critically At-Risk:** {c_ct} Student(s) are below the Year {promo_yr} {promo_target} CGPA threshold. High probability of failing promotion.")
+        _render_student_list(insights.get('critical_students', []))
+      if r_ct > 0:
+        st.warning(f"**At-Risk:** {r_ct} Student(s) are hovering dangerously close (+0.15 margin) to the Year {promo_yr} {promo_target} cutoff.")
+        _render_student_list(insights.get('risk_students', []))
       
       if 'bottleneck' in insights:
         st.warning(f"**Bottleneck Identified:** The subject **{insights['bottleneck']}** has the lowest cohort average (**{insights['bottleneck_gp']} GP**).")
@@ -1069,44 +1091,27 @@ with tabs[2]:
         
         # 3-State Visual Color Mapping grouped by status
         color_map = {
-          "Exceeding": "#22c55e",
-          "Exceeding ↑ (Improving)": "#4ade80",
-          "Exceeding ↓ (Declining)": "#166534",
-          
-          "On-Track": "#3b82f6",
-          "On-Track ↑ (Improving)": "#60a5fa",
-          "On-Track ↓ (Declining)": "#1e40af",
-          "At-Risk": "#f59e0b",  # Amber/Orange
-          "At-Risk ↑ (Improving)": "#fcd34d",
-          "At-Risk ↓ (Declining)": "#b45309",
-          
-          "Critical": "#ef4444",  # Red
-          "Critical ↑ (Improving)": "#fca5a5",
-          "Critical ↓ (Declining)": "#7f1d1d"
+          "Top": "#10b981",              # Vibrant Mint
+          "Steady": "#06b6d4",           # Electric Teal
+          "Average": "#f59e0b",          # Golden Amber
+          "At-Risk (Promotion)": "#ff0055",  # Neon Crimson Red
+          "Failed Promotion": "#881337"  # Deep Crimson Wine
         }
-
-        # Filter the color map to only include active legends
-        active_domains = []
-        active_ranges = []
-        for k, v in color_map.items():
-          if k in clust_df['Archetype'].values:
-            active_domains.append(k)
-            active_ranges.append(v)
-
-        danger_archetypes = [a for a in active_domains if "Critical" in a]
+ 
+        danger_archetypes = ["Failed Promotion"]
         
-        base_scatter = alt.Chart(clust_df).mark_circle(size=250).encode(
+        base_scatter = alt.Chart(clust_df).mark_circle(size=130).encode(
           x=alt.X(f'{x_col}:Q', title=x_title, 
               axis=alt.Axis(grid=True),
               scale=alt.Scale(domain=[clust_df[x_col].min()-0.1, clust_df[x_col].max()+0.1])),
           y=alt.Y('gpa:Q', title='Semester GPA (GPA)', 
               scale=alt.Scale(domain=[clust_df['gpa'].min()-0.2, 4.1])),
-          color=alt.Color('Archetype:N', 
-                  scale=alt.Scale(domain=active_domains, range=active_ranges),
+          color=alt.Color('Detailed_Status:N', 
+                  scale=alt.Scale(domain=list(color_map.keys()), range=list(color_map.values())),
                   legend=alt.Legend(orient="bottom", columns=2, titleLimit=0, labelLimit=0),
-                  title='Status & Trend'),
+                  title='Status'),
           opacity=alt.condition(
-            alt.FieldOneOfPredicate(field='Archetype', oneOf=danger_archetypes),
+            alt.FieldOneOfPredicate(field='Detailed_Status', oneOf=danger_archetypes),
             alt.value(0.0),
             alt.value(1.0)
           ),
@@ -1116,9 +1121,9 @@ with tabs[2]:
                alt.Tooltip(f'{x_col}:Q', format='.2f', title=x_title)]
         )
         
-        df_danger = clust_df[clust_df['Archetype'].isin(danger_archetypes)]
+        df_danger = clust_df[clust_df['Detailed_Status'].isin(danger_archetypes)]
         if not df_danger.empty:
-          danger_overlay = alt.Chart(df_danger).mark_text(text='⚠️', size=18).encode(
+          danger_overlay = alt.Chart(df_danger).mark_text(text='⚠️', size=14, color='#f59e0b').encode(
             x=f'{x_col}:Q', y='gpa:Q',
             tooltip=['name', alt.Tooltip('reg_no:N', title='Reg No'),'Archetype',
                  alt.Tooltip('gpa:Q', format='.2f', title='Current GPA'),
@@ -1133,7 +1138,7 @@ with tabs[2]:
           df_spot = clust_df[clust_df['name'] == spotlight_student]
           if not df_spot.empty:
             spot_overlay = alt.Chart(df_spot).mark_circle(
-              size=700, color='transparent', stroke='#fbbf24', strokeWidth=3
+              size=400, color='transparent', stroke='#fbbf24', strokeWidth=3
             ).encode(x=f'{x_col}:Q', y='gpa:Q')
             scatter = scatter + spot_overlay
         

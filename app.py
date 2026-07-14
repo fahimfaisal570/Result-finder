@@ -38,9 +38,19 @@ ui.inject_essential_ui()
 
 # --- Logic Blocks ---
 
-# --- Header ---
-st.title("Result Finder")
-st.write("A premium, high-performance web dashboard for academic result analytics.")
+# --- Branded Header ---
+logo_col, text_col = st.columns([1, 6], vertical_alignment="center")
+with logo_col:
+    if os.path.exists("college_logo.png"):
+        st.image("college_logo.png", width=85)
+with text_col:
+    st.markdown(
+        '<div style="font-family: Outfit, sans-serif; font-size: 2.2rem; font-weight: 700; line-height: 1.1; color: var(--text-color);">'
+        'Result Finder <span style="font-size: 0.9rem; font-weight: 600; color: #16A34A; vertical-align: middle; margin-left: 4px;">PRO</span>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+    st.caption("A premium web dashboard for academic result analytics and cohort intelligence.")
 
 if 'programs' not in st.session_state:
     with st.spinner("Connecting..."):
@@ -48,17 +58,12 @@ if 'programs' not in st.session_state:
 
 # --- Sidebar ---
 with st.sidebar:
-    logo_file = "college_logo.png"
-    if os.path.exists(logo_file):
-        b64 = get_base64_logo(logo_file)
-        st.markdown(f'<div style="text-align: center; margin-top:-70px;"><img src="data:image/png;base64,{b64}" width="160"></div>', unsafe_allow_html=True)
-    else:
-        st.title("Result Finder")
-    
-    st.write("---")
-    
-    # Sidebar navigation and information
-    st.write("---")
+    st.markdown(
+        '<div style="font-family: Outfit, sans-serif; font-size: 1.1rem; font-weight: 600; '
+        'letter-spacing: -0.01em; padding: 0.5rem 0 0.75rem 0; opacity: 0.95;">'
+        'Result Finder PRO</div>',
+        unsafe_allow_html=True
+    )
     mode = st.radio("Mode", ["Interactive Scan", "Saved Profiles"], index=1)
 
 if mode == "Interactive Scan":
@@ -90,7 +95,7 @@ if mode == "Interactive Scan":
     st.markdown(f"**Main Batch ({session_name})**")
     main_range = st.text_input("Registration Numbers (e.g., 210101-210150)", key="main_range_input")
     
-    st.markdown("---")
+    st.divider()
     st.markdown("**Senior Re-adds**")
     to_delete = []
     for i, ra in enumerate(st.session_state.ra_items):
@@ -103,7 +108,7 @@ if mode == "Interactive Scan":
             ra['sess'] = st.selectbox(f"Session {i+1}", options=s_options, index=s_idx, key=f"ra_sess_{i}")
         with r_col3:
             st.write("") 
-            if st.button("🗑️", key=f"ra_del_{i}"):
+            if st.button("", key=f"ra_del_{i}", icon=":material/delete:"):
                 to_delete.append(i)
     
     if to_delete:
@@ -130,12 +135,12 @@ if mode == "Interactive Scan":
             st.link_button(f"Run Scraper & View Results ({len(payload)} Batches)", url=res_url, width='stretch')
 
 else: # Saved Profiles Mode
-    st.sidebar.markdown("---")
+    st.sidebar.divider()
     st.sidebar.page_link("pages/analytics.py", label="Open Data Analytics", icon=":material/analytics:")
-    st.sidebar.markdown("---")
+    st.sidebar.divider()
     
     # --- Create Manual Batch in Sidebar ---
-    with st.sidebar.expander("🛠️ Create Manual Batch", expanded=False):
+    with st.sidebar.expander("Create Manual Batch", expanded=False, icon=":material/construction:"):
         st.write("Create a provisional batch without portal results.")
         PROFILE_NAME_PATTERN = re.compile(r'^(cse|eee|civil)\s+\d+$', re.IGNORECASE)
         
@@ -158,13 +163,13 @@ else: # Saved Profiles Mode
             if not prov_name or not regs_input or not pro_id_prov or not sess_id_prov:
                 st.error("Please fill in all fields.")
             elif not PROFILE_NAME_PATTERN.match(prov_name):
-                st.error("❌ Must follow format: 'cse 12', 'eee 12', 'civil 12'")
+                st.error("Must follow format: 'cse 12', 'eee 12', 'civil 12'")
             elif db.profile_exists(prov_name.lower().strip()):
                 st.error("Profile already exists")
             else:
                 parsed_regs = cs.parse_range(regs_input)
                 if not parsed_regs:
-                    st.error("❌ Invalid registration range.")
+                    st.error("Invalid registration range.")
                 else:
                     # Remove duplicate registration numbers (ensure uniqueness)
                     parsed_regs = list(dict.fromkeys(parsed_regs))
@@ -188,7 +193,7 @@ else: # Saved Profiles Mode
 
         st.header(f"Profile: {p_selected}")
         if is_prov:
-            st.warning("🔶 **Provisional Batch** — Waiting for portal results to publish.")
+            st.warning("**Provisional Batch** — Waiting for portal results to publish.", icon=":material/schedule:")
             
             # --- Check Portal CTA ---
             st.markdown("### Check Portal for Results")
@@ -213,19 +218,19 @@ else: # Saved Profiles Mode
                                 break
                         
                         if not matched:
-                            st.warning("❌ No results found on portal yet for this exam.")
+                            st.warning("No results found on portal yet for this exam.", icon=":material/search_off:")
                         else:
-                            st.success("✅ Results found on portal! Redirecting to scraper...")
+                            st.success("Results found on portal! Redirecting to scraper...", icon=":material/check_circle:")
                             payload = [[f"{p_regs[0][0]}-{p_regs[-1][0]}", active_sess_id]]
                             payload_str = base64.b64encode(json.dumps(payload).encode()).decode()
                             from urllib.parse import quote as _quote
                             st.markdown(f'<meta http-equiv="refresh" content="0; url=/results?profile={_quote(p_selected)}&exam_id={chk_exam_id}&exam_name={_quote(chk_exam_name)}">', unsafe_allow_html=True)
                             st.link_button("Launch Full Import & Promotion", url=f"/results?profile={_quote(p_selected)}&exam_id={chk_exam_id}&exam_name={_quote(chk_exam_name)}")
-            st.write("---")
-
+            st.divider()
+ 
         st.write(f"Students: {len(profile_data.get('regs', []))}")
         
-        with st.expander("View Student List"):
+        with st.expander("View Student List", icon=":material/list:"):
             p_regs = profile_data.get('regs', [])
             pro_id_p = profile_data.get('pro_id', '')
             import urllib.parse as _urlparse
@@ -236,7 +241,7 @@ else: # Saved Profiles Mode
                 url = f"/transcript?reg={reg_no}&pro_id={_urlparse.quote(str(pro_id_p))}&profile={_urlparse.quote(p_selected)}"
                 links.append(f"• [{name} ({reg_no})]({url})")
             st.markdown("\n".join(links))
-
+ 
         exams_raw = fetch_exams(profile_data.get('pro_id')) if profile_data.get('pro_id') else {}
         if exams_raw:
             p_regs = profile_data.get('regs', [])
@@ -246,7 +251,7 @@ else: # Saved Profiles Mode
             mains_dict, others_dict = classify_exams(exams_raw, active_sess_name, probe_regs=probe_regs, pro_id=profile_data.get('pro_id'))
             
             from urllib.parse import quote as _quote
-            st.markdown("<div style='text-align: center; color: #8b949e; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase;'>Main Batch Exams</div>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center; color: var(--text-color); opacity: 0.6; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase;'>Main Batch Exams</div>", unsafe_allow_html=True)
             for eid, ename in mains_dict.items():
                 url = f"/results?profile={_quote(p_selected)}&exam_id={eid}&exam_name={_quote(ename)}"
                 st.markdown(f"• **[{ename}]({url})**")
@@ -331,7 +336,7 @@ else: # Saved Profiles Mode
                         reg = int(res.get('Registration No', res.get('Reg', '0')))
                         name = res.get('Name', 'Unknown')
                         is_dup = (reg, str(stored_sess_id)) in existing_regs_set
-                        label = f"{'↻ ' if is_dup else ''}{name} ({reg}){' — already in profile' if is_dup else ''}"
+                        label = f"{'[Update] ' if is_dup else ''}{name} ({reg}){' — already in profile' if is_dup else ''}"
                         checked = st.checkbox(
                             label,
                             value=not is_dup,  # New students checked by default, duplicates unchecked
@@ -381,7 +386,7 @@ else: # Saved Profiles Mode
                             if 'add_student_sess_id' in st.session_state:
                                 del st.session_state['add_student_sess_id']
                             st.rerun()
-
-    st.markdown("---")
+ 
+    st.divider()
 
 ui.add_contact_section()
