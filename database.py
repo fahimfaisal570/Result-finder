@@ -3107,9 +3107,45 @@ def generate_student_projection_pdf(
             
             pdf.cell(sw, 6.5, f" {sb['label']}", border=1)
             pdf.cell(sw, 6.5, f" {o_gpa_str}", border=1)
-            pdf.cell(sw, 6.5, f" {sb['computed_gpa']:.2f}", border=1)
+            
+            # Adjusted GPA Cell with colored delta
+            curr_x = pdf.get_x()
+            curr_y = pdf.get_y()
+            pdf.cell(sw, 6.5, "", border=1)
+            pdf.set_xy(curr_x + 2, curr_y)
+            pdf.set_text_color(50, 50, 50)
+            pdf.write(6.5, f"{sb['computed_gpa']:.2f}")
+            if o_gpa is not None and o_gpa > 0:
+                delta_g = sb['computed_gpa'] - o_gpa
+                if abs(delta_g) >= 0.01:
+                    if delta_g > 0:
+                        pdf.set_text_color(34, 197, 94)  # Green
+                    else:
+                        pdf.set_text_color(239, 68, 68)  # Red
+                    pdf.write(6.5, f" ({delta_g:+.2f})")
+            pdf.set_text_color(50, 50, 50)
+            pdf.set_xy(curr_x + sw, curr_y)
+            
             pdf.cell(sw, 6.5, f" {o_cgpa_str}", border=1)
-            pdf.cell(sw, 6.5, f" {sb['computed_cgpa']:.2f}", border=1)
+            
+            # Adjusted CGPA Cell with colored delta
+            curr_x = pdf.get_x()
+            curr_y = pdf.get_y()
+            pdf.cell(sw, 6.5, "", border=1)
+            pdf.set_xy(curr_x + 2, curr_y)
+            pdf.set_text_color(50, 50, 50)
+            pdf.write(6.5, f"{sb['computed_cgpa']:.2f}")
+            if o_cgpa is not None and o_cgpa > 0:
+                delta_cg = sb['computed_cgpa'] - o_cgpa
+                if abs(delta_cg) >= 0.01:
+                    if delta_cg > 0:
+                        pdf.set_text_color(34, 197, 94)  # Green
+                    else:
+                        pdf.set_text_color(239, 68, 68)  # Red
+                    pdf.write(6.5, f" ({delta_cg:+.2f})")
+            pdf.set_text_color(50, 50, 50)
+            pdf.set_xy(curr_x + sw, curr_y)
+            
             pdf.cell(sw, 6.5, f" {sb['credits']:.2f}", border=1, new_x="LMARGIN", new_y="NEXT")
         pdf.ln(6)
 
