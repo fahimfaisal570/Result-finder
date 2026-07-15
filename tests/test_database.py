@@ -765,6 +765,55 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertEqual(len(insights['risk_students']), 2)
         self.assertEqual(insights['risk_students'][0][0], 1003)
 
+    def test_generate_student_projection_pdf(self):
+        deep_res = {
+            'official_cgpa': 3.25,
+            'true_cgpa': 3.25,
+            'total_credits': 60.0,
+            'current_semester': 4,
+            'effective_grade_count': 10,
+            'semesters_found': 4
+        }
+        adv_proj = {
+            'pending_retakes': [
+                {'code': 'CSE-1102', 'name': 'Math II', 'credit': 3.0, 'current_gp': 0.0, 'semester': 1}
+            ],
+            'improvement_candidates': [
+                {'code': 'CSE-2101', 'name': 'OOP', 'credit': 3.0, 'current_gp': 2.25, 'semester': 3}
+            ]
+        }
+        overrides = {
+            'CSE-1102': 3.00,
+            'CSE-2101': 3.50
+        }
+        sem_breakdown = [
+            {'label': '1-1', 'official_gpa': 3.00, 'computed_gpa': 3.00, 'official_cgpa': 3.00, 'computed_cgpa': 3.00, 'credits': 15.0},
+            {'label': '1-2', 'official_gpa': 3.20, 'computed_gpa': 3.50, 'official_cgpa': 3.10, 'computed_cgpa': 3.25, 'credits': 15.0}
+        ]
+        grad_proj = {
+            'target_grad_cgpa': 3.50,
+            'already_met': False,
+            'is_achievable': True,
+            'required_avg_gpa': 3.65
+        }
+        
+        pdf_bytes = database.generate_student_projection_pdf(
+            student_name="Fahim Faisal",
+            reg_no=1001,
+            profile_name="cse 09",
+            deep_res=deep_res,
+            adv_proj=adv_proj,
+            overrides=overrides,
+            adj_cgpa=3.45,
+            adj_credits=63.0,
+            precise_target_gpa=3.60,
+            sem_breakdown=sem_breakdown,
+            grad_proj=grad_proj,
+            dept="CSE"
+        )
+        self.assertIsNotNone(pdf_bytes)
+        self.assertTrue(len(pdf_bytes) > 0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

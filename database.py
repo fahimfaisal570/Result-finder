@@ -2878,3 +2878,282 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
             insights['synergy'] = (top_corr['s1'], top_corr['s2'], top_corr['coeff'].round(2))
             
     return insights
+
+
+def generate_student_projection_pdf(
+    student_name: str,
+    reg_no: int,
+    profile_name: str,
+    deep_res: dict,
+    adv_proj: dict,
+    overrides: dict,
+    adj_cgpa: float,
+    adj_credits: float,
+    precise_target_gpa: float,
+    sem_breakdown: list,
+    grad_proj: dict,
+    dept: str
+) -> bytes:
+    from fpdf import FPDF
+    import datetime
+
+    class StudentReportPDF(FPDF):
+        def header(self):
+            # Banner
+            self.set_fill_color(26, 54, 93)  # Dark Navy
+            self.rect(0, 0, 210, 30, "F")
+            self.set_y(8)
+            self.set_font("Helvetica", "B", 14)
+            self.set_text_color(255, 255, 255)
+            self.cell(0, 6, "OFFICIAL ACADEMIC ANALYSIS & PROJECTION REPORT", new_x="LMARGIN", new_y="NEXT", align="C")
+            self.set_font("Helvetica", "I", 9)
+            self.set_text_color(200, 214, 229)
+            self.cell(0, 5, f"Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Analytical Forecast System", new_x="LMARGIN", new_y="NEXT", align="C")
+            self.ln(12)
+            
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("Helvetica", "I", 8)
+            self.set_text_color(150, 150, 150)
+            self.cell(0, 10, f"Page {self.page_no()}/{{nb}} | Confidential Student Progress Report", align="C")
+
+    pdf = StudentReportPDF(orientation='P', unit='mm', format='A4')
+    pdf.alias_nb_pages()
+    pdf.add_page()
+    pdf.set_margins(15, 15, 15)
+    pdf.set_y(35) # Start after header banner
+
+    # Colors
+    c_navy = (26, 54, 93)
+    c_light_blue = (235, 243, 250)
+    c_gray_border = (200, 200, 200)
+
+    # 1. Student Profile Box
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(*c_navy)
+    pdf.cell(0, 6, "STUDENT PROFILE", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+    
+    # Render metadata table
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(50, 50, 50)
+    
+    col_w = 45
+    pdf.set_fill_color(*c_light_blue)
+    pdf.set_draw_color(*c_gray_border)
+    
+    # Row 1
+    pdf.cell(col_w, 7, " Student Name:", border=1, fill=True)
+    pdf.cell(col_w * 3, 7, f" {student_name}", border=1, new_x="LMARGIN", new_y="NEXT")
+    
+    # Row 2
+    pdf.cell(col_w, 7, " Registration No:", border=1, fill=True)
+    pdf.cell(col_w, 7, f" {reg_no}", border=1)
+    pdf.cell(col_w, 7, " Department:", border=1, fill=True)
+    pdf.cell(col_w, 7, f" {dept.upper()}", border=1, new_x="LMARGIN", new_y="NEXT")
+    
+    # Row 3
+    pdf.cell(col_w, 7, " Batch Profile:", border=1, fill=True)
+    pdf.cell(col_w, 7, f" {profile_name}", border=1)
+    pdf.cell(col_w, 7, " Current Semester:", border=1, fill=True)
+    pdf.cell(col_w, 7, f" {deep_res.get('current_semester', 'N/A')}", border=1, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(6)
+
+    # 2. Key Projection Summary Box
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(*c_navy)
+    pdf.cell(0, 6, "ACADEMIC SUMMARY & SIMULATION RESULTS", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(50, 50, 50)
+    
+    # KPI Grid Headers
+    kpi_w = 45
+    pdf.cell(kpi_w, 6, " Metric", border=1, fill=True)
+    pdf.cell(kpi_w, 6, " Baseline (Official)", border=1, fill=True)
+    pdf.cell(kpi_w, 6, " Simulated (Adjusted)", border=1, fill=True)
+    pdf.cell(kpi_w, 6, " Shift / Target Status", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+
+    # CGPA KPI Row
+    pdf.cell(kpi_w, 7, " Cumulative CGPA", border=1)
+    pdf.cell(kpi_w, 7, f" {deep_res.get('official_cgpa', 0.0):.2f}", border=1)
+    pdf.cell(kpi_w, 7, f" {adj_cgpa:.2f}", border=1)
+    diff = adj_cgpa - deep_res.get('official_cgpa', 0.0)
+    diff_str = f"+{diff:.2f}" if diff >= 0 else f"{diff:.2f}"
+    pdf.cell(kpi_w, 7, f" {diff_str}", border=1, new_x="LMARGIN", new_y="NEXT")
+
+    # Completed Credits Row
+    pdf.cell(kpi_w, 7, " Completed Credits", border=1)
+    pdf.cell(kpi_w, 7, f" {deep_res.get('total_credits', 0.0):.2f} Cr", border=1)
+    pdf.cell(kpi_w, 7, f" {adj_credits:.2f} Cr", border=1)
+    pdf.cell(kpi_w, 7, f" {adj_credits - deep_res.get('total_credits', 0.0):+.2f} Cr", border=1, new_x="LMARGIN", new_y="NEXT")
+
+    # Pending Retakes Row
+    baseline_retakes = len(adv_proj.get('pending_retakes', []))
+    simulated_retakes = 0
+    for pr in adv_proj.get('pending_retakes', []):
+        if overrides.get(pr['code'], 0.0) < 2.0:
+            simulated_retakes += 1
+    pdf.cell(kpi_w, 7, " Pending Retakes", border=1)
+    pdf.cell(kpi_w, 7, f" {baseline_retakes} subject(s)", border=1)
+    pdf.cell(kpi_w, 7, f" {simulated_retakes} subject(s)", border=1)
+    pdf.cell(kpi_w, 7, " Cleared" if simulated_retakes == 0 else f" {simulated_retakes} Remaining", border=1, new_x="LMARGIN", new_y="NEXT")
+
+    # Next-Semester GPA Row
+    pdf.cell(kpi_w, 7, " Next Semester GPA", border=1)
+    pdf.cell(kpi_w, 7, " N/A", border=1)
+    if precise_target_gpa > 0:
+        if precise_target_gpa > 4.0:
+            status_text = " Impossible (>4.0)"
+        else:
+            status_text = f" Required: {precise_target_gpa:.2f}"
+    else:
+        status_text = " N/A"
+    pdf.cell(kpi_w, 7, f" {precise_target_gpa:.2f}" if precise_target_gpa > 0 else " N/A", border=1)
+    pdf.cell(kpi_w, 7, f"{status_text}", border=1, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(6)
+
+    # 3. Simulated Subject Overrides
+    sim_subjects = []
+    # Retakes
+    for pr in adv_proj.get('pending_retakes', []):
+        override_val = overrides.get(pr['code'])
+        if override_val is not None and override_val != pr['current_gp']:
+            sim_subjects.append({
+                'code': pr['code'],
+                'name': pr.get('name', 'N/A'),
+                'credit': pr['credit'],
+                'type': 'Retake',
+                'original': pr['current_gp'],
+                'simulated': override_val
+            })
+    # Improvements
+    for ic in adv_proj.get('improvement_candidates', []):
+        override_val = overrides.get(ic['code'])
+        if override_val is not None and override_val != ic['current_gp']:
+            sim_subjects.append({
+                'code': ic['code'],
+                'name': ic.get('name', 'N/A'),
+                'credit': ic['credit'],
+                'type': 'Improvement',
+                'original': ic['current_gp'],
+                'simulated': override_val
+            })
+
+    if sim_subjects:
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(*c_navy)
+        pdf.cell(0, 6, "SIMULATED SUBJECT OVERRIDES", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+        
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(50, 50, 50)
+        
+        w_code = 25
+        w_name = 65
+        w_credit = 20
+        w_type = 28
+        w_orig = 26
+        w_sim = 26
+        
+        pdf.cell(w_code, 6, " Code", border=1, fill=True)
+        pdf.cell(w_name, 6, " Course Title", border=1, fill=True)
+        pdf.cell(w_credit, 6, " Credits", border=1, fill=True)
+        pdf.cell(w_type, 6, " Override Type", border=1, fill=True)
+        pdf.cell(w_orig, 6, " Original GP", border=1, fill=True)
+        pdf.cell(w_sim, 6, " Simulated GP", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+
+        for sub in sim_subjects:
+            orig_str = "F (0.00)" if sub['original'] < 2.0 else f"{sub['original']:.2f}"
+            sim_str = "F (0.00)" if sub['simulated'] < 2.0 else f"{sub['simulated']:.2f}"
+            
+            pdf.cell(w_code, 6.5, f" {sub['code']}", border=1)
+            # Clip title to avoid line wraps
+            name_txt = sub['name']
+            if len(name_txt) > 30:
+                name_txt = name_txt[:27] + "..."
+            pdf.cell(w_name, 6.5, f" {name_txt}", border=1)
+            pdf.cell(w_credit, 6.5, f" {sub['credit']:.2f}", border=1)
+            pdf.cell(w_type, 6.5, f" {sub['type']}", border=1)
+            pdf.cell(w_orig, 6.5, f" {orig_str}", border=1)
+            pdf.cell(w_sim, 6.5, f" {sim_str}", border=1, new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(6)
+
+    # 4. Semester-wise Academic Timeline
+    if sem_breakdown:
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(*c_navy)
+        pdf.cell(0, 6, "SEMESTER-WISE ACADEMIC TIMELINE", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+        
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(50, 50, 50)
+        
+        sw = 30.0
+        pdf.cell(sw, 6, " Semester", border=1, fill=True)
+        pdf.cell(sw, 6, " Official GPA", border=1, fill=True)
+        pdf.cell(sw, 6, " Adjusted GPA", border=1, fill=True)
+        pdf.cell(sw, 6, " Official CGPA", border=1, fill=True)
+        pdf.cell(sw, 6, " Adjusted CGPA", border=1, fill=True)
+        pdf.cell(sw, 6, " Completed Credits", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+
+        for sb in sem_breakdown:
+            o_gpa = sb.get('official_gpa')
+            o_gpa_str = f"{o_gpa:.2f}" if o_gpa is not None else "—"
+            
+            o_cgpa = sb.get('official_cgpa')
+            o_cgpa_str = f"{o_cgpa:.2f}" if o_cgpa is not None else "—"
+            
+            pdf.cell(sw, 6.5, f" {sb['label']}", border=1)
+            pdf.cell(sw, 6.5, f" {o_gpa_str}", border=1)
+            pdf.cell(sw, 6.5, f" {sb['computed_gpa']:.2f}", border=1)
+            pdf.cell(sw, 6.5, f" {o_cgpa_str}", border=1)
+            pdf.cell(sw, 6.5, f" {sb['computed_cgpa']:.2f}", border=1)
+            pdf.cell(sw, 6.5, f" {sb['credits']:.2f}", border=1, new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(6)
+
+    # 5. Graduation Target calculator
+    if grad_proj:
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(*c_navy)
+        pdf.cell(0, 6, "GRADUATION TARGET CALCULATOR & ML PROJECTION", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+        
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(50, 50, 50)
+        
+        gw = 95
+        pdf.cell(gw, 6, " Graduation Target Metric", border=1, fill=True)
+        pdf.cell(gw, 6, " Projection Value / Status", border=1, fill=True, new_x="LMARGIN", new_y="NEXT")
+        
+        pdf.cell(gw, 7, " Target Graduation CGPA", border=1)
+        pdf.cell(gw, 7, f" {grad_proj.get('target_grad_cgpa', 0.0):.2f}", border=1, new_x="LMARGIN", new_y="NEXT")
+        
+        pdf.cell(gw, 7, " Required Average GPA per Remaining Sem.", border=1)
+        if grad_proj.get('already_met'):
+            val_txt = " Already Met"
+        elif not grad_proj.get('is_achievable'):
+            val_txt = f" Impossible (Requires {grad_proj.get('required_avg_gpa', 0.0):.2f})"
+        else:
+            val_txt = f" {grad_proj.get('required_avg_gpa', 0.0):.2f}"
+        pdf.cell(gw, 7, val_txt, border=1, new_x="LMARGIN", new_y="NEXT")
+
+        # ML Forecast
+        import ml_predictor
+        pred = ml_predictor.predict_future_gpas(deep_res, dept, overrides=overrides)
+        if pred:
+            pdf.cell(gw, 7, " ML Forecasted Graduation CGPA", border=1)
+            pdf.cell(gw, 7, f" {pred['predicted_grad_cgpa']:.2f}", border=1, new_x="LMARGIN", new_y="NEXT")
+            
+            trend_label = "Improving" if pred['trend_slope'] > 0.05 else "Declining" if pred['trend_slope'] < -0.05 else "Stable"
+            pdf.cell(gw, 7, " Academic Trajectory Trend", border=1)
+            pdf.cell(gw, 7, f" {trend_label} (Slope: {pred['trend_slope']:.4f})", border=1, new_x="LMARGIN", new_y="NEXT")
+
+    # Confidentiality notice
+    pdf.ln(10)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(120, 120, 120)
+    pdf.multi_cell(0, 4, "Disclaimer: This report is an analytical projection and simulation tool based on results fetched from the student portal. Official institutional grading transcripts and university guidelines should be consulted for official degree confirmation.", align="C")
+
+    return pdf.output()

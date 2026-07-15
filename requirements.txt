@@ -6,4 +6,5 @@ requests==2.34.2
 pypdf==6.14.2
 pdfkit==1.0.0
 scikit-learn>=1.0.0
+fpdf2==2.8.7
 

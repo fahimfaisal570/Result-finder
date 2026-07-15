@@ -1542,6 +1542,23 @@ with tabs[5]:
               f"This student has completed all 8 semesters. "
               f"Final Adjusted CGPA: **{adj_cgpa:.2f}**"
             )
+            target_cgpa = float(adj_cgpa)
+            proj = {
+              'target_grad_cgpa': target_cgpa,
+              'already_met': True,
+              'is_achievable': True,
+              'required_avg_gpa': 0.0,
+              'remaining_semesters': 0,
+              'remaining_credits': 0.0,
+              'remaining_credits_breakdown': []
+            }
+            _sim_semester_inputs = []
+            _sim_result = {
+              'graduation_cgpa': adj_cgpa,
+              'grand_total_credits': adj_credits,
+              'total_new_credits': 0.0,
+              'per_semester_detail': []
+            }
           else:
             target_key = f"target_cgpa_{profile_name}_{reg}"
             target_cgpa = st.slider(
@@ -1839,6 +1856,59 @@ with tabs[5]:
               st.warning(f"**Pass.** Projected CGPA: {_grad_cgpa:.2f}")
             else:
               st.error(f"**Below minimum graduation threshold.** Projected CGPA: {_grad_cgpa:.2f}")
+
+            # --- Action Buttons (Simulation Reset & PDF Export) ---
+            st.markdown("---")
+            act_col1, act_col2 = st.columns(2)
+            with act_col1:
+              reset_btn_key = f"reset_sim_{profile_name}_{reg}"
+              if st.button("Reset Simulation", key=reset_btn_key):
+                keys_to_remove = []
+                for k in list(st.session_state.keys()):
+                  if (k.startswith(f"chk_{profile_name}_{reg}_") or 
+                      k.startswith(f"tgt_{profile_name}_{reg}_") or 
+                      k.startswith(f"target_cgpa_{profile_name}_{reg}") or
+                      k.startswith(f"sim_mode_{profile_name}_{reg}_") or
+                      k.startswith(f"sim_include_{profile_name}_{reg}_") or
+                      k.startswith(f"sim_select_{profile_name}_{reg}_") or
+                      k.startswith(f"sim_gp_{profile_name}_{reg}_") or
+                      k.startswith(f"sim_gpa_{profile_name}_{reg}_")):
+                    keys_to_remove.append(k)
+                for k in keys_to_remove:
+                  del st.session_state[k]
+                st.rerun()
+            with act_col2:
+              pdf_btn_key = f"pdf_sim_{profile_name}_{reg}"
+              pdf_grad_proj = {
+                'target_grad_cgpa': target_cgpa,
+                'already_met': proj['already_met'],
+                'is_achievable': proj['is_achievable'],
+                'required_avg_gpa': proj['required_avg_gpa']
+              }
+              try:
+                pdf_data = db.generate_student_projection_pdf(
+                  student_name=name,
+                  reg_no=reg,
+                  profile_name=profile_name,
+                  deep_res=deep_res,
+                  adv_proj=adv_proj,
+                  overrides=overrides,
+                  adj_cgpa=adj_cgpa,
+                  adj_credits=adj_credits,
+                  precise_target_gpa=adj_precise_target_gpa,
+                  sem_breakdown=_sem_breakdown,
+                  grad_proj=pdf_grad_proj,
+                  dept=_dept
+                )
+                st.download_button(
+                  label="Save as PDF",
+                  data=pdf_data,
+                  file_name=f"GPA_Projection_{reg}_{name.replace(' ', '_')}.pdf",
+                  mime="application/pdf",
+                  key=pdf_btn_key
+                )
+              except Exception as pdf_err:
+                st.error(f"Could not generate PDF: {pdf_err}")
 
       else:
         if hdr_col4.button("Deep Analysis", key=btn_key,
