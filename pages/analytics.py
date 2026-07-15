@@ -779,8 +779,8 @@ with tabs[0]:
   # Calculate medians and total active students
   valid_gpas = df_main[df_main['gpa'] > 0]['gpa']
   valid_cgpas = df_main[df_main['cgpa'] > 0]['cgpa']
-  median_gpa = valid_gpas.median() if not valid_gpas.empty else 0.0
-  median_cgpa = valid_cgpas.median() if not valid_cgpas.empty else 0.0
+  mean_gpa = valid_gpas.mean() if not valid_gpas.empty else 0.0
+  mean_cgpa = valid_cgpas.mean() if not valid_cgpas.empty else 0.0
   total_active_students = len(df_main)
 
   # High-End Metric Cards Row 1
@@ -800,9 +800,9 @@ with tabs[0]:
   # High-End Metric Cards Row 2
   met_row2 = st.columns(3)
   with met_row2[0]:
-    st.metric("Median CGPA", f"{median_cgpa:.2f}" if not is_first_sem else "N/A", help="Middle CGPA value of the batch up to this semester")
+    st.metric("Average CGPA", f"{mean_cgpa:.2f}" if not is_first_sem else "N/A", help="Average CGPA value of the batch up to this semester")
   with met_row2[1]:
-    st.metric("Median GPA", f"{median_gpa:.2f}", help="Middle GPA value of this semester's results")
+    st.metric("Average GPA", f"{mean_gpa:.2f}", help="Average GPA value of this semester's results")
   with met_row2[2]:
     st.metric("Overall Pass Rate (1st Attempt)", f"{pass_rate:.1f}%", help="Percentage of students who passed all subjects in their first attempt.")
 

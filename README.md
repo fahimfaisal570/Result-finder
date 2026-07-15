@@ -56,7 +56,7 @@ The Analytics page contains eight tabs.
 #### Baseline Insight
 
 - Current-semester GPA distribution.
-- Batch mean, median GPA, median CGPA, active-student count, and honours roster.
+- Batch mean, average GPA, average CGPA, active-student count, and honours roster.
 - First-chance pass ratio based on subject grades in the selected main exam.
 - Subject difficulty ranking using passing-grade performance.
 - Grade distribution by subject, from A+ through F.
