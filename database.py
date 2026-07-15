@@ -2711,6 +2711,13 @@ _bootstrap()
 def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem=False, is_first_sem=False, promo_yr=None):
     """
     Identifies academic personas based on State (current), Pattern (variance), and Trend (trajectory).
+    Categorizes students using astronomical/space-inspired terminology:
+    - Vanguards (Consistent top performers)
+    - Rising Stars (Ascending to the top tier)
+    - Fading Stars (Toppers falling from grace)
+    - Stable Orbits (Consistent average performers)
+    - Drifting Orbits (At risk of failing promotion)
+    - Grounded Orbits (Failed promotion)
     """
     import pandas as pd
     import numpy as np
@@ -2729,12 +2736,15 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
     features.set_index('reg_no', inplace=True)
     features['momentum'] = features['gpa'] - features['cgpa'] if not is_first_sem else 0.0
     
-    p75_gpa = features['gpa'].quantile(0.75)
-    p50_gpa = features['gpa'].quantile(0.50)
+    # Calculate cohort stats for dynamic topper threshold
+    mean_cgpa = features['cgpa'].mean()
+    std_cgpa = features['cgpa'].std()
+    std_cgpa = std_cgpa if (pd.notna(std_cgpa) and std_cgpa > 0.05) else 0.35
+    topper_threshold = max(3.00, mean_cgpa + 0.75 * std_cgpa)
     
     def get_compound_status(row):
-        base = "Average"
-        detail = "Average"
+        base = "Stable Orbits"
+        detail = "Stable Orbits"
         target_gpa = 0.0
         
         if promo_target is not None and promo_yr is not None:
@@ -2742,35 +2752,46 @@ def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem
             target_gpa = (promo_target * (sem_index + 1.1) - row['cgpa'] * sem_index) / 1.1
             target_gpa = max(0.0, round(target_gpa, 2))
             
+        # 1. Check promotion risk/failure categories (untouched math, updated names)
+        is_risk = False
         if promo_target is not None and promo_yr != 4:
             if row['cgpa'] < promo_target:
                 if is_even_sem:
-                    base = "Failed Promotion"
+                    base = "Grounded Orbits"
                 else:
                     if promo_yr is not None:
                         sem_index = (promo_yr * 2) - 1
                         max_possible_cgpa = ((row['cgpa'] * sem_index) + (4.00 * 1.1)) / (sem_index + 1.1)
                         if max_possible_cgpa < promo_target:
-                            base = "Failed Promotion"
+                            base = "Grounded Orbits"
                         else:
-                            base = "At-Risk (Promotion)"
+                            base = "Drifting Orbits"
                     else:
-                        base = "At-Risk (Promotion)"
+                        base = "Drifting Orbits"
                 detail = base
+                is_risk = True
             elif row['cgpa'] <= (promo_target + 0.15):
-                base = "At-Risk (Promotion)"
+                base = "Drifting Orbits"
                 detail = base
+                is_risk = True
                     
-        if detail == "Average":
-            if row['gpa'] >= p75_gpa or row['cgpa'] >= 3.5:
-                base = "Top"
-                detail = "Top"
-            elif row['gpa'] >= p50_gpa:
-                base = "Steady"
-                detail = "Steady"
+        # 2. Non-risk categories (Vanguards, Rising Stars, Fading Stars, Stable Orbits)
+        if not is_risk:
+            # Historical Topper status
+            is_historical_topper = row['cgpa'] >= topper_threshold
+            
+            if is_historical_topper:
+                if row['momentum'] <= -0.25:
+                    base = "Fading Stars"
+                else:
+                    base = "Vanguards"
             else:
-                base = "Average"
-                detail = "Average"
+                # Rising Star status: historically below topper, but scored in topper tier this semester with high momentum
+                if row['gpa'] >= topper_threshold and row['momentum'] >= 0.25:
+                    base = "Rising Stars"
+                else:
+                    base = "Stable Orbits"
+            detail = base
                 
         trend = ""
         if not is_first_sem and row['cgpa'] > 0:
@@ -2799,24 +2820,29 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
         if is_first_sem:
             insights['mean_gpa'] = valid_main['gpa'].mean().round(2)
         else:
-            valid_mom = valid_main[valid_main['has_prior'] == True]
-            if not valid_mom.empty:
-                insights['batch_momentum'] = valid_mom['momentum'].mean().round(2)
+            if 'has_prior' in valid_main.columns:
+                valid_mom = valid_main[valid_main['has_prior'] == True]
+                if not valid_mom.empty:
+                    insights['batch_momentum'] = valid_mom['momentum'].mean().round(2)
+                else:
+                    insights['batch_momentum'] = 0.0
             else:
+                # Fallback if has_prior is missing (e.g. in tests)
                 insights['batch_momentum'] = 0.0
             
         insights['honours_count'] = len(valid_main[valid_main['cgpa'] >= 3.5 if not is_first_sem else valid_main['gpa'] >= 3.5])
         insights['honours_pct'] = (insights['honours_count'] / len(valid_main)) * 100
         
     if archetypes is not None:
-        risk_mask = archetypes['Archetype'].str.contains("At Risk|At-Risk", case=False)
+        risk_mask = archetypes['Detailed_Status'].isin(["Drifting Orbits", "Grounded Orbits"])
         insights['risk_count'] = risk_mask.sum()
         insights['improving_count'] = archetypes['Archetype'].str.contains("Improving", case=False).sum()
         
-        insights['promo_risk_count'] = archetypes['Detailed_Status'].str.contains(r"At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False).sum()
-        insights['critical_count'] = archetypes['Detailed_Status'].str.contains("Critical", case=False).sum()
-        insights['math_fail_count'] = archetypes['Detailed_Status'].str.contains("Readd", case=False).sum()
-        insights['failed_count'] = archetypes['Detailed_Status'].str.contains(r"Non-Promoted \(Failed\)", case=False).sum()
+        # Detailed alert count mapping
+        insights['promo_risk_count'] = archetypes['Detailed_Status'].str.contains("Drifting Orbits", case=False).sum()
+        insights['critical_count'] = ((archetypes['Detailed_Status'] == "Drifting Orbits") & (archetypes['Target_GPA'] > 3.75)).sum()
+        insights['math_fail_count'] = ((archetypes['Detailed_Status'] == "Grounded Orbits") & (archetypes['Target_GPA'] > 4.00)).sum()
+        insights['failed_count'] = ((archetypes['Detailed_Status'] == "Grounded Orbits") & (archetypes['Target_GPA'] <= 4.00)).sum()
         
         arc_with_info = archetypes.merge(df_main[['reg_no','name','sess_id']], left_index=True, right_on='reg_no', how='left').set_index('reg_no')
         def _student_list(mask_series):
@@ -2824,10 +2850,10 @@ def get_strategic_insights(df_main, df_sub, df_pivot, archetypes, is_first_sem=F
             rows = arc_with_info.loc[arc_with_info.index.isin(regs), ['name','Target_GPA','sess_id']].reset_index()
             return [(r['reg_no'], r['name'], r['Target_GPA'], r['sess_id']) for _, r in rows.iterrows()]
             
-        insights['readd_students'] = _student_list(archetypes['Detailed_Status'].str.contains("Readd", case=False))
-        insights['failed_students'] = _student_list(archetypes['Detailed_Status'].str.contains(r"Non-Promoted \(Failed\)", case=False))
-        insights['critical_students'] = _student_list(archetypes['Detailed_Status'].str.contains("Critical", case=False))
-        insights['risk_students'] = _student_list(archetypes['Detailed_Status'].str.contains(r"At-Risk \(Promotion\)|At-Risk \(Graduation\)", case=False))
+        insights['readd_students'] = _student_list((archetypes['Detailed_Status'] == "Grounded Orbits") & (archetypes['Target_GPA'] > 4.00))
+        insights['failed_students'] = _student_list((archetypes['Detailed_Status'] == "Grounded Orbits") & (archetypes['Target_GPA'] <= 4.00))
+        insights['critical_students'] = _student_list((archetypes['Detailed_Status'] == "Drifting Orbits") & (archetypes['Target_GPA'] > 3.75))
+        insights['risk_students'] = _student_list((archetypes['Detailed_Status'] == "Drifting Orbits") & (archetypes['Target_GPA'] <= 3.75))
         
     if not df_sub.empty:
         sub_stats = df_sub[df_sub['gp'] >= 0].groupby(['subject_code','subject_name'])['gp'].mean().reset_index()

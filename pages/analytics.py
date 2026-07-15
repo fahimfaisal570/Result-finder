@@ -1094,16 +1094,17 @@ with tabs[2]:
         student_list = ["None"] + sorted(clust_df['name'].unique().tolist())
         spotlight_student = st.selectbox("Spotlight Focus (Find Student)", student_list, index=0)
         
-        # 3-State Visual Color Mapping grouped by status
+        # Space-Themed Visual Color Mapping grouped by status
         color_map = {
-          "Top": "#10b981",              # Vibrant Mint
-          "Steady": "#06b6d4",           # Electric Teal
-          "Average": "#f59e0b",          # Golden Amber
-          "At-Risk (Promotion)": "#ff0055",  # Neon Crimson Red
-          "Failed Promotion": "#881337"  # Deep Crimson Wine
+          "Vanguards": "#10b981",          # Vibrant Mint (Consistent top performers)
+          "Rising Stars": "#06b6d4",       # Electric Teal (On track to topper)
+          "Fading Stars": "#f59e0b",       # Golden Amber (Toppers falling from grace)
+          "Stable Orbits": "#3b82f6",      # Classic Blue (Stable average)
+          "Drifting Orbits": "#ff0055",    # Neon Crimson Red (At risk of failing promotion)
+          "Grounded Orbits": "#881337"     # Deep Crimson Wine (Failed promotion)
         }
  
-        danger_archetypes = ["Failed Promotion"]
+        danger_archetypes = ["Grounded Orbits"]
         
         base_scatter = alt.Chart(clust_df).mark_circle(size=130).encode(
           x=alt.X(f'{x_col}:Q', title=x_title, 

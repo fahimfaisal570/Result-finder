@@ -750,10 +750,10 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertIsNotNone(archetypes)
         self.assertEqual(len(archetypes), 4)
         
-        self.assertEqual(archetypes.loc[1001]['Detailed_Status'], 'On-Track')
-        self.assertEqual(archetypes.loc[1002]['Detailed_Status'], 'Exceeding')
-        self.assertEqual(archetypes.loc[1003]['Detailed_Status'], 'Critical')
-        self.assertEqual(archetypes.loc[1004]['Detailed_Status'], 'At-Risk')
+        self.assertEqual(archetypes.loc[1001]['Detailed_Status'], 'Rising Stars')
+        self.assertEqual(archetypes.loc[1002]['Detailed_Status'], 'Vanguards')
+        self.assertEqual(archetypes.loc[1003]['Detailed_Status'], 'Drifting Orbits')
+        self.assertEqual(archetypes.loc[1004]['Detailed_Status'], 'Drifting Orbits')
         
         df_sub = pd.DataFrame([
             {'subject_code': 'CSE-1101', 'subject_name': 'Intro CS', 'gp': 3.0, 'reg_no': 1001},
