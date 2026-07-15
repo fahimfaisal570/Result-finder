@@ -1,272 +1,323 @@
-# Result Finder PRO (v2)
+# Result Finder PRO — Academic Intelligence Dashboard
 
-> **Full-Stack Academic Intelligence Platform**  
-> *Transforms a one-student-at-a-time university portal into a batch-powered analytics engine with graduation planning, automated monitoring, and real-time strategic intelligence.*
+Result Finder PRO is a database-backed academic results platform for Faridpur Engineering College. It turns a portal designed for one-student-at-a-time lookups into a reusable batch analytics workflow for students, teachers, advisors, and department leadership.
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-![Streamlit](https://img.shields.io/badge/UI-Streamlit_1.58-FF4B4B?logo=streamlit&logoColor=white)
-![SQLite](https://img.shields.io/badge/Database-SQLite_WAL-003B57?logo=sqlite&logoColor=white)
-![Altair](https://img.shields.io/badge/Charts-Altair_6-1F77B4)
-![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?logo=githubactions&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green)
+The current v2 branch is the analytics rewrite. It stores imported results in SQLite, recomputes academic metrics locally using syllabus credit mappings, understands retakes and improvements, and provides semester analytics, student planning, and operational monitoring.
 
----
+## What the project solves
 
-## The Problem
+The university portal is the official source of results, but it has practical limitations:
 
-The DUCMC portal (`ducmc.du.ac.bd`) — the only official source of academic results for Faridpur Engineering College — has critical limitations:
+- Results must normally be viewed student by student.
+- A batch has no built-in GPA distribution, subject bottleneck, or progression view.
+- Portal GPA/CGPA values are not sufficient for retake-aware academic planning.
+- Re-admitted students may have historical results under another session or batch.
+- Students and teachers need to know not only the current result, but the next useful action.
 
-- **One-student-at-a-time lookups** — viewing a batch of 60+ students takes hours of manual data entry
-- **No batch analytics** — no GPA distributions, trends, risk detection, or cross-batch comparisons
-- **Incorrect CGPA calculations** — the portal doesn't always handle retakes/improvements correctly
-- **No automated alerts** — faculty must manually check whether new results have been published
-- **No graduation planning** — students can't project their graduation CGPA or plan retake strategies
+Result Finder addresses these problems with portal ingestion, a normalized local database, independent calculations, interactive analytics, and automated monitoring utilities.
 
-## The Solution
+## Product capabilities
 
-This `v2` branch is the **database-backed analytics rewrite** of Result Finder. It scrapes the university portal with concurrent threads, stores everything in a relational SQLite database with ACID guarantees, independently verifies portal-claimed GPAs, and provides a 6-tab OLAP analytics dashboard with graduation projection tools.
+### Batch and profile management
 
-> *Looking for the production CLI scraper & email automation pipeline? See the [`main` branch](https://github.com/fahimfaisal570/Result-finder/tree/main). Both branches are deployed simultaneously and [work together](#how-main-and-v2-work-together).*
+The main dashboard supports saved academic profiles containing a program, session, registration roster, and imported exams.
 
----
+- Create a regular batch from a program/session and registration range.
+- Create a provisional batch before results are published.
+- Add individual students from another session when a student is re-admitted.
+- Preserve the roster while refreshing individual exam scans.
+- View stored exams, student counts, scan timestamps, and profile metadata.
+- Delete an exam scan while preserving the student roster.
 
-## Features
+### Concurrent portal scanning
 
-### Scraping Engine (`cli_scraper.py` — 1,953 lines)
+The portal integration and batch scanning engine live in cli_scraper.py.
 
-| Feature | Description |
-|---------|-------------|
-| **Concurrent Batch Scanning** | 10–15 worker threads with queue-based task distribution scan an entire batch in minutes |
-| **SSL Connection Pre-Warming** | 6 parallel TLS handshakes pre-established on startup — cold start reduced from ~20s to ~3s |
-| **Auto Session Discovery** | Tries all sessions when `sess_id="AUTO"` to locate readmitted students from different batches |
-| **Smart Exam Classification** | Scoring system auto-classifies exams into Main Semesters / Retake / Improvement with probe verification |
-| **User-Agent Rotation** | 5 browser UA strings with exponential backoff (4 retries + jitter) |
-| **HTML Report Generation** | Print-optimized reports with registration tables, scholarship eligibility, and CGPA rankings |
-| **Academic Transcripts** | Dark-themed chronological per-student record across all exam appearances |
+- Concurrent worker threads scan many registration numbers in one operation.
+- Program, session, and exam catalogues are discovered from the portal.
+- AUTO session discovery tries relevant sessions for re-admitted students.
+- Connection pre-warming reduces first-request latency.
+- Retries, exponential backoff, jitter, and rotating browser user agents improve resilience.
+- Scan progress can be displayed in Streamlit.
+- Imported results are written idempotently to reduce duplicate records.
 
-### Database Layer (`database.py` — 2,605 lines)
+The scraper is designed around the current DUCMC portal workflow and may require maintenance if the portal changes its HTML or endpoints.
 
-| Feature | Description |
-|---------|-------------|
-| **ACID-Safe Storage** | SQLite with WAL journal mode, 30s busy timeout, foreign key enforcement |
-| **Thread-Local Connection Pool** | Connections keyed by `DB_PATH`, wrapped for transaction management |
-| **Idempotent Upserts** | `INSERT OR REPLACE` / `ON CONFLICT DO UPDATE` — safe to re-run any operation |
-| **5 Schema Migrations** | v1→v5, all idempotent, auto-run on startup |
-| **Shadow GPA Auditing** | Independently computes GPA from official syllabus credit mappings, stores alongside portal-claimed values, logs drift |
-| **Retake-Aware CGPA** | Best grade across ALL attempts per subject. Credit-weighted. Improvement vs retake classification |
-| **Compound Indices** | `idx_subject_grades_lookup`, `idx_exam_results_lookup`, `idx_students_lookup`, `idx_subject_grades_exam`, `idx_exam_results_exam` |
+### Results and transcript views
 
-### Database Schema
+The Results page supports single-exam and batch-oriented ingestion workflows. The Transcript page can perform a deeper portal scan for one student and display a chronological academic history.
 
+The transcript workflow uses the student session and cohort scope to avoid mixing unrelated exams. It also supports students whose records span multiple portal sessions.
+
+### Analytics dashboard
+
+The Analytics page contains eight tabs.
+
+#### Baseline Insight
+
+- Current-semester GPA distribution.
+- Batch mean, median GPA, median CGPA, active-student count, and honours roster.
+- First-chance pass ratio based on subject grades in the selected main exam.
+- Subject difficulty ranking using passing-grade performance.
+- Grade distribution by subject, from A+ through F.
+- Filters for batch, semester, subject, and CGPA range.
+
+#### Trends
+
+- Batch GPA trajectory across imported semesters.
+- Batch median overlay.
+- Individual student spotlight on the longitudinal chart.
+- Peak, valley, consistency, and trajectory classification.
+- Retake and improvement success statistics.
+- Cross-batch benchmarking where comparable semester data exists.
+
+#### Advanced Patterns
+
+- Subject-level variance and distribution views.
+- Performance personas based on current performance, movement, and promotion context.
+- Strategic quadrant for high performers, improving students, declining students, and specialists.
+- Subject dependency heatmap using Pearson correlation where enough complete data exists.
+
+#### Cube Pivot
+
+- Student-by-subject grade matrix.
+- Subject-by-student transposed view.
+- Useful for manual review, export, and classroom inspection.
+
+#### Clearing List
+
+- Semester-end list with GPA, CGPA, result status, improvement count, and retake count.
+- CSV export for departmental processing.
+
+#### Student follow-up records
+
+Follow-up records are now managed inside each student’s Success Plan rather than in a separate intervention mode.
+
+- Stores risk, action, advisor/owner, follow-up date, progress note, and status per student and exam.
+- Builds a longitudinal advising timeline as new semester records are imported.
+- Supports Open, In progress, and Resolved case states inside the Success Plan.
+
+This is an operational note-taking workspace, not a replacement for the institution’s official student information system. It currently has no multi-user authentication or authorization layer.
+
+#### GPA Projection and Graduation Planner
+
+- Deep analysis of a selected student’s full portal history.
+- Credit-weighted True CGPA calculation.
+- Official versus locally recomputed CGPA comparison.
+- Pending retake and improvement identification.
+- Precise target GPA calculation for the next applicable semester.
+- Graduation target calculator for a selected CGPA goal.
+- Summary projection by semester GPA.
+- Detailed projection by course grade with elective selection and credit-cap enforcement.
+- Per-semester GPA/CGPA breakdown.
+- Paginated student cards with portal-scan results cached during the session.
+
+#### Student Personal Success Plan
+
+The success-plan view presents the same academic data in a student-friendly format and combines current performance, longitudinal trends, and advisor follow-up.
+
+- Current CGPA, current-semester GPA, batch percentile, and plan status.
+- Promotion target gap where a promotion rule is available.
+- GPA trajectory across all imported semesters.
+- Improving, stable, or declining trend classification.
+- Recent GPA movement, GPA volatility, and semesters tracked.
+- An explicit baseline message when history is insufficient.
+- Failed-course and borderline-course counts.
+- Priority subjects ranked by current GP and credit weight.
+- Strongest subjects to maintain.
+- Plain-language next actions.
+- Longitudinal advisor follow-up timeline across imported exams.
+- Current-semester follow-up form with risk, action, owner, due date, status, and progress note.
+- Downloadable text plan for personal use or advising.
+
+Follow-up records are stored locally per student and exam, allowing new semester records to build a longitudinal advising history. A separate student login or private portal is not yet implemented.
+
+### Strategic Analysis Mode
+
+The optional Strategic Insights Mode provides a department-level summary above the tabs:
+
+- Batch momentum against historical CGPA.
+- Honours pipeline.
+- Re-admission alerts.
+- Failed-promotion and critical-risk groups.
+- At-risk students close to a promotion threshold.
+- Bottleneck subject detection.
+- High-correlation subject pairs.
+- Direct Deep Analysis actions for named students.
+
+### Retake-aware academic calculations
+
+The database layer does not simply copy portal summary values.
+
+- Subject grades are stored per student, subject, exam, and session.
+- Credit hours come from credit_mapping.json where available.
+- Best recorded grade per subject is used for effective CGPA calculations.
+- Retake and improvement attempts are classified separately.
+- Failed subjects remain visible as pending until cleared.
+- Portal GPA/CGPA values can be compared with locally recomputed values.
+- Graduation projections use credit-weighted calculations rather than an unweighted semester average.
+
+### Re-admitted student detection
+
+The system detects likely re-admitted students using subject-overlap and academic-load fingerprints.
+
+- Compares a student’s current subject pattern with the regular batch.
+- Separates likely re-admissions from retake-only or improvement-only records.
+- Flags incomplete histories when a student has fewer semester records than the profile expects.
+- Offers a Scan and Fix workflow to retrieve missing history and recalculate analytics.
+
+### Provisional batches
+
+Provisional profiles allow a teacher to prepare a roster before results are released.
+
+- Store the expected student roster early.
+- Monitor for the first published result.
+- Promote the profile when actual results arrive.
+- Use the graduation simulator without contacting the portal.
+- Enter semester-level expected GPA or detailed course-level expected grades.
+
+### Monitoring and automation utilities
+
+The repository also contains supporting automation components:
+
+- exam_monitor/monitor.py checks for newly published exams.
+- exam_monitor/find_latest.py locates the latest known exam.
+- exam_monitor/auto_pdf_mailer.py generates print/PDF-oriented reports and can email them.
+- v2_auto_sync.py synchronizes work queued by the legacy/main branch pipeline.
+- portal_monitor/health_check.py checks portal availability and reports state changes.
+- GitHub Actions can run scheduled monitoring workflows.
+
+These utilities are deployment-specific and may require environment secrets, mail configuration, and a compatible portal connection.
+
+## Architecture
+
+```text
+University portal
+       |
+       v
+cli_scraper.py ---> SQLite result_finder.db
+       |                    |
+       |                    +-- profiles
+       |                    +-- students
+       |                    +-- exam_results
+       |                    +-- subject_grades
+       |                    +-- scan_log
+       |                    +-- meta_cache
+       |                    +-- student_interventions
+       |
+       +---------------> Streamlit pages
+                              +-- app.py
+                              +-- pages/results.py
+                              +-- pages/transcript.py
+                              +-- pages/analytics.py
 ```
-profiles ─┬─→ students         (profile_name, reg_no, sess_id) UNIQUE
-           ├─→ exam_results     (profile_name, reg_no, exam_id, sess_id) UNIQUE
-           └─→ subject_grades   (profile_name, reg_no, subject_code, exam_id, sess_id) UNIQUE
 
-scan_log    (profile_name, exam_id) PK — tracks last scan timestamp
-meta_cache  (key) PK — JSON key-value cache with TTL
-```
+### Core files
 
-### Web Dashboard (4 pages)
+| File | Responsibility |
+|---|---|
+| app.py | Main Streamlit dashboard, profile creation, saved-profile workflows |
+| pages/results.py | Result scanning and ingestion interface |
+| pages/transcript.py | Deep individual academic-history view |
+| pages/analytics.py | Interactive analytics, interventions, projections, and success plans |
+| database.py | SQLite schema, migrations, queries, calculations, and projections |
+| cli_scraper.py | Portal requests, parsing, concurrent scanning, and exam classification |
+| ml_predictor.py | Trend/EMA-based future GPA projections when sufficient history exists |
+| ui_components.py | Shared styling and reusable interface components |
+| credit_mapping.json | Department- and semester-aware course credit mappings |
+| v2_auto_sync.py | Synchronization worker for external scan tasks |
+| tests/ | Database and end-to-end integration tests |
 
-**Home (`app.py`)** — Two modes:
-- **Interactive Scan** — Select program/session/exam, enter registration ranges, add senior re-add batches, launch scraper
-- **Saved Profiles** — Select batch, view student list with transcript links, see classified exams, one-click "Batch Scan All Main Exams", add individual students from other sessions
+## Database model
 
-**Results (`pages/results.py`)** — Two modes:
-- **Single Exam** — Runs scraper, renders inline HTML report, save to analytics DB
-- **Batch Mode** — Sequentially scans all main semester exams, saves all results, redirects to dashboard
+The application uses SQLite with WAL mode, foreign keys, thread-local connections, busy-timeout handling, and idempotent migrations.
 
-**Transcript (`pages/transcript.py`)** — Deep CLI-native scan:
-- Fetches student's full academic history across every exam
-- Smart scope: filters exams to cohort year onward (with 1-year buffer)
-- Per-student session resolution for readd students
+- profiles stores batch metadata.
+- students stores the profile roster.
+- exam_results stores one summary result per student and exam.
+- subject_grades stores individual subject grades and credit hours.
+- scan_log records scan timestamps and counts.
+- meta_cache stores expiring metadata cache entries.
+- student_interventions stores the current teacher follow-up record per student and exam.
 
-**Analytics (`pages/analytics.py` — 2,183 lines)** — See below.
+The intervention table was added through a migration-safe schema update, so existing databases can start the new version without manual table creation.
 
-### Analytics Dashboard — 6 Tabs
+## Installation
 
-#### Tab 1: Baseline Insight
-- **GPA Distribution** — 40-bin histogram with adaptive axis (removes 0–2 void)
-- **First-Chance Pass Ratio** — Donut chart showing % passing all subjects on first attempt
-- **Subject Difficulty Ranking** — Horizontal bar chart sorted by mean GP (passing grades ≥2.0 only)
-- **Achievement Gradient** — Rank vs CGPA line chart with adaptive Y-axis
-- **Grade Distribution** — 100% stacked bar per subject (A+ through F, curated 10-color scale)
-
-#### Tab 2: Trends
-- **Batch GPA Trajectory** — Multi-line chart across semesters with dashed median overlay and student spotlight selector
-- **Student Trajectory Metrics** — Peak, valley, consistency (1−σ), trajectory classification via linear regression (Rising / Declining / V-shape Recovery / Stable)
-- **Retake & Improvement Success Tracker** — Total retakes, success rate, avg GP gain, per-subject breakdown
-- **Cross-Batch Benchmarking** — Compare multiple profiles on same semester with density curve overlay
-
-#### Tab 3: Advanced Patterns
-- **Subject Variance Boxplots** — Min-max per subject, clipped [2.0, 4.0]
-- **Performance Personas Scatter** — Strategic quadrant with 24-color archetype coding (Top/Steady/Average + Improving/Declining + Promotion-based overrides). Spotlight ring, ⚠️ danger overlay, interactive zoom
-- **Subject Dependency Heatmap** — Pearson correlation matrix (red-blue scheme)
-
-#### Tab 4: Cube Pivot
-- Student × Subject GP matrix or transposed Subject × Student view
-
-#### Tab 5: Clearing List
-- Sortable table (reg, name, GPA, CGPA, status, improvement/retake counts) with CSV export
-
-#### Tab 6: GPA Projection & Graduation Planner
-- **Deep Analysis** per student — fetches full portal history, computes True CGPA, precise target GPA, pending retakes
-- **Semester-wise Breakdown** — Official vs Adjusted GPA/CGPA per semester with colored deltas
-- **Retake/Improvement Simulation** — Toggle checkboxes and set target GPs to see adjusted CGPA in real-time
-- **Graduation Target Calculator** — Slider for target CGPA → shows required avg GPA per remaining semester
-- **Graduation CGPA Simulator** — Summary mode (GPA number per semester) or Detailed mode (per-course GP slider with elective checkboxes and credit cap enforcement for CSE 7–8 / Civil 8)
-- Paginated student cards (10/page) with `@st.fragment` isolation
-
-### Strategic Analysis Brief
-When enabled, shows an executive summary above the tabs:
-- **Batch Momentum** — Mean GPA vs historical CGPA trend
-- **Honours Pipeline** — Count and % of students with CGPA ≥ 3.50
-- **Risk Detection** — Readd alerts (mathematically impossible to recover), failed promotion, critical at-risk, at-risk students — each with named student lists and individual "Deep Analysis" buttons
-- **Bottleneck Subject** — Lowest cohort average GP
-- **Synergy Detection** — Strongest Pearson correlation between subject pairs
-
-### Provisional Batch System
-- Create student rosters **before** exam results are published
-- System auto-promotes to full profile on first result import
-- Provisional batches get a standalone Graduation CGPA Simulator with all 8 semesters as inputs
-
-### Readd (Re-admitted Student) Detection
-Detects senior batch students repeating a year using **subject-overlap fingerprinting**:
-1. Builds reference fingerprint from regular batch (subject codes taken by ≥30% of students)
-2. Scans senior batch students against the exam
-3. Genuine readd: ≥50% subject overlap AND ≥70% load ratio
-4. Ghosts (improvement/retake-only): filtered out
-5. Readd students automatically added to profile roster
-
-### Automation & Monitoring
-- **Exam Publication Watcher** (`exam_monitor/monitor.py`) — GitHub Actions cron polls portal for new exams across CSE, EEE, Civil
-- **Auto PDF Reports** (`exam_monitor/auto_pdf_mailer.py`) — Identifies batch via empirical probing, scrapes, detects readds, generates PDF, emails to admin + dept heads
-- **Cross-Branch Sync** (`v2_auto_sync.py`) — Receives sync tasks from `main` branch, re-scrapes, saves to SQLite, runs readd detection
-- **Portal Uptime Monitor** (`portal_monitor/health_check.py`) — Alerts only on state transitions (online↔offline), uses positive verification (whitelist approach)
-
----
-
-## How `main` and `v2` Work Together
-
-Both branches are deployed simultaneously. When `main`'s exam monitor detects a new exam:
-
-```
-main: monitor.py detects new exam
-  → auto_pdf_mailer.py scrapes, generates PDF, emails it
-  → Queues sync task to v2_sync_tasks.json
-  
-v2: v2_auto_sync.py receives task
-  → Re-scrapes same students into SQLite database
-  → Runs readd detection
-  → Auto-promotes provisional profiles
-```
-
-| Branch | Storage | Deployment | Primary Role |
-|--------|---------|------------|-------------|
-| `main` | `saved_profiles.json` | `fec-result-finder.streamlit.app` | Exam monitoring, PDF reports, result viewing |
-| `v2` | `result_finder.db` (SQLite) | `fec-result-analytics.streamlit.app` | Analytics, projections, deep analysis |
-
----
-
-## Repository Structure
-
-```
-├── app.py                          # Streamlit entry point (445 lines)
-├── cli_scraper.py                  # Scraping engine (1,953 lines)
-├── database.py                     # SQLite persistence layer (2,605 lines)
-├── ui_components.py                # Design system — CSS/JS/fonts (311 lines)
-├── pdf_extractor.py                # Syllabus PDF → credit_mapping.json (153 lines)
-├── v2_auto_sync.py                 # Cross-branch sync worker (260 lines)
-├── credit_mapping.json             # Department-isolated credit weights
-├── requirements.txt                # 7 dependencies
-├── Launch_Dashboard.bat            # Windows one-click launcher
-│
-├── pages/
-│   ├── analytics.py                # OLAP analytics dashboard (2,183 lines)
-│   ├── results.py                  # Exam scan execution page (256 lines)
-│   └── transcript.py               # Individual student record (170 lines)
-│
-├── exam_monitor/
-│   ├── monitor.py                  # Exam publication detector (208 lines)
-│   ├── auto_pdf_mailer.py          # PDF report generator + emailer (488 lines)
-│   ├── find_latest.py              # Latest exam finder utility (35 lines)
-│   ├── sync_state.py               # State reset utility (29 lines)
-│   └── known_exams.json            # Known exam IDs per department
-│
-├── portal_monitor/
-│   ├── health_check.py             # Portal uptime monitor (194 lines)
-│   └── state.json                  # Last known portal status
-│
-├── tests/
-│   ├── test_database.py            # 18+ unit tests (653 lines)
-│   └── test_full_system.py         # 5 integration tests (180 lines)
-│
-└── .github/workflows/
-    └── portal_health.yml           # GitHub Actions uptime workflow
-```
-
-**Total:** ~9,400+ lines of application code across 15 Python modules.
-
----
-
-## Quick Start
-
-### 1. Install
 ```bash
-git clone https://github.com/fahimfaisal570/Result-finder.git -b v2
+git clone https://github.com/fahimfaisal570/Result-finder.git
 cd Result-finder
+git checkout v2
+python -m venv .venv
+```
+
+Activate the environment and install dependencies:
+
+```bash
+# Windows PowerShell
+.\\.venv\\Scripts\\Activate.ps1
 pip install -r requirements.txt
 ```
 
-### 2. Launch
+Launch the dashboard:
+
 ```bash
 streamlit run app.py
 ```
-The database (`result_finder.db`) auto-initializes with all schema migrations on first run.
 
-**Windows shortcut:** Double-click `Launch_Dashboard.bat`.
+On Windows, Launch_Dashboard.bat provides a one-click launch option when the expected Python environment is available.
 
-### 3. First Steps
-1. Switch to **Saved Profiles** mode in the sidebar
-2. Create a provisional batch (e.g., `cse 12`) with registration ranges
-3. When results are published, click **Check Portal & Import** to scan
-4. Navigate to **Analytics** for full batch analysis
+## First-use workflow
 
----
+1. Start the Streamlit application.
+2. Create a provisional or portal-backed profile.
+3. Add the student roster or registration range.
+4. Scan one or more main-semester exams.
+5. Open Analytics and select the profile and semester.
+6. Review Baseline Insight and Trends.
+7. Use GPA Projection for exact retake and graduation scenarios.
+8. Use Success Plan for student-facing priorities, longitudinal trends, and advisor follow-up.
 
 ## Testing
 
-```bash
-# Database ACID, migrations, CGPA math, projections
-python -m unittest tests/test_database.py -v
+Run the database and integration suites with:
 
-# CLI ↔ Database integration, retake logic, connection pooling
+```bash
+python -m unittest tests/test_database.py -v
 python -m unittest tests/test_full_system.py -v
 ```
 
-23+ tests covering: idempotency, FK cascading, retake-aware CGPA, longitudinal parsing, graduation projection math, connection pre-warming, semester code parsing, and more.
+For a lightweight syntax check:
 
----
+```bash
+python -m py_compile database.py pages/analytics.py
+```
 
-## Dependencies
+The test coverage focuses on database idempotency, migrations, foreign-key behavior, retake-aware CGPA calculations, projection mathematics, longitudinal parsing, and scraper/database integration.
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| streamlit | 1.58.0 | Multi-page web dashboard |
-| pandas | 3.0.3 | DataFrames, pivots, aggregations |
-| numpy | 2.5.0 | Linear regression, statistics |
-| altair | 6.2.2 | All interactive visualizations (20+ chart types) |
-| requests | 2.34.2 | HTTP with connection pooling |
-| pypdf | 6.14.2 | Syllabus PDF parsing |
-| pdfkit | 1.0.0 | HTML → PDF batch report generation |
+## Important scope and limitations
 
----
+- The portal remains the official source of academic results; local calculations are analytical and should be checked against institutional policy.
+- Portal HTML, endpoints, availability, and anti-automation behavior can change.
+- The current project does not collect attendance, assignment marks, continuous assessment, classroom activity, or instructor evaluation data.
+- The current dashboard does not provide student authentication, role-based access, or institution-wide multi-user collaboration.
+- Success-plan follow-up records are stored in the local SQLite database and should be backed up and access-controlled in deployment.
+- GPA and promotion rules are based on configured department mappings and rules in the codebase; review them when university policy changes.
 
-## License & Credits
+## Deployment notes
 
-Released under the **MIT License**.
+The v2 analytics application and the legacy/main monitoring pipeline can be deployed separately. The monitoring pipeline can discover new exams and queue work for the v2 database through the synchronization utility.
 
-Developed for academic excellence — bridging legacy university portals and modern data needs.
+Before production deployment, configure:
 
-**Author:** [Fahim Faisal](https://www.linkedin.com/in/fahimfaisal09)
+- A persistent writable SQLite location or suitable database replacement.
+- Portal access and any required network settings.
+- Email credentials for automated PDF delivery, if enabled.
+- GitHub Actions secrets and schedules, if scheduled monitoring is enabled.
+- A backup policy for result_finder.db and related state files.
+
+## License
+
+This project is released under the MIT License. See LICENSE.
+
+Developed by [Fahim Faisal](https://www.linkedin.com/in/fahimfaisal09).
