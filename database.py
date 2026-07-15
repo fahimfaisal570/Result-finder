@@ -3156,4 +3156,4 @@ def generate_student_projection_pdf(
     pdf.set_text_color(120, 120, 120)
     pdf.multi_cell(0, 4, "Disclaimer: This report is an analytical projection and simulation tool based on results fetched from the student portal. Official institutional grading transcripts and university guidelines should be consulted for official degree confirmation.", align="C")
 
-    return pdf.output()
+    return bytes(pdf.output())
