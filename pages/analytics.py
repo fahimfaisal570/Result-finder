@@ -809,10 +809,11 @@ with tabs[0]:
   st.divider()
 
   # Row 1: GPA Distribution & First-Chance Pass Ratio aligned side-by-side
-  row1_c1, row1_c2 = st.columns([1.6, 1])
+  row1_c1, spacer, row1_c2 = st.columns([1.3, 0.15, 1.0])
 
   with row1_c1:
     st.markdown("#### GPA Distribution (This Semester Only)")
+    st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
     dist_df = df_main[df_main['gpa'] > 0].copy()
     
     # High-leverage axis anchoring: Remove the'0.0 - 2.0' void
@@ -834,21 +835,111 @@ with tabs[0]:
     st.caption(f"Visualized spread from {axis_start:.2f} (Semester Minimum Focus)")
 
   with row1_c2:
-    st.markdown("#### First-Chance Pass Ratio")
-    status_df = pd.DataFrame({
-     'Status': ['Passed (1st Chance)','Failed (Any Subject)'],
-     'Count': [all_passed_count, has_failed_count]
-    })
-    pie = alt.Chart(status_df).mark_arc(innerRadius=60, outerRadius=100).encode(
-      theta="Count:Q",
-      color=alt.Color("Status:N", scale=alt.Scale(
-        domain=['Passed (1st Chance)','Failed (Any Subject)'],
-        range=['#10b981','#ef4444']
-      ), legend=alt.Legend(orient="bottom")),
-      tooltip=['Status','Count']
-    ).properties(height=300, width='container')
-    st.altair_chart(pie, width='stretch')
-    st.caption("Students who failed ≥1 subject in their main attempt are counted as Failed.")
+    st.markdown("#### Batch Performance Breakdown")
+
+    # --- Tier color mapping ---
+    tier_colors = {
+      'Distinction (3.7–4.00)': '#166534',
+      '1st Class (3.5–3.69)': '#22c55e',
+      '2nd Class (3.0–3.49)': '#3b82f6',
+      '3rd Class (2.0–2.99)': '#f59e0b',
+      'Failed (Subject)': '#ef4444',
+      'Non-Promoted': '#ef4444',
+      'At Risk': '#ef4444',
+    }
+
+    def classify_gpa_tiers(df, failed_count=0):
+      """Classify students into semester GPA tiers."""
+      passed = df[df['first_chance_fail'] == False] if 'first_chance_fail' in df.columns else df
+      counts = {
+        'Distinction (3.7–4.00)': int((passed['gpa'] >= 3.70).sum()),
+        '1st Class (3.5–3.69)': int(((passed['gpa'] >= 3.50) & (passed['gpa'] < 3.70)).sum()),
+        '2nd Class (3.0–3.49)': int(((passed['gpa'] >= 3.00) & (passed['gpa'] < 3.50)).sum()),
+        '3rd Class (2.0–2.99)': int(((passed['gpa'] >= 2.00) & (passed['gpa'] < 3.00)).sum()),
+      }
+      if failed_count > 0:
+        counts['Failed (Subject)'] = failed_count
+      return [{'Tier': k, 'Count': v} for k, v in counts.items() if v > 0]
+
+    def classify_cgpa_tiers(df, promo_target_val, is_even_sem_val, promo_yr_val):
+      """Classify students into CGPA tiers. Red tier adapts by context."""
+      show_red = promo_target_val is not None and promo_yr_val != 4
+      red_label = 'Non-Promoted' if is_even_sem_val else 'At Risk'
+
+      if show_red and promo_target_val:
+        non_promoted_count = int((df['cgpa'] < promo_target_val).sum())
+        promoted = df[df['cgpa'] >= promo_target_val]
+      else:
+        non_promoted_count = 0
+        promoted = df
+
+      counts = {
+        'Distinction (3.7–4.00)': int((promoted['cgpa'] >= 3.70).sum()),
+        '1st Class (3.5–3.69)': int(((promoted['cgpa'] >= 3.50) & (promoted['cgpa'] < 3.70)).sum()),
+        '2nd Class (3.0–3.49)': int(((promoted['cgpa'] >= 3.00) & (promoted['cgpa'] < 3.50)).sum()),
+        '3rd Class (2.0–2.99)': int(((promoted['cgpa'] >= 2.00) & (promoted['cgpa'] < 3.00)).sum()),
+      }
+      if non_promoted_count > 0:
+        counts[red_label] = non_promoted_count
+      return [{'Tier': k, 'Count': v} for k, v in counts.items() if v > 0]
+
+    # --- Build charts ---
+    gpa_tiers = classify_gpa_tiers(df_main, failed_count=has_failed_count)
+    gpa_df = pd.DataFrame(gpa_tiers)
+
+    all_tier_domain = list(tier_colors.keys())
+    all_tier_range = list(tier_colors.values())
+
+    if is_first_sem:
+        # ---- SINGLE RING (1st semester) ----
+        chart = alt.Chart(gpa_df).mark_arc(innerRadius=60, outerRadius=80).encode(
+            theta="Count:Q",
+            color=alt.Color("Tier:N",
+                scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
+                legend=alt.Legend(orient="bottom", columns=2, title="GPA Tier")),
+            order=alt.Order("Count:Q", sort="descending"),
+            tooltip=['Tier', 'Count']
+        ).properties(height=300, padding={"top": 15, "bottom": 10, "left": 10, "right": 10})
+        st.altair_chart(chart, width='stretch')
+        st.caption("First semester — single ring shows semester GPA tiers only.")
+    else:
+        # ---- DUAL RING ----
+        cgpa_tiers = classify_cgpa_tiers(df_main, promo_target, is_even_sem, promo_yr)
+        cgpa_df = pd.DataFrame(cgpa_tiers)
+
+        gpa_df['Ring'] = 'Semester GPA'
+        cgpa_df['Ring'] = 'Cumulative CGPA'
+
+        # Outer ring: GPA
+        outer = alt.Chart(gpa_df).mark_arc(innerRadius=70, outerRadius=85).encode(
+            theta="Count:Q",
+            color=alt.Color("Tier:N",
+                scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
+                legend=alt.Legend(orient="bottom", columns=2, title="Tier")),
+            order=alt.Order("Count:Q", sort="descending"),
+            tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
+        )
+
+        # Inner ring: CGPA
+        inner = alt.Chart(cgpa_df).mark_arc(innerRadius=45, outerRadius=60).encode(
+            theta="Count:Q",
+            color=alt.Color("Tier:N",
+                scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
+                legend=None),
+            order=alt.Order("Count:Q", sort="descending"),
+            tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
+        )
+
+        chart = (outer + inner).properties(height=300, padding={"top": 15, "bottom": 10, "left": 10, "right": 10})
+        st.altair_chart(chart, width='stretch')
+
+        # Context-aware caption
+        if promo_yr == 4:
+            st.caption("Outer ring: Semester GPA | Inner ring: Cumulative CGPA.")
+        elif is_even_sem:
+            st.caption("Outer: Semester GPA | Inner: Cumulative CGPA. Non-Promoted = CGPA below promotion threshold (confirmed).")
+        else:
+            st.caption("Outer: Semester GPA | Inner: Cumulative CGPA. At Risk = CGPA currently below promotion threshold.")
 
   st.divider()
 
@@ -1859,10 +1950,10 @@ with tabs[5]:
 
             # --- Action Buttons (Simulation Reset & PDF Export) ---
             st.markdown("---")
-            act_col1, act_col2 = st.columns(2)
+            _act_spacer, act_col1, act_col2 = st.columns([2, 1, 1])
             with act_col1:
               reset_btn_key = f"reset_sim_{profile_name}_{reg}"
-              if st.button("Reset Simulation", key=reset_btn_key):
+              if st.button("Reset Simulation", key=reset_btn_key, use_container_width=True):
                 keys_to_remove = []
                 for k in list(st.session_state.keys()):
                   if (k.startswith(f"chk_{profile_name}_{reg}_") or 
@@ -1905,18 +1996,22 @@ with tabs[5]:
                   data=pdf_data,
                   file_name=f"GPA_Projection_{reg}_{name.replace(' ', '_')}.pdf",
                   mime="application/pdf",
-                  key=pdf_btn_key
+                  key=pdf_btn_key,
+                  use_container_width=True
                 )
               except Exception as pdf_err:
                 st.error(f"Could not generate PDF: {pdf_err}")
 
       else:
-        if hdr_col4.button("Deep Analysis", key=btn_key,
-                  help=f"Fetch full record for {name} and compute True CGPA + projections"):
-          with st.spinner(f"Scanning full academic history for {name} ({reg})\u2026 1\u20132 min."):
-            result = _run_deep_analysis(reg, name, sess_id)
-          st.session_state._deep_cache[cache_key] = result
-          st.rerun(scope="fragment")
+        with hdr_col4:
+          _btn_spacer, _btn_col = st.columns([1, 1])
+          if _btn_col.button("Deep Analysis", key=btn_key,
+                    help=f"Fetch full record for {name} and compute True CGPA + projections",
+                    use_container_width=True):
+            with st.spinner(f"Scanning full academic history for {name} ({reg})\u2026 1\u20132 min."):
+              result = _run_deep_analysis(reg, name, sess_id)
+            st.session_state._deep_cache[cache_key] = result
+            st.rerun(scope="fragment")
 
       st.write("") # spacing between students
 

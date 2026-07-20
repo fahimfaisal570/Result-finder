@@ -137,6 +137,26 @@ def inject_essential_ui():
             text-decoration: underline !important; 
             opacity: 0.8;
         }
+
+        /* Full Width Tabs */
+        div[data-testid="stTabs"] [role="tablist"] {
+            display: flex !important;
+            width: 100% !important;
+        }
+        div[data-testid="stTabs"] [role="tablist"] button {
+            flex: 1 1 0% !important;
+            text-align: center !important;
+        }
+
+        /* Right Align Buttons in Last Column */
+        div[data-testid="column"]:nth-last-child(1 of div[data-testid="column"]) div[data-testid="stButton"] {
+            display: flex !important;
+            justify-content: flex-end !important;
+        }
+        div[data-testid="column"]:nth-last-child(1 of div[data-testid="column"]) div[data-testid="stDownloadButton"] {
+            display: flex !important;
+            justify-content: flex-end !important;
+        }
     </style>
     """
     st.markdown(minimal_css, unsafe_allow_html=True)
