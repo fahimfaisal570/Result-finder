@@ -142,10 +142,19 @@ def inject_essential_ui():
         div[data-testid="stTabs"] [role="tablist"] {
             display: flex !important;
             width: 100% !important;
+            overflow: hidden !important;
         }
         div[data-testid="stTabs"] [role="tablist"] button {
             flex: 1 1 0% !important;
+            min-width: 0 !important;
             text-align: center !important;
+            justify-content: center !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            font-size: clamp(0.65rem, 1.5vw, 0.85rem) !important;
+            padding-left: 4px !important;
+            padding-right: 4px !important;
         }
 
         /* Right Align Buttons in Last Column */
