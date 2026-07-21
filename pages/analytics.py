@@ -809,7 +809,7 @@ with tabs[0]:
   st.divider()
 
   # Row 1: GPA Distribution & First-Chance Pass Ratio aligned side-by-side
-  row1_c1, spacer, row1_c2 = st.columns([1.3, 0.15, 1.0])
+  row1_c1, spacer, row1_c2 = st.columns([1.2, 0.1, 1.2])
 
   with row1_c1:
     st.markdown("#### GPA Distribution (This Semester Only)")
