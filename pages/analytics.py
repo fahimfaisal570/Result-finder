@@ -892,22 +892,23 @@ with tabs[0]:
 
     if is_first_sem:
         # ---- SINGLE RING (1st semester) ----
-        chart = alt.Chart(gpa_df).mark_arc(innerRadius=60, outerRadius=80).encode(
+        chart = alt.Chart(gpa_df).mark_arc(innerRadius=60, outerRadius=80, y=100).encode(
             theta="Count:Q",
             color=alt.Color("Tier:N",
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
                 legend=alt.Legend(
-                    orient="bottom-left",
+                    orient="none",
+                    legendX=0,
+                    legendY=200,
                     columns=2,
                     title="GPA Tier",
                     labelFontSize=8.5,
                     titleFontSize=9.5,
-                    symbolSize=40,
-                    offset=25
+                    symbolSize=40
                 )),
             order=alt.Order("Count:Q", sort="descending"),
             tooltip=['Tier', 'Count']
-        ).properties(height=300, padding={"top": 15, "bottom": 45, "left": 10, "right": 10})
+        ).properties(height=320, padding={"top": 15, "bottom": 5, "left": 10, "right": 10})
         st.altair_chart(chart, width='stretch')
         st.caption("First semester — single ring shows semester GPA tiers only.")
     else:
@@ -919,25 +920,26 @@ with tabs[0]:
         cgpa_df['Ring'] = 'Cumulative CGPA'
 
         # Outer ring: GPA
-        outer = alt.Chart(gpa_df).mark_arc(innerRadius=70, outerRadius=85).encode(
+        outer = alt.Chart(gpa_df).mark_arc(innerRadius=70, outerRadius=85, y=100).encode(
             theta="Count:Q",
             color=alt.Color("Tier:N",
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
                 legend=alt.Legend(
-                    orient="bottom-left",
+                    orient="none",
+                    legendX=0,
+                    legendY=200,
                     columns=2,
                     title="Tier",
                     labelFontSize=8.5,
                     titleFontSize=9.5,
-                    symbolSize=40,
-                    offset=25
+                    symbolSize=40
                 )),
             order=alt.Order("Count:Q", sort="descending"),
             tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
         )
 
         # Inner ring: CGPA
-        inner = alt.Chart(cgpa_df).mark_arc(innerRadius=45, outerRadius=60).encode(
+        inner = alt.Chart(cgpa_df).mark_arc(innerRadius=45, outerRadius=60, y=100).encode(
             theta="Count:Q",
             color=alt.Color("Tier:N",
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
@@ -946,7 +948,7 @@ with tabs[0]:
             tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
         )
 
-        chart = (outer + inner).properties(height=300, padding={"top": 15, "bottom": 45, "left": 10, "right": 10})
+        chart = (outer + inner).properties(height=320, padding={"top": 15, "bottom": 5, "left": 10, "right": 10})
         st.altair_chart(chart, width='stretch')
 
         # Context-aware caption
