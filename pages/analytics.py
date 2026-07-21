@@ -897,8 +897,7 @@ with tabs[0]:
             color=alt.Color("Tier:N",
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
                 legend=alt.Legend(
-                    orient="bottom",
-                    align="left",
+                    orient="bottom-left",
                     columns=2,
                     title="GPA Tier",
                     labelFontSize=8.5,
@@ -924,8 +923,7 @@ with tabs[0]:
             color=alt.Color("Tier:N",
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
                 legend=alt.Legend(
-                    orient="bottom",
-                    align="left",
+                    orient="bottom-left",
                     columns=2,
                     title="Tier",
                     labelFontSize=8.5,
