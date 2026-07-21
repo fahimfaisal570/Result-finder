@@ -839,11 +839,11 @@ with tabs[0]:
 
     # --- Tier color mapping ---
     tier_colors = {
-      'Distinction': '#166534',
-      '1st Class': '#22c55e',
-      '2nd Class': '#3b82f6',
-      '3rd Class': '#f59e0b',
-      'Failed': '#ef4444',
+      'Distinction (3.7–4.00)': '#166534',
+      '1st Class (3.5–3.69)': '#22c55e',
+      '2nd Class (3.0–3.49)': '#3b82f6',
+      '3rd Class (2.0–2.99)': '#f59e0b',
+      'Failed (Subject)': '#ef4444',
       'Non-Promoted': '#ef4444',
       'At Risk': '#ef4444',
     }
@@ -852,14 +852,14 @@ with tabs[0]:
       """Classify students into semester GPA tiers."""
       passed = df[df['first_chance_fail'] == False] if 'first_chance_fail' in df.columns else df
       counts = {
-        'Distinction': int((passed['gpa'] >= 3.70).sum()),
-        '1st Class': int(((passed['gpa'] >= 3.50) & (passed['gpa'] < 3.70)).sum()),
-        '2nd Class': int(((passed['gpa'] >= 3.00) & (passed['gpa'] < 3.50)).sum()),
-        '3rd Class': int(((passed['gpa'] >= 2.00) & (passed['gpa'] < 3.00)).sum()),
+        'Distinction (3.7–4.00)': int((passed['gpa'] >= 3.70).sum()),
+        '1st Class (3.5–3.69)': int(((passed['gpa'] >= 3.50) & (passed['gpa'] < 3.70)).sum()),
+        '2nd Class (3.0–3.49)': int(((passed['gpa'] >= 3.00) & (passed['gpa'] < 3.50)).sum()),
+        '3rd Class (2.0–2.99)': int(((passed['gpa'] >= 2.00) & (passed['gpa'] < 3.00)).sum()),
       }
       if failed_count > 0:
-        counts['Failed'] = failed_count
-      return [{'Tier': k, 'Count': v, 'Range': {'Distinction':'3.70–4.00','1st Class':'3.50–3.69','2nd Class':'3.00–3.49','3rd Class':'2.00–2.99','Failed':'< 2.00'}.get(k,'')} for k, v in counts.items() if v > 0]
+        counts['Failed (Subject)'] = failed_count
+      return [{'Tier': k, 'Count': v} for k, v in counts.items() if v > 0]
 
     def classify_cgpa_tiers(df, promo_target_val, is_even_sem_val, promo_yr_val):
       """Classify students into CGPA tiers. Red tier adapts by context."""
@@ -874,15 +874,14 @@ with tabs[0]:
         promoted = df
 
       counts = {
-        'Distinction': int((promoted['cgpa'] >= 3.70).sum()),
-        '1st Class': int(((promoted['cgpa'] >= 3.50) & (promoted['cgpa'] < 3.70)).sum()),
-        '2nd Class': int(((promoted['cgpa'] >= 3.00) & (promoted['cgpa'] < 3.50)).sum()),
-        '3rd Class': int(((promoted['cgpa'] >= 2.00) & (promoted['cgpa'] < 3.00)).sum()),
+        'Distinction (3.7–4.00)': int((promoted['cgpa'] >= 3.70).sum()),
+        '1st Class (3.5–3.69)': int(((promoted['cgpa'] >= 3.50) & (promoted['cgpa'] < 3.70)).sum()),
+        '2nd Class (3.0–3.49)': int(((promoted['cgpa'] >= 3.00) & (promoted['cgpa'] < 3.50)).sum()),
+        '3rd Class (2.0–2.99)': int(((promoted['cgpa'] >= 2.00) & (promoted['cgpa'] < 3.00)).sum()),
       }
       if non_promoted_count > 0:
         counts[red_label] = non_promoted_count
-      range_map = {'Distinction':'3.70–4.00','1st Class':'3.50–3.69','2nd Class':'3.00–3.49','3rd Class':'2.00–2.99','Non-Promoted':'< threshold','At Risk':'< threshold'}
-      return [{'Tier': k, 'Count': v, 'Range': range_map.get(k,'')} for k, v in counts.items() if v > 0]
+      return [{'Tier': k, 'Count': v} for k, v in counts.items() if v > 0]
 
     # --- Build charts ---
     gpa_tiers = classify_gpa_tiers(df_main, failed_count=has_failed_count)
@@ -897,9 +896,16 @@ with tabs[0]:
             theta="Count:Q",
             color=alt.Color("Tier:N",
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
-                legend=alt.Legend(orient="bottom", columns=1, title="GPA Tier")),
+                legend=alt.Legend(
+                    orient="bottom", 
+                    columns=2, 
+                    title="GPA Tier",
+                    labelFontSize=7.5,
+                    titleFontSize=8.5,
+                    symbolSize=30
+                )),
             order=alt.Order("Count:Q", sort="descending"),
-            tooltip=['Tier', alt.Tooltip('Range:N', title='Range'), 'Count']
+            tooltip=['Tier', 'Count']
         ).properties(height=300, padding={"top": 15, "bottom": 10, "left": 10, "right": 10})
         st.altair_chart(chart, width='stretch')
         st.caption("First semester — single ring shows semester GPA tiers only.")
@@ -916,9 +922,16 @@ with tabs[0]:
             theta="Count:Q",
             color=alt.Color("Tier:N",
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
-                legend=alt.Legend(orient="bottom", columns=1, title="Tier")),
+                legend=alt.Legend(
+                    orient="bottom", 
+                    columns=2, 
+                    title="Tier",
+                    labelFontSize=7.5,
+                    titleFontSize=8.5,
+                    symbolSize=30
+                )),
             order=alt.Order("Count:Q", sort="descending"),
-            tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', alt.Tooltip('Range:N', title='Range'), 'Count']
+            tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
         )
 
         # Inner ring: CGPA
@@ -928,7 +941,7 @@ with tabs[0]:
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
                 legend=None),
             order=alt.Order("Count:Q", sort="descending"),
-            tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', alt.Tooltip('Range:N', title='Range'), 'Count']
+            tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
         )
 
         chart = (outer + inner).properties(height=300, padding={"top": 15, "bottom": 10, "left": 10, "right": 10})
