@@ -902,9 +902,9 @@ with tabs[0]:
                     legendY=200,
                     columns=2,
                     title="GPA Tier",
-                    labelFontSize=8.5,
-                    titleFontSize=9.5,
-                    symbolSize=40
+                    labelFontSize=10.2,
+                    titleFontSize=11.4,
+                    symbolSize=48
                 )),
             order=alt.Order("Count:Q", sort="descending"),
             tooltip=['Tier', 'Count']
@@ -930,9 +930,9 @@ with tabs[0]:
                     legendY=200,
                     columns=2,
                     title="Tier",
-                    labelFontSize=8.5,
-                    titleFontSize=9.5,
-                    symbolSize=40
+                    labelFontSize=10.2,
+                    titleFontSize=11.4,
+                    symbolSize=48
                 )),
             order=alt.Order("Count:Q", sort="descending"),
             tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
