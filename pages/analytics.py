@@ -897,12 +897,13 @@ with tabs[0]:
             color=alt.Color("Tier:N",
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
                 legend=alt.Legend(
-                    orient="bottom", 
-                    columns=2, 
+                    orient="bottom",
+                    align="left",
+                    columns=2,
                     title="GPA Tier",
-                    labelFontSize=7.5,
-                    titleFontSize=8.5,
-                    symbolSize=30
+                    labelFontSize=8.5,
+                    titleFontSize=9.5,
+                    symbolSize=40
                 )),
             order=alt.Order("Count:Q", sort="descending"),
             tooltip=['Tier', 'Count']
@@ -923,12 +924,13 @@ with tabs[0]:
             color=alt.Color("Tier:N",
                 scale=alt.Scale(domain=all_tier_domain, range=all_tier_range),
                 legend=alt.Legend(
-                    orient="bottom", 
-                    columns=2, 
+                    orient="bottom",
+                    align="left",
+                    columns=2,
                     title="Tier",
-                    labelFontSize=7.5,
-                    titleFontSize=8.5,
-                    symbolSize=30
+                    labelFontSize=8.5,
+                    titleFontSize=9.5,
+                    symbolSize=40
                 )),
             order=alt.Order("Count:Q", sort="descending"),
             tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
