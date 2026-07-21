@@ -902,11 +902,12 @@ with tabs[0]:
                     title="GPA Tier",
                     labelFontSize=8.5,
                     titleFontSize=9.5,
-                    symbolSize=40
+                    symbolSize=40,
+                    offset=25
                 )),
             order=alt.Order("Count:Q", sort="descending"),
             tooltip=['Tier', 'Count']
-        ).properties(height=300, padding={"top": 15, "bottom": 10, "left": 10, "right": 10})
+        ).properties(height=300, padding={"top": 15, "bottom": 45, "left": 10, "right": 10})
         st.altair_chart(chart, width='stretch')
         st.caption("First semester — single ring shows semester GPA tiers only.")
     else:
@@ -928,7 +929,8 @@ with tabs[0]:
                     title="Tier",
                     labelFontSize=8.5,
                     titleFontSize=9.5,
-                    symbolSize=40
+                    symbolSize=40,
+                    offset=25
                 )),
             order=alt.Order("Count:Q", sort="descending"),
             tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
@@ -944,7 +946,7 @@ with tabs[0]:
             tooltip=[alt.Tooltip('Ring', title='Ring'), 'Tier', 'Count']
         )
 
-        chart = (outer + inner).properties(height=300, padding={"top": 15, "bottom": 10, "left": 10, "right": 10})
+        chart = (outer + inner).properties(height=300, padding={"top": 15, "bottom": 45, "left": 10, "right": 10})
         st.altair_chart(chart, width='stretch')
 
         # Context-aware caption
