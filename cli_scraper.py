@@ -822,15 +822,17 @@ def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None)
     retakes = collections.OrderedDict()
     if not exams_dict: return collections.OrderedDict(), retakes
 
-    # Check DB cache for probe verification results if probe_regs and pro_id are supplied
-    cache_key = None
+    # --- DB Cache ---
+    # Build a stable key from the exam set + session (+ probe flag for probe-verified results).
+    import hashlib
+    dict_sig = hashlib.md5(json.dumps(sorted(list(exams_dict.keys()))).encode()).hexdigest()
     if probe_regs and pro_id:
-        import hashlib
-        dict_sig = hashlib.md5(json.dumps(sorted(list(exams_dict.keys()))).encode()).hexdigest()
-        cache_key = f"classify_{pro_id}_{batch_session}_{dict_sig}"
-        cached = db.get_meta_cache(cache_key, ttl_seconds=3600)
-        if cached and "mains" in cached and "retakes" in cached:
-            return collections.OrderedDict(cached["mains"]), collections.OrderedDict(cached["retakes"])
+        cache_key = f"classify_probe_{pro_id}_{batch_session}_{dict_sig}"
+    else:
+        cache_key = f"classify_fast_{batch_session}_{dict_sig}"
+    cached = db.get_meta_cache(cache_key, ttl_seconds=3600)
+    if cached and "mains" in cached and "retakes" in cached:
+        return collections.OrderedDict(cached["mains"]), collections.OrderedDict(cached["retakes"])
     
     # Identify batch start year
     batch_start_year = None
