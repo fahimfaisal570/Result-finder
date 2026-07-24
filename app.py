@@ -248,7 +248,10 @@ else: # Saved Profiles Mode
             active_sess_id = profile_data.get('sess_id') or (p_regs[0][1] if p_regs else "Any")
             active_sess_name = SESSIONS_CACHE.get(str(active_sess_id), str(active_sess_id))
             probe_regs = [r[0] for r in p_regs if str(r[1]) == str(active_sess_id)][:5]
-            mains_dict, others_dict = classify_exams(exams_raw, active_sess_name, probe_regs=probe_regs, pro_id=profile_data.get('pro_id'))
+            _classify_key = f"classify_{p_selected}_{profile_data.get('pro_id')}"
+            if _classify_key not in st.session_state:
+                st.session_state[_classify_key] = classify_exams(exams_raw, active_sess_name, probe_regs=probe_regs, pro_id=profile_data.get('pro_id'))
+            mains_dict, others_dict = st.session_state[_classify_key]
             
             from urllib.parse import quote as _quote
             st.markdown("<div style='text-align: center; color: var(--text-color); opacity: 0.6; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase;'>Main Batch Exams</div>", unsafe_allow_html=True)

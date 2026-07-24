@@ -2693,6 +2693,7 @@ def migrate_schema_v5():
         conn.commit()
     logger.info("Schema v5 migration complete.")
 
+_CURRENT_SCHEMA_VERSION = 5
 _bootstrapped = False
 
 def _bootstrap():
@@ -2700,10 +2701,26 @@ def _bootstrap():
     if _bootstrapped:
         return
     init_db()
-    migrate_schema_v2()
-    migrate_schema_v3()
-    migrate_schema_v4()
-    migrate_schema_v5()
+    
+    current_v = 0
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM meta_cache WHERE key='schema_version'"
+            ).fetchone()
+            if row:
+                current_v = int(json.loads(row[0]))
+    except Exception:
+        pass
+
+    if current_v < 2: migrate_schema_v2()
+    if current_v < 3: migrate_schema_v3()
+    if current_v < 4: migrate_schema_v4()
+    if current_v < 5: migrate_schema_v5()
+
+    if current_v < _CURRENT_SCHEMA_VERSION:
+        set_meta_cache("schema_version", _CURRENT_SCHEMA_VERSION)
+
     _bootstrapped = True
 
 _bootstrap()

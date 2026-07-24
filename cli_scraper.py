@@ -14,7 +14,6 @@ import os
 import sys
 import time
 import re
-import subprocess
 import collections
 import random
 import urllib.parse as urllib_parse
@@ -311,16 +310,15 @@ def extract_options_from_html(html):
 
 def fetch_programs_and_sessions():
     """Fetches sessions and programs, ensuring a valid session cookie exists."""
-    # Always ensure a session handshake (visit BASE_URL) if cookies are missing.
-    # This prevents the portal from blocking session-less AJAX requests after a few attempts.
-    if not session.cookies:
-        make_request(BASE_URL)
-
     cached = db.get_meta_cache("portal_meta", ttl_seconds=86400)
     if cached and cached.get("programs") and cached.get("sessions"):
         PROGRAMS_CACHE.update(cached["programs"])
         SESSIONS_CACHE.update(cached["sessions"])
         return collections.OrderedDict(cached["programs"]), collections.OrderedDict(cached["sessions"])
+
+    # Ensure a session handshake (visit BASE_URL) if cookies are missing when reaching out to portal.
+    if not session.cookies:
+        make_request(BASE_URL)
 
     html = make_request("https://ducmc.du.ac.bd/result.php")
     if not html: 
@@ -823,6 +821,16 @@ def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None)
     mains_slots = {} # slot_idx -> list of [id, name, y, sem, ey, score]
     retakes = collections.OrderedDict()
     if not exams_dict: return collections.OrderedDict(), retakes
+
+    # Check DB cache for probe verification results if probe_regs and pro_id are supplied
+    cache_key = None
+    if probe_regs and pro_id:
+        import hashlib
+        dict_sig = hashlib.md5(json.dumps(sorted(list(exams_dict.keys()))).encode()).hexdigest()
+        cache_key = f"classify_{pro_id}_{batch_session}_{dict_sig}"
+        cached = db.get_meta_cache(cache_key, ttl_seconds=3600)
+        if cached and "mains" in cached and "retakes" in cached:
+            return collections.OrderedDict(cached["mains"]), collections.OrderedDict(cached["retakes"])
     
     # Identify batch start year
     batch_start_year = None
@@ -937,6 +945,9 @@ def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None)
     mains = collections.OrderedDict()
     for i in mains_final_list: mains[i[0]] = i[1]
     
+    if cache_key:
+        db.set_meta_cache(cache_key, {"mains": dict(mains), "retakes": dict(retakes)})
+
     return mains, retakes
 def handle_exam_selection(exams_dict, batch_session=None, probe_regs=None, pro_id=None):
     if not exams_dict: return ('b', None, False)
