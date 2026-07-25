@@ -122,30 +122,6 @@ btn_find = st.sidebar.button("Find Students", type="primary")
 
 RETAKE_KEYWORDS = ['retake', 're-take', 'improvement', 'special', 'make-up', 'makeup', 'supplementary', 'short']
 
-SEM_KEYWORDS_MAP = {
-    1: ['1st year 1st', '1st yr 1st'],
-    2: ['1st year 2nd', '1st yr 2nd'],
-    3: ['2nd year 1st', '2nd yr 1st', '3rd semester'],
-    4: ['2nd year 2nd', '2nd yr 2nd', '4th semester'],
-    5: ['3rd year 1st', '3rd yr 1st', '5th semester'],
-    6: ['3rd year 2nd', '3rd yr 2nd', '6th semester'],
-    7: ['4th year 1st', '4th yr 1st', '7th semester'],
-    8: ['4th year 2nd', '4th yr 2nd', '8th semester'],
-}
-
-def is_exam_relevant_for_sem(ename: str, target_sem_num: int) -> bool:
-    """Returns True if exam name is a retake/special exam relevant to the target semester."""
-    ename_lower = ename.lower()
-    if not any(kw in ename_lower for kw in RETAKE_KEYWORDS):
-        return False
-    target_phrases = SEM_KEYWORDS_MAP.get(target_sem_num, [])
-    if any(p in ename_lower for p in target_phrases):
-        return True
-    other_phrases = [p for sem, phrases in SEM_KEYWORDS_MAP.items() if sem != target_sem_num for p in phrases]
-    if any(p in ename_lower for p in other_phrases):
-        return False
-    return True
-
 
 # Execute Search
 if btn_find or "pending_finder_results" in st.session_state:
@@ -319,9 +295,6 @@ if btn_find or "pending_finder_results" in st.session_state:
                     if str(eid) in existing_eids:
                         continue
 
-                    if not is_exam_relevant_for_sem(ename, selected_sem_num):
-                        continue
-
                     try:
                         if min_main_eid > 0 and int(eid) < min_main_eid:
                             continue
@@ -333,14 +306,8 @@ if btn_find or "pending_finder_results" in st.session_state:
                 for eid in missing_eids:
                     candidate_tasks.append((reg_int, stu_sess, eid, p_name, pro_id))
 
-            # Execute targeted scan for missing candidate retakes (if any).
-            MAX_CANDIDATE_TASKS = 500
-            if len(candidate_tasks) > MAX_CANDIDATE_TASKS:
-                status_box.write(f"⚠️ {len(candidate_tasks)} portal tasks — capped at {MAX_CANDIDATE_TASKS}.")
-                candidate_tasks = candidate_tasks[:MAX_CANDIDATE_TASKS]
-
             if candidate_tasks:
-                status_box.write(f"Scanning {len(candidate_tasks)} retake results on portal...")
+                status_box.write(f"Verifying {len(candidate_tasks)} exam results on portal...")
                 tasks_by_profile = {}
                 for reg_int, stu_sess, eid, p_name, pro_id in candidate_tasks:
                     key = (p_name, pro_id)
