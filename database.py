@@ -2689,6 +2689,22 @@ def get_cross_batch_comparison(profile_names: list[str], semester_pattern: str) 
 # Cache Helpers
 # ---------------------------------------------------------------------------
 
+def get_profile_known_exams(profile_name: str) -> dict:
+    """Returns dict of {exam_id: exam_name} stored in DB for this profile."""
+    res = {}
+    with get_connection() as conn:
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT exam_id, exam_name FROM exam_results WHERE profile_name = ?",
+                (str(profile_name),)
+            ).fetchall()
+            for r in rows:
+                if r[0]:
+                    res[str(r[0])] = r[1] or ""
+        except (sqlite3.Error, Exception):
+            pass
+    return res
+
 def has_exam_results_for_profile(profile_name: str, exam_id: str) -> bool:
     """Fast check if DB already has saved exam results for this profile & exam_id."""
     if not profile_name or not exam_id:
