@@ -296,19 +296,36 @@ if btn_find or "pending_finder_results" in st.session_state:
                     tasks_by_profile[key] = []
                 tasks_by_profile[key].append((reg_int, stu_sess, eid))
 
-            progress_bar = st.progress(0.0, text=f"Verifying retake/special exam results on portal for {len(seen_reg)} candidate student(s)...")
+            total_candidate_tasks = len(candidate_tasks)
+            completed_overall = [0]
 
-            total_t_groups = len(tasks_by_profile)
-            for g_idx, ((p_name, pro_id), t_list) in enumerate(tasks_by_profile.items()):
-                progress_bar.progress((g_idx / total_t_groups), text=f"Checking retake portal updates for {p_name} ({len(t_list)} tasks)...")
+            progress_bar = st.progress(
+                0.0,
+                text=f"Verifying retake/special exam results on portal (0/{total_candidate_tasks} tasks)..."
+            )
+
+            for (p_name, pro_id), t_list in tasks_by_profile.items():
                 p_exams = pro_exams_cache.get(pro_id) or cs.fetch_exams(pro_id) or {}
+
+                def make_progress_cb(batch_p_name, offset):
+                    def cb(current, total, status_text=None):
+                        done = offset + current
+                        pct = min(1.0, max(0.0, done / total_candidate_tasks))
+                        progress_bar.progress(
+                            pct,
+                            text=f"Checking retake portal for {batch_p_name} ({done}/{total_candidate_tasks} tasks)..."
+                        )
+                    return cb
+
                 batch_history = cs.run_batch_scan_engine(
                     tasks=t_list,
                     pro_id=pro_id,
                     exam_id="0",
                     all_sessions={"0": ""},  # Non-empty prevents internal fetch_programs_and_sessions() call
-                    num_threads=15
+                    progress_callback=make_progress_cb(p_name, completed_overall[0]),
+                    num_threads=30
                 )
+                completed_overall[0] += len(t_list)
 
                 for rec in (batch_history or []):
                     eid = rec.get('_exam_id')
