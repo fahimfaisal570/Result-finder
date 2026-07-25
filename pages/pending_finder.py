@@ -108,14 +108,14 @@ st.sidebar.divider()
 criteria_type = st.sidebar.radio(
     "Filter Criteria Type:",
     ["Retake", "Improvement", "All"],
-    index=0
+    index=2
 )
 
 # 5. Special Retake Filter
 special_filter = st.sidebar.radio(
     "Special Retake Status:",
     ["Special", "Normal", "All"],
-    index=0
+    index=2
 )
 
 btn_find = st.sidebar.button("Find Students", type="primary")
