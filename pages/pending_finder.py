@@ -109,14 +109,22 @@ if btn_find or "pending_finder_results" in st.session_state:
         results = []
         special_lookup = db.build_special_exam_lookup(dept)
 
-        # Pre-warm portal connection pool with 50 parallel HTTP sockets
-        cs.warm_connection_pool(num_connections=50)
-        with st.spinner("Connecting to University Portal & pre-warming metadata..."):
+        # Fetch metadata safely (DO NOT pre-warm 50 sockets before metadata fetch to prevent server firewall hangs)
+        with st.spinner("Connecting to University Portal metadata..."):
             portal_programs, portal_sessions = cs.fetch_programs_and_sessions()
 
+        # Fallback to local DB metadata cache if portal is unresponsive
         if not portal_sessions:
-            st.error("Could not connect to University Portal. Please check your internet connection.")
+            cached_meta = db.get_meta_cache("portal_meta", ttl_seconds=0) # Get any cached metadata regardless of age
+            if cached_meta and cached_meta.get("sessions"):
+                portal_sessions = cached_meta["sessions"]
+
+        if not portal_sessions:
+            st.error("Could not connect to University Portal or load metadata. Please check your network connection.")
             st.stop()
+
+        # Pre-warm connection pool with 10 connections for batch scan
+        cs.warm_connection_pool(num_connections=10)
 
         # Count total students across matching profiles
         total_students = sum(len(profiles[p].get('regs', [])) for p in matching_profiles)
@@ -187,11 +195,11 @@ if btn_find or "pending_finder_results" in st.session_state:
                     for eid in filtered_eids:
                         batch_tasks.append((reg_int, stu_sess, eid))
 
-            # Execute OPTIMIZED BULK PARALLEL SCAN for uncached candidate students (30 worker threads)
+            # Execute OPTIMIZED BULK PARALLEL SCAN for uncached candidate students (15 worker threads)
             if batch_tasks:
                 progress_bar.progress(
                     0.0,
-                    text=f"Batch {p_name} ({p_idx + 1}/{len(matching_profiles)}): Firing parallel workers for {len(batch_tasks)} portal requests..."
+                    text=f"Batch {p_name} ({p_idx + 1}/{len(matching_profiles)}): Firing workers for {len(batch_tasks)} portal requests..."
                 )
 
                 batch_history = cs.run_batch_scan_engine(
@@ -200,7 +208,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                     exam_id="0",
                     all_sessions=portal_sessions,
                     progress_callback=_update_progress,
-                    num_threads=30
+                    num_threads=15
                 )
 
                 # Group returned portal records & save to DB (Write-Through Cache)
