@@ -224,18 +224,10 @@ if btn_find or "pending_finder_results" in st.session_state:
             st.stop()
 
         # STAGE 3: Portal Retake Probe & Deep Analysis for Candidate Students
-        cached_meta = db.get_meta_cache("portal_meta", ttl_seconds=86400) or {}
-        portal_sessions = cached_meta.get("sessions")
-        if not portal_sessions:
-            with st.spinner("Connecting to University Portal metadata..."):
-                _, portal_sessions = cs.fetch_programs_and_sessions()
-        if not portal_sessions:
-            portal_sessions = {"1": "2021-22", "2": "2020-21", "3": "2019-20", "4": "2018-19", "5": "2017-18", "6": "2016-17"}
-
-        # Identify missing portal retake/special exams for candidate students
+        # No portal_sessions needed — min_main_eid threshold replaces session-year filtering
         candidate_tasks = []
         seen_reg = set()
-        
+
         # Cache program exam lookups to avoid duplicate calls
         pro_exams_cache = {}
 
@@ -261,7 +253,8 @@ if btn_find or "pending_finder_results" in st.session_state:
             existing_recs = db.get_student_raw_records_from_db(p_name, reg_int)
             existing_eids = set(str(r.get('_exam_id')) for r in existing_recs)
 
-            # Ascending exam_id optimization: find student's earliest main exam_id
+            # Ascending exam_id optimization: find student's earliest main exam_id.
+            # This replaces get_relevant_exams() — no portal_sessions needed.
             min_main_eid = 0
             for r in existing_recs:
                 ename = r.get('_exam_name', '')
@@ -273,18 +266,14 @@ if btn_find or "pending_finder_results" in st.session_state:
                     except (ValueError, TypeError):
                         pass
 
-            relevant_eids = cs.get_relevant_exams(stu_sess, portal_sessions, p_exams)
-            # Filter relevant exams to ONLY retake/special exams missing from SQLite
-            # and published ON OR AFTER the student's earliest main exam_id
+            # Iterate all program exams directly — min_main_eid cutoff handles cohort filtering
             missing_eids = []
-            for eid in relevant_eids:
+            for eid, ename in p_exams.items():
                 if str(eid) in existing_eids:
                     continue
-                ename = p_exams.get(eid, '')
                 ename_lower = ename.lower()
-                
-                is_retake = any(kw in ename_lower for kw in RETAKE_KEYWORDS)
-                if not is_retake:
+
+                if not any(kw in ename_lower for kw in RETAKE_KEYWORDS):
                     continue
 
                 try:
@@ -317,7 +306,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                     tasks=t_list,
                     pro_id=pro_id,
                     exam_id="0",
-                    all_sessions=portal_sessions,
+                    all_sessions={"0": ""},  # Non-empty prevents internal fetch_programs_and_sessions() call
                     num_threads=15
                 )
 
