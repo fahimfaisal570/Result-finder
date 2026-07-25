@@ -53,6 +53,18 @@ SEMESTER_MAP = {
     8: "4th Year 2nd Semester",
 }
 
+# Short labels understood by compute_deep_analysis (e.g. "2nd Yr 1st Sem")
+_EXAM_LABEL_MAP = {
+    1: "1st Yr 1st Sem",
+    2: "1st Yr 2nd Sem",
+    3: "2nd Yr 1st Sem",
+    4: "2nd Yr 2nd Sem",
+    5: "3rd Yr 1st Sem",
+    6: "3rd Yr 2nd Sem",
+    7: "4th Yr 1st Sem",
+    8: "4th Yr 2nd Sem",
+}
+
 selected_sem_label = st.sidebar.selectbox(
     "Select Semester:",
     options=list(SEMESTER_MAP.values())
@@ -60,6 +72,7 @@ selected_sem_label = st.sidebar.selectbox(
 
 selected_sem_num = [num for num, label in SEMESTER_MAP.items() if label == selected_sem_label][0]
 selected_sem_nums = [selected_sem_num]
+selected_exam_label = _EXAM_LABEL_MAP[selected_sem_num]
 
 # 3. Optional Course Code Filter
 credit_map = getattr(db, "_credit_map", {})
@@ -243,7 +256,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                 if not raw_recs:
                     continue
 
-                deep_res = db.compute_deep_analysis(raw_recs, p_name, "4th Yr 2nd Sem")
+                deep_res = db.compute_deep_analysis(raw_recs, p_name, selected_exam_label)
                 if not deep_res:
                     continue
 
@@ -257,7 +270,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                 )
 
                 # Process pending retakes
-                if "Improvements" not in criteria_type:
+                if "Improvement Candidates Only" not in criteria_type:
                     for pr in adv_proj.get('pending_retakes', []):
                         sem_num = pr.get('semester', 0)
                         code = pr.get('code', '')
@@ -280,7 +293,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                                     })
 
                 # Process improvement candidates
-                if "Retakes Only" not in criteria_type:
+                if "Pending Retakes Only" not in criteria_type:
                     for ic in adv_proj.get('improvement_candidates', []):
                         sem_num = ic.get('semester', 0)
                         code = ic.get('code', '')
