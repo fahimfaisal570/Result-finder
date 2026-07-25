@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import sys
 import os
-import json
 
 # Setup page config and essential UI
 st.set_page_config(page_title="Pending Retake & Improvement Finder", page_icon="favicon.ico", layout="wide")
@@ -16,7 +15,7 @@ ui.inject_essential_ui()
 
 st.page_link("app.py", label="← Back to Dashboard", icon=":material/arrow_back:")
 st.title("Pending Retake & Improvement Finder")
-st.markdown("Filter students across department batches with uncleared retakes or eligible improvements.")
+st.markdown("Filter students across department batches with uncleared retakes or eligible improvements (DB-Driven Engine).")
 
 profiles = db.get_profiles()
 if not profiles:
@@ -63,6 +62,17 @@ _EXAM_LABEL_MAP = {
     6: "3rd Yr 2nd Sem",
     7: "4th Yr 1st Sem",
     8: "4th Yr 2nd Sem",
+}
+
+SEM_PATTERN_MAP = {
+    1: "%1st year 1st semester%",
+    2: "%1st year 2nd semester%",
+    3: "%2nd year 1st semester%",
+    4: "%2nd year 2nd semester%",
+    5: "%3rd year 1st semester%",
+    6: "%3rd year 2nd semester%",
+    7: "%4th year 1st semester%",
+    8: "%4th year 2nd semester%",
 }
 
 selected_sem_label = st.sidebar.selectbox(
@@ -118,209 +128,165 @@ if btn_find or "pending_finder_results" in st.session_state:
             st.warning("Please select at least one semester.")
             st.stop()
 
-        import cli_scraper as cs
         results = []
         special_lookup = db.build_special_exam_lookup(dept)
 
-        # Instant Metadata Resolution: Read cached portal metadata from local DB (0ms, zero network delay)
-        # NOTE: ttl_seconds=0 means elapsed < 0 which is always False — must use a real TTL like 86400
-        cached_meta = db.get_meta_cache("portal_meta", ttl_seconds=86400) or {}
-        portal_sessions = cached_meta.get("sessions")
+        # STAGE 1: Find eligible batches that have taken the main exam for the selected semester
+        sem_pattern = SEM_PATTERN_MAP[selected_sem_num]
+        eligible_batches = []
 
-        if not portal_sessions:
-            with st.spinner("Connecting to University Portal metadata..."):
-                portal_programs, portal_sessions = cs.fetch_programs_and_sessions()
-                # fetch_programs_and_sessions already calls set_meta_cache internally, but
-                # save explicitly here in case it returned early without saving
-                if portal_sessions:
-                    db.set_meta_cache("portal_meta", {"programs": {}, "sessions": dict(portal_sessions)})
+        with db.get_connection() as conn:
+            placeholders = ",".join(["?"] * len(matching_profiles))
+            query = f"""
+                SELECT DISTINCT er.profile_name
+                FROM exam_results er
+                WHERE er.profile_name IN ({placeholders})
+                  AND LOWER(er.exam_name) LIKE ?
+                  AND LOWER(er.exam_name) NOT LIKE '%retake%'
+                  AND LOWER(er.exam_name) NOT LIKE '%re-take%'
+                  AND LOWER(er.exam_name) NOT LIKE '%improvement%'
+                  AND LOWER(er.exam_name) NOT LIKE '%special%'
+                  AND LOWER(er.exam_name) NOT LIKE '%make-up%'
+                  AND LOWER(er.exam_name) NOT LIKE '%makeup%'
+                  AND LOWER(er.exam_name) NOT LIKE '%supplementary%'
+            """
+            params = list(matching_profiles) + [sem_pattern]
+            rows = conn.execute(query, params).fetchall()
+            eligible_batches = [r[0] for r in rows]
 
-        if not portal_sessions:
-            # Emergency fallback: standard session map so search can proceed even if portal metadata is uncreatable
-            portal_sessions = {"1": "2021-22", "2": "2020-21", "3": "2019-20", "4": "2018-19", "5": "2017-18", "6": "2016-17"}
+        if not eligible_batches:
+            st.info(f"No scanned main exam records found for {selected_sem_label} in {dept}.")
+            st.stop()
 
-        # Pre-warm connection pool with 10 connections for batch scan
-        cs.warm_connection_pool(num_connections=10)
+        # Build semester course list for Stage 2 SQL filter
+        target_course_codes = selected_courses if selected_courses else all_courses
 
-        # Count total students across matching profiles
-        total_students = sum(len(profiles[p].get('regs', [])) for p in matching_profiles)
-        progress_bar = st.progress(0, text=f"Dynamic Portal Search starting for {total_students} students across {len(matching_profiles)} batch(es)...")
+        # Pre-load batch first participation years
+        batch_first_years_map = {
+            b: db.get_batch_first_participation_years(b) for b in eligible_batches
+        }
 
-        def _update_progress(cur, tot, txt=None):
-            msg = txt or f"Dynamically probing portal results ({cur}/{tot})..."
-            progress_bar.progress(min(cur / tot, 1.0) if tot else 1.0, text=msg)
+        # STAGE 2: Filter candidate students (GP <= 2.75 in main exam subjects)
+        candidates = []
+        with db.get_connection() as conn:
+            b_placeholders = ",".join(["?"] * len(eligible_batches))
+            
+            if target_course_codes:
+                c_placeholders = ",".join(["?"] * len(target_course_codes))
+                sql_candidates = f"""
+                    SELECT DISTINCT sg.profile_name, sg.reg_no, s.name, s.sess_id
+                    FROM subject_grades sg
+                    JOIN exam_results er ON sg.profile_name = er.profile_name 
+                      AND sg.reg_no = er.reg_no AND sg.exam_id = er.exam_id
+                    JOIN students s ON sg.profile_name = s.profile_name AND sg.reg_no = s.reg_no
+                    WHERE sg.profile_name IN ({b_placeholders})
+                      AND sg.grade_point <= 2.75
+                      AND sg.subject_code IN ({c_placeholders})
+                      AND LOWER(er.exam_name) NOT LIKE '%retake%'
+                      AND LOWER(er.exam_name) NOT LIKE '%re-take%'
+                      AND LOWER(er.exam_name) NOT LIKE '%improvement%'
+                      AND LOWER(er.exam_name) NOT LIKE '%special%'
+                      AND LOWER(er.exam_name) NOT LIKE '%make-up%'
+                      AND LOWER(er.exam_name) NOT LIKE '%makeup%'
+                      AND LOWER(er.exam_name) NOT LIKE '%supplementary%'
+                    ORDER BY sg.profile_name DESC, sg.reg_no ASC
+                """
+                sql_params = list(eligible_batches) + list(target_course_codes)
+            else:
+                # If no courses in credit_mapping for this semester, fallback to filtering by exam_name
+                sql_candidates = f"""
+                    SELECT DISTINCT sg.profile_name, sg.reg_no, s.name, s.sess_id
+                    FROM subject_grades sg
+                    JOIN exam_results er ON sg.profile_name = er.profile_name 
+                      AND sg.reg_no = er.reg_no AND sg.exam_id = er.exam_id
+                    JOIN students s ON sg.profile_name = s.profile_name AND sg.reg_no = s.reg_no
+                    WHERE sg.profile_name IN ({b_placeholders})
+                      AND sg.grade_point <= 2.75
+                      AND LOWER(er.exam_name) LIKE ?
+                      AND LOWER(er.exam_name) NOT LIKE '%retake%'
+                      AND LOWER(er.exam_name) NOT LIKE '%re-take%'
+                      AND LOWER(er.exam_name) NOT LIKE '%improvement%'
+                      AND LOWER(er.exam_name) NOT LIKE '%special%'
+                      AND LOWER(er.exam_name) NOT LIKE '%make-up%'
+                      AND LOWER(er.exam_name) NOT LIKE '%makeup%'
+                      AND LOWER(er.exam_name) NOT LIKE '%supplementary%'
+                    ORDER BY sg.profile_name DESC, sg.reg_no ASC
+                """
+                sql_params = list(eligible_batches) + [sem_pattern]
 
-        for p_idx, p_name in enumerate(sorted(matching_profiles)):
-            batch_first_years = db.get_batch_first_participation_years(p_name)
-            student_list = profiles[p_name].get('regs', [])
-            p_data = profiles.get(p_name, {})
-            pro_id = p_data.get("pro_id", "")
+            candidates = conn.execute(sql_candidates, sql_params).fetchall()
 
-            if not pro_id or not student_list:
+        # STAGE 3: Deep Analysis on Candidate Students
+        seen_reg = set()
+        for p_name, reg_no, name, sess_id in candidates:
+            reg_int = int(reg_no)
+            if reg_int in seen_reg:
+                continue  # Readmit student: already analyzed from newer batch
+            seen_reg.add(reg_int)
+
+            raw_recs = db.get_student_raw_records_from_db(p_name, reg_int)
+            if not raw_recs:
                 continue
 
-            p_exams = cs.fetch_exams(pro_id)
-            if not p_exams:
+            deep_res = db.compute_deep_analysis(raw_recs, p_name, selected_exam_label)
+            if not deep_res:
                 continue
 
-            # BULK TASK ASSEMBLY with Smart Candidate Pre-Filtering
-            batch_tasks = []
-            student_records_map = {}  # reg_no -> list of raw records
-            candidate_students = []
+            adv_proj = db.compute_advanced_projection(
+                deep_result=deep_res,
+                effective_grades=deep_res.get('effective_grades', {}),
+                retake_records=deep_res.get('retake_records', []),
+                profile_name=p_name,
+                special_exam_lookup=special_lookup,
+                batch_first_years=batch_first_years_map.get(p_name, {}),
+            )
 
-            for reg_no, sess_id, name in student_list:
-                reg_int = int(reg_no)
-                stu_sess = sess_id or "AUTO"
+            # Process pending retakes (GP < 2.0)
+            if "Improvement Candidates Only" not in criteria_type:
+                for pr in adv_proj.get('pending_retakes', []):
+                    sem_num = pr.get('semester', 0)
+                    code = pr.get('code', '')
+                    is_special = pr.get('is_special', False)
 
-                # Fast DB Pre-Filter: Check if student has records and can be safely skipped
-                db_recs = db.get_student_raw_records_from_db(p_name, reg_int)
-                if db_recs:
-                    # Check if student has target semester subjects and whether any candidate grade exists
-                    has_target_sem = False
-                    has_candidate_grade = False
-                    for rec in db_recs:
-                        for subj in rec.get('Subjects', []):
-                            code = str(subj.get('code', '')).strip().upper().replace(' ', '-')
-                            if not code:
-                                continue
-                            sem = db.get_semester_from_code(code, dept)
-                            if sem == selected_sem_num:
-                                has_target_sem = True
-                                try:
-                                    gp = float(subj.get('gp', 0) or 0)
-                                except (ValueError, TypeError):
-                                    gp = 0.0
+                    if sem_num in selected_sem_nums:
+                        if not selected_courses or code in selected_courses:
+                            if special_filter == "All" or (special_filter == "Special Retake Only" and is_special) or (special_filter == "Normal Only" and not is_special):
+                                results.append({
+                                    "Student Name": name,
+                                    "Registration": reg_no,
+                                    "Original Session": sess_id or "AUTO",
+                                    "Batch": p_name,
+                                    "Subject Code": code,
+                                    "Subject Name": pr.get('name', ''),
+                                    "Current GP": round(float(pr.get('current_gp', 0.0)), 2),
+                                    "Type": "Pending Retake (Failing)",
+                                    "Special Retake?": "Yes" if is_special else "No",
+                                    "Semester": SEMESTER_MAP.get(sem_num, f"Semester {sem_num}")
+                                })
 
-                                if "Retakes Only" in criteria_type and gp < 2.0:
-                                    has_candidate_grade = True
-                                elif "Improvement Candidates Only" in criteria_type and (2.0 <= gp <= 2.75):
-                                    has_candidate_grade = True
-                                elif "All Pending" in criteria_type and gp <= 2.75:
-                                    has_candidate_grade = True
+            # Process improvement candidates (2.0 <= GP <= 2.75)
+            if "Pending Retakes Only" not in criteria_type:
+                for ic in adv_proj.get('improvement_candidates', []):
+                    sem_num = ic.get('semester', 0)
+                    code = ic.get('code', '')
+                    is_special = ic.get('is_special', False)
 
-                    # If student took target semester and passed all subjects cleanly -> skip!
-                    if has_target_sem and not has_candidate_grade:
-                        continue
+                    if sem_num in selected_sem_nums:
+                        if not selected_courses or code in selected_courses:
+                            if special_filter == "All" or (special_filter == "Special Retake Only" and is_special) or (special_filter == "Normal Only" and not is_special):
+                                results.append({
+                                    "Student Name": name,
+                                    "Registration": reg_no,
+                                    "Original Session": sess_id or "AUTO",
+                                    "Batch": p_name,
+                                    "Subject Code": code,
+                                    "Subject Name": ic.get('name', ''),
+                                    "Current GP": round(float(ic.get('current_gp', 0.0)), 2),
+                                    "Type": "Improvement Candidate",
+                                    "Special Retake?": "Yes" if is_special else "No",
+                                    "Semester": SEMESTER_MAP.get(sem_num, f"Semester {sem_num}")
+                                })
 
-                    student_records_map[reg_int] = db_recs
-                    candidate_students.append((reg_no, sess_id, name))
-                else:
-                    # Uncached in DB -> candidate for dynamic portal scan
-                    candidate_students.append((reg_no, sess_id, name))
-                    filtered_eids = cs.get_relevant_exams(stu_sess, portal_sessions, p_exams)
-                    for eid in filtered_eids:
-                        batch_tasks.append((reg_int, stu_sess, eid))
-
-            # Execute OPTIMIZED BULK PARALLEL SCAN for uncached candidate students (15 worker threads)
-            if batch_tasks:
-                progress_bar.progress(
-                    0.0,
-                    text=f"Batch {p_name} ({p_idx + 1}/{len(matching_profiles)}): Firing workers for {len(batch_tasks)} portal requests..."
-                )
-
-                batch_history = cs.run_batch_scan_engine(
-                    tasks=batch_tasks,
-                    pro_id=pro_id,
-                    exam_id="0",
-                    all_sessions=portal_sessions,
-                    progress_callback=_update_progress,
-                    num_threads=15
-                )
-
-                # Group returned portal records & save to DB (Write-Through Cache)
-                for rec in (batch_history or []):
-                    eid = rec.get('_exam_id')
-                    if eid and eid in p_exams:
-                        rec['_exam_name'] = p_exams[eid]
-
-                    reg_val = rec.get('Registration No') or rec.get('reg_no')
-                    try:
-                        r_int = int(reg_val)
-                        if r_int not in student_records_map:
-                            student_records_map[r_int] = []
-                        student_records_map[r_int].append(rec)
-
-                        # Save fetched result into DB for future searches
-                        if eid and rec:
-                            db.upsert_student_result(
-                                profile_name=p_name,
-                                reg_no=r_int,
-                                exam_id=str(eid),
-                                res=rec,
-                                exam_name=p_exams.get(eid, ''),
-                                sess_id=rec.get('sess_id', 'AUTO')
-                            )
-                    except (ValueError, TypeError):
-                        pass
-
-            # Deep retake & improvement analysis ONLY for candidate students
-            for reg_no, sess_id, name in candidate_students:
-                reg_int = int(reg_no)
-                raw_recs = student_records_map.get(reg_int, [])
-
-                if not raw_recs:
-                    continue
-
-                deep_res = db.compute_deep_analysis(raw_recs, p_name, selected_exam_label)
-                if not deep_res:
-                    continue
-
-                adv_proj = db.compute_advanced_projection(
-                    deep_result=deep_res,
-                    effective_grades=deep_res.get('effective_grades', {}),
-                    retake_records=deep_res.get('retake_records', []),
-                    profile_name=p_name,
-                    special_exam_lookup=special_lookup,
-                    batch_first_years=batch_first_years,
-                )
-
-                # Process pending retakes
-                if "Improvement Candidates Only" not in criteria_type:
-                    for pr in adv_proj.get('pending_retakes', []):
-                        sem_num = pr.get('semester', 0)
-                        code = pr.get('code', '')
-                        is_special = pr.get('is_special', False)
-
-                        if sem_num in selected_sem_nums:
-                            if not selected_courses or code in selected_courses:
-                                if special_filter == "All" or (special_filter == "Special Retake Only" and is_special) or (special_filter == "Normal Only" and not is_special):
-                                    results.append({
-                                        "Student Name": name,
-                                        "Registration": reg_no,
-                                        "Original Session": sess_id or "AUTO",
-                                        "Batch": p_name,
-                                        "Subject Code": code,
-                                        "Subject Name": pr.get('name', ''),
-                                        "Current GP": round(float(pr.get('current_gp', 0.0)), 2),
-                                        "Type": "Pending Retake (Failing)",
-                                        "Special Retake?": "Yes" if is_special else "No",
-                                        "Semester": SEMESTER_MAP.get(sem_num, f"Semester {sem_num}")
-                                    })
-
-                # Process improvement candidates
-                if "Pending Retakes Only" not in criteria_type:
-                    for ic in adv_proj.get('improvement_candidates', []):
-                        sem_num = ic.get('semester', 0)
-                        code = ic.get('code', '')
-                        is_special = ic.get('is_special', False)
-
-                        if sem_num in selected_sem_nums:
-                            if not selected_courses or code in selected_courses:
-                                if special_filter == "All" or (special_filter == "Special Retake Only" and is_special) or (special_filter == "Normal Only" and not is_special):
-                                    results.append({
-                                        "Student Name": name,
-                                        "Registration": reg_no,
-                                        "Original Session": sess_id or "AUTO",
-                                        "Batch": p_name,
-                                        "Subject Code": code,
-                                        "Subject Name": ic.get('name', ''),
-                                        "Current GP": round(float(ic.get('current_gp', 0.0)), 2),
-                                        "Type": "Improvement Candidate",
-                                        "Special Retake?": "Yes" if is_special else "No",
-                                        "Semester": SEMESTER_MAP.get(sem_num, f"Semester {sem_num}")
-                                    })
-
-        progress_bar.empty()
         st.session_state.pending_finder_results = pd.DataFrame(results)
 
     df_results = st.session_state.pending_finder_results
