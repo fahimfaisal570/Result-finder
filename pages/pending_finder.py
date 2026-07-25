@@ -41,7 +41,7 @@ if not matching_profiles:
 
 st.sidebar.caption(f"Batches in {dept}: {', '.join(sorted(matching_profiles))}")
 
-# 2. Semester Selection
+# 2. Semester Selection (Single Select)
 SEMESTER_MAP = {
     1: "1st Year 1st Semester",
     2: "1st Year 2nd Semester",
@@ -53,28 +53,29 @@ SEMESTER_MAP = {
     8: "4th Year 2nd Semester",
 }
 
-selected_sem_labels = st.sidebar.multiselect(
-    "Select Semesters:",
-    options=list(SEMESTER_MAP.values()),
-    default=list(SEMESTER_MAP.values())
+selected_sem_label = st.sidebar.selectbox(
+    "Select Semester:",
+    options=list(SEMESTER_MAP.values())
 )
 
-selected_sem_nums = [num for num, label in SEMESTER_MAP.items() if label in selected_sem_labels]
+selected_sem_num = [num for num, label in SEMESTER_MAP.items() if label == selected_sem_label][0]
+selected_sem_nums = [selected_sem_num]
 
 # 3. Optional Course Code Filter
-# Extract available courses from credit_mapping if available
 credit_map = getattr(db, "_credit_map", {})
 dept_credit_map = credit_map.get(dept, {})
 all_courses = set()
-for sem_key, sub_dict in dept_credit_map.items():
-    if isinstance(sub_dict, dict):
-        all_courses.update(sub_dict.keys())
+
+if isinstance(dept_credit_map, dict):
+    for code in dept_credit_map.keys():
+        if db.get_semester_from_code(code, dept) == selected_sem_num:
+            all_courses.add(code)
 
 all_courses = sorted(list(all_courses))
 selected_courses = st.sidebar.multiselect(
     "Select Specific Courses (Optional):",
     options=all_courses,
-    help="Leave empty to search all courses in selected semesters."
+    help="Leave empty to search all courses in the selected semester."
 )
 
 st.sidebar.divider()
