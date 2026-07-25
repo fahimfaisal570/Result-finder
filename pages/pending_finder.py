@@ -169,6 +169,18 @@ if btn_find or "pending_finder_results" in st.session_state:
             b: db.get_batch_first_participation_years(b) for b in eligible_batches
         }
 
+        # Improvement window guard: compute which batches are still within the 2-year
+        # improvement window for this semester. Does NOT shrink eligible_batches so that
+        # retakes from older batches are still surfaced in 'All' and 'Retake' modes.
+        sem_key = f"{(selected_sem_num - 1) // 2 + 1}-{1 if selected_sem_num % 2 == 1 else 2}"
+        improvement_years = special_lookup.get(sem_key, [])
+        latest_impr_year = max(improvement_years) if improvement_years else 0
+        improvement_eligible_batches = set(
+            b for b in eligible_batches
+            if (first_yr := batch_first_years_map[b].get(selected_sem_num)) is not None
+            and (not latest_impr_year or latest_impr_year - first_yr <= 2)
+        ) if criteria_type != "Retake" else set(eligible_batches)
+
         # STAGE 2: Filter candidate students (GP <= 2.75 in main exam subjects)
         candidates = []
         with db.get_connection() as conn:
@@ -394,7 +406,8 @@ if btn_find or "pending_finder_results" in st.session_state:
                                 })
 
             # Process improvement candidates (2.0 <= GP <= 2.75)
-            if criteria_type != "Retake":
+            # Only include if this batch is still within the improvement eligibility window.
+            if criteria_type != "Retake" and p_name in improvement_eligible_batches:
                 for ic in adv_proj.get('improvement_candidates', []):
                     sem_num = ic.get('semester', 0)
                     code = ic.get('code', '')
