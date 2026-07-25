@@ -2690,7 +2690,7 @@ def has_exam_results_for_profile(profile_name: str, exam_id: str) -> bool:
                 (str(profile_name), str(exam_id))
             ).fetchone()
             return row is not None
-        except sqlite3.OperationalError:
+        except (sqlite3.Error, Exception):
             return False
 
 def get_meta_cache(key: str, ttl_seconds: int = 86400) -> dict | None:
@@ -2702,8 +2702,8 @@ def get_meta_cache(key: str, ttl_seconds: int = 86400) -> dict | None:
             ).fetchone()
             if row and (time.time() - row[1]) < ttl_seconds:
                 return json.loads(row[0])
-        except sqlite3.OperationalError:
-            pass # Table might not be created yet during first boot
+        except (sqlite3.Error, Exception):
+            pass # Table might not be created yet during first boot or DB error
     return None
 
 def set_meta_cache(key: str, value: dict):
@@ -2715,8 +2715,8 @@ def set_meta_cache(key: str, value: dict):
                 (key, json.dumps(value), time.time())
             )
             conn.commit()
-        except sqlite3.OperationalError:
-            pass # Table might not be created yet
+        except (sqlite3.Error, Exception):
+            pass # Table might not be created yet or DB error
 
 # ---------------------------------------------------------------------------
 # Migration v5 and Bootstrap

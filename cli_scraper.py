@@ -379,15 +379,21 @@ def fetch_programs_and_sessions():
 
 def fetch_exams(pro_id):
     cache_key = "exams_{}".format(pro_id)
-    cached = db.get_meta_cache(cache_key, ttl_seconds=3600)  # Cache hourly
-    if cached:
-        return collections.OrderedDict(cached)
+    try:
+        cached = db.get_meta_cache(cache_key, ttl_seconds=3600)  # Cache hourly
+        if cached:
+            return collections.OrderedDict(cached)
+    except Exception:
+        pass
     url = "{0}?program_id={1}&pedata=99".format(AJAX_URL, pro_id)
     html = make_request(url)
     if not html: return collections.OrderedDict()
     options = extract_options_from_html(html)
     res = collections.OrderedDict(options)
-    db.set_meta_cache(cache_key, dict(res))
+    try:
+        db.set_meta_cache(cache_key, dict(res))
+    except Exception:
+        pass
     return res
 
 def run_batch_scan_engine(tasks, pro_id, exam_id="0", all_sessions=None, progress_callback=None, target_college="all", num_threads=5):
