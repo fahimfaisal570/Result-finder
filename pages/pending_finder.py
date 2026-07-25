@@ -92,6 +92,13 @@ special_filter = st.sidebar.radio(
     ["All", "Normal Only", "Special Retake Only"]
 )
 
+# 6. Data Source Selection
+data_source = st.sidebar.radio(
+    "Data Source Mode:",
+    ["Stored DB Records (Instant)", "Live Portal Scan (Dynamic Scraper)"],
+    help="Stored DB Records uses already-scanned data instantly. Live Portal Scan queries the university website dynamically for up-to-the-second records."
+)
+
 btn_find = st.sidebar.button("Find Students", type="primary")
 
 # Execute Search
@@ -106,6 +113,13 @@ if btn_find or "pending_finder_results" in st.session_state:
         results = []
         special_lookup = db.build_special_exam_lookup(dept)
 
+        # Pre-warm portal metadata if Live Portal Scan is selected
+        portal_programs, portal_sessions, all_portal_exams = None, None, {}
+        if "Live Portal" in data_source:
+            import cli_scraper as cs
+            with st.spinner("Connecting to University Portal metadata..."):
+                portal_programs, portal_sessions = cs.fetch_programs_and_sessions()
+
         # Count total students across matching profiles
         total_students = sum(len(profiles[p].get('regs', [])) for p in matching_profiles)
         progress_bar = st.progress(0, text=f"Analyzing {total_students} students across {len(matching_profiles)} batches...")
@@ -114,6 +128,14 @@ if btn_find or "pending_finder_results" in st.session_state:
         for p_name in sorted(matching_profiles):
             batch_first_years = db.get_batch_first_participation_years(p_name)
             student_list = profiles[p_name].get('regs', [])
+            p_data = profiles.get(p_name, {})
+            pro_id = p_data.get("pro_id", "")
+
+            # Fetch exams list for this program if doing Live Portal scan
+            p_exams = {}
+            if "Live Portal" in data_source and pro_id:
+                import cli_scraper as cs
+                p_exams = cs.fetch_exams(pro_id)
 
             for reg_no, sess_id, name in student_list:
                 scanned_count += 1
@@ -122,7 +144,30 @@ if btn_find or "pending_finder_results" in st.session_state:
                     text=f"Analyzing [{scanned_count}/{total_students}]: {name} ({reg_no})"
                 )
 
-                raw_recs = db.get_student_raw_records_from_db(p_name, reg_no)
+                raw_recs = []
+                if "Live Portal" in data_source and pro_id and p_exams and portal_sessions:
+                    import cli_scraper as cs
+                    # Dynamic live portal scan
+                    stu_sess = sess_id or "AUTO"
+                    filtered_eids = cs.get_relevant_exams(stu_sess, portal_sessions, p_exams)
+                    tasks = [(int(reg_no), stu_sess, eid) for eid in filtered_eids]
+                    history = cs.run_batch_scan_engine(
+                        tasks=tasks,
+                        pro_id=pro_id,
+                        exam_id="0",
+                        all_sessions=portal_sessions,
+                        num_threads=15
+                    )
+                    if history:
+                        for rec in history:
+                            eid = rec.get('_exam_id')
+                            if eid and eid in p_exams:
+                                rec['_exam_name'] = p_exams[eid]
+                        raw_recs = history
+                else:
+                    # Fast DB mode
+                    raw_recs = db.get_student_raw_records_from_db(p_name, reg_no)
+
                 if not raw_recs:
                     continue
 
