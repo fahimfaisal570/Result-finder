@@ -120,6 +120,8 @@ special_filter = st.sidebar.radio(
 
 btn_find = st.sidebar.button("Find Students", type="primary")
 
+RETAKE_KEYWORDS = ['retake', 're-take', 'improvement', 'special', 'make-up', 'makeup', 'supplementary', 'short']
+
 # Execute Search
 if btn_find or "pending_finder_results" in st.session_state:
     if btn_find:
@@ -260,7 +262,12 @@ if btn_find or "pending_finder_results" in st.session_state:
             existing_eids = set(str(r.get('_exam_id')) for r in existing_recs)
 
             relevant_eids = cs.get_relevant_exams(stu_sess, portal_sessions, p_exams)
-            missing_eids = [eid for eid in relevant_eids if str(eid) not in existing_eids]
+            # Filter relevant exams to ONLY retake / improvement / special exams missing from SQLite
+            missing_eids = [
+                eid for eid in relevant_eids 
+                if str(eid) not in existing_eids
+                and any(kw in p_exams.get(eid, '').lower() for kw in RETAKE_KEYWORDS)
+            ]
 
             for eid in missing_eids:
                 candidate_tasks.append((reg_int, stu_sess, eid, p_name, pro_id))
@@ -294,11 +301,10 @@ if btn_find or "pending_finder_results" in st.session_state:
                     try:
                         r_int = int(reg_val)
                         if eid and rec:
-                            db.upsert_student_result(
+                            db.upsert_exam_result(
                                 profile_name=p_name,
-                                reg_no=r_int,
-                                exam_id=str(eid),
                                 res=rec,
+                                exam_id=str(eid),
                                 exam_name=p_exams.get(eid, ''),
                                 sess_id=rec.get('sess_id', 'AUTO')
                             )
