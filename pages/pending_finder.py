@@ -83,13 +83,15 @@ st.sidebar.divider()
 # 4. Criteria Type Filter
 criteria_type = st.sidebar.radio(
     "Filter Criteria Type:",
-    ["All Pending (Retakes & Improvements)", "Pending Retakes Only (GP < 2.0)", "Improvement Candidates Only (2.0 ≤ GP ≤ 2.75)"]
+    ["Pending Retakes Only (GP < 2.0)", "Improvement Candidates Only (2.0 ≤ GP ≤ 2.75)", "All Pending (Retakes & Improvements)"],
+    index=0
 )
 
 # 5. Special Retake Filter
 special_filter = st.sidebar.radio(
     "Special Retake Status:",
-    ["All", "Normal Only", "Special Retake Only"]
+    ["Special Retake Only", "Normal Only", "All"],
+    index=0
 )
 
 btn_find = st.sidebar.button("Find Students", type="primary")
