@@ -139,29 +139,59 @@ if btn_find or "pending_finder_results" in st.session_state:
             if not p_exams:
                 continue
 
-            # BULK TASK ASSEMBLY with DB Read-Through Cache
+            # BULK TASK ASSEMBLY with Smart Candidate Pre-Filtering
             batch_tasks = []
             student_records_map = {}  # reg_no -> list of raw records
+            candidate_students = []
 
             for reg_no, sess_id, name in student_list:
                 reg_int = int(reg_no)
                 stu_sess = sess_id or "AUTO"
 
-                # Check local DB first to avoid unnecessary portal load
+                # Fast DB Pre-Filter: Check if student has records and can be safely skipped
                 db_recs = db.get_student_raw_records_from_db(p_name, reg_int)
                 if db_recs:
+                    # Check if student has target semester subjects and whether any candidate grade exists
+                    has_target_sem = False
+                    has_candidate_grade = False
+                    for rec in db_recs:
+                        for subj in rec.get('Subjects', []):
+                            code = str(subj.get('code', '')).strip().upper().replace(' ', '-')
+                            if not code:
+                                continue
+                            sem = db.get_semester_from_code(code, dept)
+                            if sem == selected_sem_num:
+                                has_target_sem = True
+                                try:
+                                    gp = float(subj.get('gp', 0) or 0)
+                                except (ValueError, TypeError):
+                                    gp = 0.0
+
+                                if "Retakes Only" in criteria_type and gp < 2.0:
+                                    has_candidate_grade = True
+                                elif "Improvement Candidates Only" in criteria_type and (2.0 <= gp <= 2.75):
+                                    has_candidate_grade = True
+                                elif "All Pending" in criteria_type and gp <= 2.75:
+                                    has_candidate_grade = True
+
+                    # If student took target semester and passed all subjects cleanly -> skip!
+                    if has_target_sem and not has_candidate_grade:
+                        continue
+
                     student_records_map[reg_int] = db_recs
+                    candidate_students.append((reg_no, sess_id, name))
                 else:
-                    # Collect tasks for portal scan
+                    # Uncached in DB -> candidate for dynamic portal scan
+                    candidate_students.append((reg_no, sess_id, name))
                     filtered_eids = cs.get_relevant_exams(stu_sess, portal_sessions, p_exams)
                     for eid in filtered_eids:
                         batch_tasks.append((reg_int, stu_sess, eid))
 
-            # Execute OPTIMIZED BULK PARALLEL SCAN for uncached students (50 worker threads max)
+            # Execute OPTIMIZED BULK PARALLEL SCAN for uncached candidate students (30 worker threads)
             if batch_tasks:
                 progress_bar.progress(
                     0.0,
-                    text=f"Batch {p_name} ({p_idx + 1}/{len(matching_profiles)}): Firing 50 parallel workers for {len(batch_tasks)} portal requests..."
+                    text=f"Batch {p_name} ({p_idx + 1}/{len(matching_profiles)}): Firing parallel workers for {len(batch_tasks)} portal requests..."
                 )
 
                 batch_history = cs.run_batch_scan_engine(
@@ -170,7 +200,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                     exam_id="0",
                     all_sessions=portal_sessions,
                     progress_callback=_update_progress,
-                    num_threads=50
+                    num_threads=30
                 )
 
                 # Group returned portal records & save to DB (Write-Through Cache)
@@ -199,8 +229,8 @@ if btn_find or "pending_finder_results" in st.session_state:
                     except (ValueError, TypeError):
                         pass
 
-            # Deep retake & improvement analysis per student
-            for reg_no, sess_id, name in student_list:
+            # Deep retake & improvement analysis ONLY for candidate students
+            for reg_no, sess_id, name in candidate_students:
                 reg_int = int(reg_no)
                 raw_recs = student_records_map.get(reg_int, [])
 
