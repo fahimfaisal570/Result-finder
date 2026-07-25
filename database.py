@@ -1134,7 +1134,17 @@ def get_semester_from_code(code: str, dept: str) -> int:
         except (ValueError, IndexError):
             return 0
     else:
-        # CSE/EEE: 4-digit codes like CSE-1101 or CSE1101 → (digit1-1)*2 + digit2
+        # CSE/EEE:
+        # Old curriculum: 3-digit codes like CSE-301, CSE-501 → first digit = semester (same as Civil)
+        # New curriculum: 4-digit codes like CSE-2101 → (year-1)*2 + sem_within_year
+        if len(num_str) == 3:
+            try:
+                sem = int(num_str[0])
+                if 1 <= sem <= 8:
+                    return sem
+            except (ValueError, IndexError):
+                pass
+            return 0
         if len(num_str) < 2:
             return 0
         try:

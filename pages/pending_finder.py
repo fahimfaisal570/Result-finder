@@ -161,8 +161,11 @@ if btn_find or "pending_finder_results" in st.session_state:
             st.info(f"No scanned main exam records found for {selected_sem_label} in {dept}.")
             st.stop()
 
-        # Build semester course list for Stage 2 SQL filter
-        target_course_codes = selected_courses if selected_courses else all_courses
+        # Build semester course list for Stage 2 SQL filter.
+        # Only filter by subject_code when user explicitly picked courses.
+        # Otherwise use the exam_name LIKE fallback — this correctly handles
+        # old-curriculum batches (CSE 05/06) whose codes aren't in the new credit map.
+        target_course_codes = selected_courses
 
         # Pre-load batch first participation years
         batch_first_years_map = {
