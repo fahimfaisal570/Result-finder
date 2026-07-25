@@ -109,8 +109,8 @@ if btn_find or "pending_finder_results" in st.session_state:
         results = []
         special_lookup = db.build_special_exam_lookup(dept)
 
-        # Pre-warm portal connection pool with 50 parallel HTTP sockets
-        cs.warm_connection_pool(num_connections=50)
+        # Pre-warm portal connection pool with 100 parallel HTTP sockets
+        cs.warm_connection_pool(num_connections=100)
         with st.spinner("Connecting to University Portal & pre-warming metadata..."):
             portal_programs, portal_sessions = cs.fetch_programs_and_sessions()
 
@@ -158,10 +158,10 @@ if btn_find or "pending_finder_results" in st.session_state:
             if not batch_tasks:
                 continue
 
-            # Execute ULTRA HIGH-CONCURRENCY BULK PARALLEL SCAN (50 worker threads)
+            # Execute MAXIMUM CONCURRENCY BULK PARALLEL SCAN (100 worker threads)
             progress_bar.progress(
                 0.0,
-                text=f"Batch {p_name} ({p_idx + 1}/{len(matching_profiles)}): Firing 50 parallel workers for {len(batch_tasks)} requests..."
+                text=f"Batch {p_name} ({p_idx + 1}/{len(matching_profiles)}): Firing 100 parallel workers for {len(batch_tasks)} requests..."
             )
 
             batch_history = cs.run_batch_scan_engine(
@@ -170,7 +170,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                 exam_id="0",
                 all_sessions=portal_sessions,
                 progress_callback=_update_progress,
-                num_threads=50
+                num_threads=100
             )
 
             # Group returned raw records by student registration number
