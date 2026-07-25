@@ -2653,6 +2653,20 @@ def get_cross_batch_comparison(profile_names: list[str], semester_pattern: str) 
 # Cache Helpers
 # ---------------------------------------------------------------------------
 
+def has_exam_results_for_profile(profile_name: str, exam_id: str) -> bool:
+    """Fast check if DB already has saved exam results for this profile & exam_id."""
+    if not profile_name or not exam_id:
+        return False
+    with get_connection() as conn:
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM exam_results WHERE profile_name=? AND exam_id=? LIMIT 1",
+                (str(profile_name), str(exam_id))
+            ).fetchone()
+            return row is not None
+        except sqlite3.OperationalError:
+            return False
+
 def get_meta_cache(key: str, ttl_seconds: int = 86400) -> dict | None:
     """Returns cached JSON value if within TTL, else None."""
     with get_connection() as conn:

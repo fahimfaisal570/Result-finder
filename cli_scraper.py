@@ -813,7 +813,7 @@ def parse_exam_info(name):
     if "professional" in name_lower and not sem: sem = 1
     return y, sem, ey
 
-def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None):
+def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None, profile_name=None):
     """
     Precision Exam Classification System.
     Groups exams into exactly 8 'Main' semester slots and handles retakes/legacy formats.
@@ -823,11 +823,10 @@ def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None)
     if not exams_dict: return collections.OrderedDict(), retakes
 
     # --- DB Cache ---
-    # Build a stable key from the exam set + session (+ probe flag for probe-verified results).
     import hashlib
     dict_sig = hashlib.md5(json.dumps(sorted(list(exams_dict.keys()))).encode()).hexdigest()
     if probe_regs and pro_id:
-        cache_key = f"classify_probe_{pro_id}_{batch_session}_{dict_sig}"
+        cache_key = f"classify_probe_{profile_name or ''}_{pro_id}_{batch_session}_{dict_sig}"
     else:
         cache_key = f"classify_fast_{batch_session}_{dict_sig}"
     cached = db.get_meta_cache(cache_key, ttl_seconds=3600)
@@ -920,12 +919,27 @@ def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None)
         for cand in candidates:
             if probe_regs and pro_id:
                 is_valid = False
-                for pr in probe_regs:
-                    res, is_found = fetch_student_result(pr, pro_id, probe_sess_id, cand['id'])
-                    if is_found and res:
-                        is_valid = True
-                        break
-                    time.sleep(random.uniform(0.05, 0.1))
+                
+                # 1. Local DB Fast-Path: if saved results exist for this profile & exam, no network probe needed!
+                if profile_name and db.has_exam_results_for_profile(profile_name, cand['id']):
+                    is_valid = True
+                else:
+                    # 2. Parallel Network Probe (Fast multi-threaded verification)
+                    import concurrent.futures
+                    def _probe_single(pr):
+                        try:
+                            res, is_found = fetch_student_result(pr, pro_id, probe_sess_id, cand['id'])
+                            return (is_found and res is not None and res not in ("NOT_FOUND", "NETWORK_ERROR", "BLOCKED"))
+                        except Exception:
+                            return False
+
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(probe_regs), 5)) as executor:
+                        futures = [executor.submit(_probe_single, pr) for pr in probe_regs]
+                        for f in concurrent.futures.as_completed(futures):
+                            if f.result():
+                                is_valid = True
+                                break
+
                 if is_valid:
                     best = cand
                     break

@@ -247,12 +247,16 @@ else: # Saved Profiles Mode
             p_regs = profile_data.get('regs', [])
             active_sess_id = profile_data.get('sess_id') or (p_regs[0][1] if p_regs else "Any")
             active_sess_name = SESSIONS_CACHE.get(str(active_sess_id), str(active_sess_id))
-            # classify_exams without probe_regs = pure in-memory scoring, zero network calls.
-            # Probing on the homepage blocked every first load for 10–30s.
-            # If an exam link has no results yet, the results page handles that gracefully.
-            _classify_key = f"classify_{p_selected}_{profile_data.get('pro_id')}"
+            probe_regs = [r[0] for r in p_regs if str(r[1]) == str(active_sess_id)][:5]
+            _classify_key = f"classify_{p_selected}_{profile_data.get('pro_id')}_{active_sess_id}"
             if _classify_key not in st.session_state:
-                st.session_state[_classify_key] = classify_exams(exams_raw, active_sess_name)
+                st.session_state[_classify_key] = classify_exams(
+                    exams_raw,
+                    active_sess_name,
+                    probe_regs=probe_regs,
+                    pro_id=profile_data.get('pro_id'),
+                    profile_name=p_selected
+                )
             mains_dict, others_dict = st.session_state[_classify_key]
             
             from urllib.parse import quote as _quote
