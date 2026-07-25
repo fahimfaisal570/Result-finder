@@ -465,6 +465,6 @@ if btn_find or "pending_finder_results" in st.session_state:
 
         st.dataframe(
             df_results,
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )

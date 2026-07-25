@@ -307,7 +307,7 @@ def render_provisional_simulator(profile_name):
     with st.expander("Per-Semester Breakdown"):
         _bd_df = pd.DataFrame(_result['per_semester_detail'])
         _bd_df.columns = ['Semester', 'GPA', 'Credits', 'Quality Points']
-        st.dataframe(_bd_df, hide_index=True, use_container_width=True)
+        st.dataframe(_bd_df, hide_index=True, width="stretch")
     
     # Classification
     _g = _result['graduation_cgpa']
@@ -338,7 +338,7 @@ if not exams and _is_provisional:
   roster = [{"Reg No": r[0], "Session": r[1], "Name": r[2]} for r in p_data.get("regs", [])]
   if roster:
     with st.expander(f"📋 Student Roster ({len(roster)} students)", expanded=False):
-      st.dataframe(pd.DataFrame(roster), hide_index=True, use_container_width=True)
+      st.dataframe(pd.DataFrame(roster), hide_index=True, width="stretch")
   
   # --- Standalone Graduation CGPA Simulator ---
   st.divider()
@@ -1971,7 +1971,7 @@ with tabs[5]:
             _act_spacer, act_col1, act_col2 = st.columns([2, 1, 1])
             with act_col1:
               reset_btn_key = f"reset_sim_{profile_name}_{reg}"
-              if st.button("Reset Simulation", key=reset_btn_key, use_container_width=True):
+              if st.button("Reset Simulation", key=reset_btn_key, width="stretch"):
                 keys_to_remove = []
                 for k in list(st.session_state.keys()):
                   if (k.startswith(f"chk_{profile_name}_{reg}_") or 
@@ -2015,7 +2015,7 @@ with tabs[5]:
                   file_name=f"GPA_Projection_{reg}_{name.replace(' ', '_')}.pdf",
                   mime="application/pdf",
                   key=pdf_btn_key,
-                  use_container_width=True
+                  width="stretch"
                 )
               except Exception as pdf_err:
                 st.error(f"Could not generate PDF: {pdf_err}")
@@ -2024,7 +2024,7 @@ with tabs[5]:
         with hdr_col4:
           if st.button("Deep Analysis", key=btn_key,
                     help=f"Fetch full record for {name} and compute True CGPA + projections",
-                    use_container_width=True):
+                    width="stretch"):
             with st.spinner(f"Scanning full academic history for {name} ({reg})\u2026 1\u20132 min."):
               result = _run_deep_analysis(reg, name, sess_id)
             st.session_state._deep_cache[cache_key] = result

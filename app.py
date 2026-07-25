@@ -160,7 +160,7 @@ else: # Saved Profiles Mode
         
         regs_input = st.text_input("Registration Numbers", placeholder="e.g. 220101-220160", key="prov_regs_input")
         
-        if st.button("Create Batch", type="primary", use_container_width=True, key="btn_create_prov"):
+        if st.button("Create Batch", type="primary", width="stretch", key="btn_create_prov"):
             if not prov_name or not regs_input or not pro_id_prov or not sess_id_prov:
                 st.error("Please fill in all fields.")
             elif not PROFILE_NAME_PATTERN.match(prov_name):
@@ -205,7 +205,7 @@ else: # Saved Profiles Mode
                 chk_exam_name = st.selectbox("Select Exam to Check Against", options=list(exams_raw.values()), key="chk_portal_exam")
                 chk_exam_id = [k for k, v in exams_raw.items() if v == chk_exam_name][0]
                 
-                if st.button("Check Portal & Import", type="primary", use_container_width=True, key="btn_chk_prov"):
+                if st.button("Check Portal & Import", type="primary", width="stretch", key="btn_chk_prov"):
                     p_regs = profile_data.get('regs', [])
                     active_sess_id = profile_data.get('sess_id')
                     probe_regs = [r[0] for r in p_regs if str(r[1]) == str(active_sess_id)][:5]
