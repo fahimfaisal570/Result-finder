@@ -107,14 +107,14 @@ st.sidebar.divider()
 # 4. Criteria Type Filter
 criteria_type = st.sidebar.radio(
     "Filter Criteria Type:",
-    ["Pending Retakes Only (GP < 2.0)", "Improvement Candidates Only (2.0 ≤ GP ≤ 2.75)", "All Pending (Retakes & Improvements)"],
+    ["Retake", "Improvement", "All"],
     index=0
 )
 
 # 5. Special Retake Filter
 special_filter = st.sidebar.radio(
     "Special Retake Status:",
-    ["Special Retake Only", "Normal Only", "All"],
+    ["Special", "Normal", "All"],
     index=0
 )
 
@@ -354,7 +354,7 @@ if btn_find or "pending_finder_results" in st.session_state:
             )
 
             # Process pending retakes (GP < 2.0)
-            if "Improvement Candidates Only" not in criteria_type:
+            if criteria_type != "Improvement":
                 for pr in adv_proj.get('pending_retakes', []):
                     sem_num = pr.get('semester', 0)
                     code = pr.get('code', '')
@@ -362,7 +362,7 @@ if btn_find or "pending_finder_results" in st.session_state:
 
                     if sem_num in selected_sem_nums:
                         if not selected_courses or code in selected_courses:
-                            if special_filter == "All" or (special_filter == "Special Retake Only" and is_special) or (special_filter == "Normal Only" and not is_special):
+                            if special_filter == "All" or (special_filter == "Special" and is_special) or (special_filter == "Normal" and not is_special):
                                 results.append({
                                     "Student Name": name,
                                     "Registration": reg_no,
@@ -377,7 +377,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                                 })
 
             # Process improvement candidates (2.0 <= GP <= 2.75)
-            if "Pending Retakes Only" not in criteria_type:
+            if criteria_type != "Retake":
                 for ic in adv_proj.get('improvement_candidates', []):
                     sem_num = ic.get('semester', 0)
                     code = ic.get('code', '')
@@ -385,7 +385,7 @@ if btn_find or "pending_finder_results" in st.session_state:
 
                     if sem_num in selected_sem_nums:
                         if not selected_courses or code in selected_courses:
-                            if special_filter == "All" or (special_filter == "Special Retake Only" and is_special) or (special_filter == "Normal Only" and not is_special):
+                            if special_filter == "All" or (special_filter == "Special" and is_special) or (special_filter == "Normal" and not is_special):
                                 results.append({
                                     "Student Name": name,
                                     "Registration": reg_no,
