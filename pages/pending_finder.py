@@ -10,12 +10,13 @@ st.set_page_config(page_title="Pending Retake & Improvement Finder", page_icon="
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import database as db
 import ui_components as ui
+import cli_scraper as cs
 
 ui.inject_essential_ui()
 
 st.page_link("app.py", label="← Back to Dashboard", icon=":material/arrow_back:")
 st.title("Pending Retake & Improvement Finder")
-st.markdown("Filter students across department batches with uncleared retakes or eligible improvements (DB-Driven Engine).")
+st.markdown("Filter students across department batches with uncleared retakes or eligible improvements.")
 
 profiles = db.get_profiles()
 if not profiles:
@@ -193,7 +194,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                 """
                 sql_params = list(eligible_batches) + list(target_course_codes)
             else:
-                # If no courses in credit_mapping for this semester, fallback to filtering by exam_name
+                # Fallback to filtering by exam_name if no courses defined
                 sql_candidates = f"""
                     SELECT DISTINCT sg.profile_name, sg.reg_no, s.name, s.sess_id
                     FROM subject_grades sg
@@ -216,7 +217,97 @@ if btn_find or "pending_finder_results" in st.session_state:
 
             candidates = conn.execute(sql_candidates, sql_params).fetchall()
 
-        # STAGE 3: Deep Analysis on Candidate Students
+        if not candidates:
+            st.success("🎉 No candidate students with low grades found in the selected criteria!")
+            st.stop()
+
+        # STAGE 3: Portal Retake Probe & Deep Analysis for Candidate Students
+        cached_meta = db.get_meta_cache("portal_meta", ttl_seconds=86400) or {}
+        portal_sessions = cached_meta.get("sessions")
+        if not portal_sessions:
+            with st.spinner("Connecting to University Portal metadata..."):
+                _, portal_sessions = cs.fetch_programs_and_sessions()
+        if not portal_sessions:
+            portal_sessions = {"1": "2021-22", "2": "2020-21", "3": "2019-20", "4": "2018-19", "5": "2017-18", "6": "2016-17"}
+
+        # Identify missing portal retake/special exams for candidate students
+        candidate_tasks = []
+        seen_reg = set()
+        
+        # Cache program exam lookups to avoid duplicate calls
+        pro_exams_cache = {}
+
+        for p_name, reg_no, name, sess_id in candidates:
+            reg_int = int(reg_no)
+            if reg_int in seen_reg:
+                continue
+            seen_reg.add(reg_int)
+
+            stu_sess = sess_id or "AUTO"
+            p_data = profiles.get(p_name, {})
+            pro_id = p_data.get("pro_id", "")
+            if not pro_id:
+                continue
+
+            if pro_id not in pro_exams_cache:
+                pro_exams_cache[pro_id] = cs.fetch_exams(pro_id) or {}
+            p_exams = pro_exams_cache[pro_id]
+
+            if not p_exams:
+                continue
+
+            existing_recs = db.get_student_raw_records_from_db(p_name, reg_int)
+            existing_eids = set(str(r.get('_exam_id')) for r in existing_recs)
+
+            relevant_eids = cs.get_relevant_exams(stu_sess, portal_sessions, p_exams)
+            missing_eids = [eid for eid in relevant_eids if str(eid) not in existing_eids]
+
+            for eid in missing_eids:
+                candidate_tasks.append((reg_int, stu_sess, eid, p_name, pro_id))
+
+        # Execute targeted scan for missing candidate retakes (if any)
+        if candidate_tasks:
+            tasks_by_profile = {}
+            for reg_int, stu_sess, eid, p_name, pro_id in candidate_tasks:
+                key = (p_name, pro_id)
+                if key not in tasks_by_profile:
+                    tasks_by_profile[key] = []
+                tasks_by_profile[key].append((reg_int, stu_sess, eid))
+
+            progress_bar = st.progress(0.0, text=f"Verifying retake/special exam results on portal for {len(seen_reg)} candidate student(s)...")
+
+            total_t_groups = len(tasks_by_profile)
+            for g_idx, ((p_name, pro_id), t_list) in enumerate(tasks_by_profile.items()):
+                progress_bar.progress((g_idx / total_t_groups), text=f"Checking retake portal updates for {p_name} ({len(t_list)} tasks)...")
+                p_exams = pro_exams_cache.get(pro_id) or cs.fetch_exams(pro_id) or {}
+                batch_history = cs.run_batch_scan_engine(
+                    tasks=t_list,
+                    pro_id=pro_id,
+                    exam_id="0",
+                    all_sessions=portal_sessions,
+                    num_threads=15
+                )
+
+                for rec in (batch_history or []):
+                    eid = rec.get('_exam_id')
+                    reg_val = rec.get('Registration No') or rec.get('reg_no')
+                    try:
+                        r_int = int(reg_val)
+                        if eid and rec:
+                            db.upsert_student_result(
+                                profile_name=p_name,
+                                reg_no=r_int,
+                                exam_id=str(eid),
+                                res=rec,
+                                exam_name=p_exams.get(eid, ''),
+                                sess_id=rec.get('sess_id', 'AUTO')
+                            )
+                    except (ValueError, TypeError):
+                        pass
+
+            progress_bar.empty()
+
+        # Compute deep analysis on complete history (including newly saved retakes)
         seen_reg = set()
         for p_name, reg_no, name, sess_id in candidates:
             reg_int = int(reg_no)
