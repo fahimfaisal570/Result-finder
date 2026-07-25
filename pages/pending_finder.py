@@ -92,13 +92,6 @@ special_filter = st.sidebar.radio(
     ["All", "Normal Only", "Special Retake Only"]
 )
 
-# 6. Data Source Selection
-data_source = st.sidebar.radio(
-    "Data Source Mode:",
-    ["Stored DB Records (Instant)", "Live Portal Scan (Dynamic Scraper)"],
-    help="Stored DB Records uses already-scanned data instantly. Live Portal Scan queries the university website dynamically for up-to-the-second records."
-)
-
 btn_find = st.sidebar.button("Find Students", type="primary")
 
 # Execute Search
@@ -110,63 +103,98 @@ if btn_find or "pending_finder_results" in st.session_state:
             st.warning("Please select at least one semester.")
             st.stop()
 
+        import cli_scraper as cs
         results = []
         special_lookup = db.build_special_exam_lookup(dept)
 
-        # Pre-warm portal metadata if Live Portal Scan is selected
-        portal_programs, portal_sessions, all_portal_exams = None, None, {}
-        if "Live Portal" in data_source:
-            import cli_scraper as cs
-            with st.spinner("Connecting to University Portal metadata..."):
-                portal_programs, portal_sessions = cs.fetch_programs_and_sessions()
+        # Pre-warm portal connection pool with 25 parallel HTTP sockets
+        cs.warm_connection_pool(num_connections=25)
+        with st.spinner("Connecting to University Portal & pre-warming metadata..."):
+            portal_programs, portal_sessions = cs.fetch_programs_and_sessions()
+
+        if not portal_sessions:
+            st.error("Could not connect to University Portal. Please check your internet connection.")
+            st.stop()
 
         # Count total students across matching profiles
         total_students = sum(len(profiles[p].get('regs', [])) for p in matching_profiles)
-        progress_bar = st.progress(0, text=f"Analyzing {total_students} students across {len(matching_profiles)} batches...")
-        scanned_count = 0
+        progress_bar = st.progress(0, text=f"Dynamic Portal Search starting for {total_students} students across {len(matching_profiles)} batch(es)...")
 
-        for p_name in sorted(matching_profiles):
+        total_scanned_tasks = [0]
+        total_batch_tasks_count = [0]
+
+        def _update_progress(cur, tot, txt=None):
+            msg = txt or f"Dynamically probing portal results ({cur}/{tot})..."
+            progress_bar.progress(min(cur / tot, 1.0) if tot else 1.0, text=msg)
+
+        for p_idx, p_name in enumerate(sorted(matching_profiles)):
             batch_first_years = db.get_batch_first_participation_years(p_name)
             student_list = profiles[p_name].get('regs', [])
             p_data = profiles.get(p_name, {})
             pro_id = p_data.get("pro_id", "")
 
-            # Fetch exams list for this program if doing Live Portal scan
-            p_exams = {}
-            if "Live Portal" in data_source and pro_id:
-                import cli_scraper as cs
-                p_exams = cs.fetch_exams(pro_id)
+            if not pro_id or not student_list:
+                continue
+
+            p_exams = cs.fetch_exams(pro_id)
+            if not p_exams:
+                continue
+
+            # BULK TASK ASSEMBLY: Collect all exam tasks for ALL students in this batch
+            batch_tasks = []
+            student_map = {}  # reg_no -> (sess_id, name)
 
             for reg_no, sess_id, name in student_list:
-                scanned_count += 1
-                progress_bar.progress(
-                    scanned_count / total_students if total_students else 1.0,
-                    text=f"Analyzing [{scanned_count}/{total_students}]: {name} ({reg_no})"
-                )
+                reg_int = int(reg_no)
+                stu_sess = sess_id or "AUTO"
+                student_map[reg_int] = (sess_id or "AUTO", name)
 
-                raw_recs = []
-                if "Live Portal" in data_source and pro_id and p_exams and portal_sessions:
-                    import cli_scraper as cs
-                    # Dynamic live portal scan
-                    stu_sess = sess_id or "AUTO"
-                    filtered_eids = cs.get_relevant_exams(stu_sess, portal_sessions, p_exams)
-                    tasks = [(int(reg_no), stu_sess, eid) for eid in filtered_eids]
-                    history = cs.run_batch_scan_engine(
-                        tasks=tasks,
-                        pro_id=pro_id,
-                        exam_id="0",
-                        all_sessions=portal_sessions,
-                        num_threads=15
-                    )
-                    if history:
-                        for rec in history:
-                            eid = rec.get('_exam_id')
-                            if eid and eid in p_exams:
-                                rec['_exam_name'] = p_exams[eid]
-                        raw_recs = history
-                else:
-                    # Fast DB mode
-                    raw_recs = db.get_student_raw_records_from_db(p_name, reg_no)
+                filtered_eids = cs.get_relevant_exams(stu_sess, portal_sessions, p_exams)
+                for eid in filtered_eids:
+                    batch_tasks.append((reg_int, stu_sess, eid))
+
+            if not batch_tasks:
+                continue
+
+            # Execute HIGH-CONCURRENCY BULK PARALLEL SCAN (30 worker threads)
+            progress_bar.progress(
+                0.0,
+                text=f"Batch {p_name} ({p_idx + 1}/{len(matching_profiles)}): Firing 30 parallel workers for {len(batch_tasks)} requests..."
+            )
+
+            batch_history = cs.run_batch_scan_engine(
+                tasks=batch_tasks,
+                pro_id=pro_id,
+                exam_id="0",
+                all_sessions=portal_sessions,
+                progress_callback=_update_progress,
+                num_threads=30
+            )
+
+            # Group returned raw records by student registration number
+            student_records_map = {}
+            for rec in (batch_history or []):
+                eid = rec.get('_exam_id')
+                if eid and eid in p_exams:
+                    rec['_exam_name'] = p_exams[eid]
+
+                # Parse reg_no from record
+                reg_val = rec.get('Registration No') or rec.get('reg_no')
+                try:
+                    r_int = int(reg_val)
+                    if r_int not in student_records_map:
+                        student_records_map[r_int] = []
+                    student_records_map[r_int].append(rec)
+                except (ValueError, TypeError):
+                    pass
+
+            # Deep retake & improvement analysis per student
+            for reg_no, sess_id, name in student_list:
+                reg_int = int(reg_no)
+                raw_recs = student_records_map.get(reg_int, [])
+                if not raw_recs:
+                    # Fallback to DB stored records if portal returned nothing for this student
+                    raw_recs = db.get_student_raw_records_from_db(p_name, reg_int)
 
                 if not raw_recs:
                     continue
