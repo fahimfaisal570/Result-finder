@@ -264,12 +264,12 @@ if btn_find or "pending_finder_results" in st.session_state:
                     continue
 
                 if pro_id not in pro_exams_cache:
-                    # Fast-load known exams from SQLite DB (0ms local call)
+                    # Fetch full portal exam list (cached hourly) merged with local DB exams
+                    portal_exams = cs.fetch_exams(pro_id) or {}
                     db_exams = db.get_profile_known_exams(p_name)
-                    if db_exams:
-                        pro_exams_cache[pro_id] = db_exams
-                    else:
-                        pro_exams_cache[pro_id] = cs.fetch_exams(pro_id) or {}
+                    merged = dict(portal_exams)
+                    merged.update(db_exams)
+                    pro_exams_cache[pro_id] = merged
                 p_exams = pro_exams_cache[pro_id]
 
                 if not p_exams:
