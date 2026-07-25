@@ -381,11 +381,27 @@ if btn_find or "pending_finder_results" in st.session_state:
             progress_bar.empty()
 
         # Compute deep analysis on complete history (including newly saved retakes)
+        unique_candidates = []
+        seen_reg_pre = set()
+        for row in candidates:
+            r = int(row[1])
+            if r not in seen_reg_pre:
+                seen_reg_pre.add(r)
+                unique_candidates.append(row)
+
+        analysis_bar = st.progress(
+            0.0,
+            text=f"Analysing student history (0/{len(unique_candidates)})..."
+        )
         seen_reg = set()
-        for p_name, reg_no, name, sess_id in candidates:
+        for idx, (p_name, reg_no, name, sess_id) in enumerate(unique_candidates, start=1):
+            analysis_bar.progress(
+                min(1.0, idx / max(len(unique_candidates), 1)),
+                text=f"Analysing {name} ({idx}/{len(unique_candidates)})..."
+            )
             reg_int = int(reg_no)
             if reg_int in seen_reg:
-                continue  # Readmit student: already analyzed from newer batch
+                continue  # Readmit student: already analysed from newer batch
             seen_reg.add(reg_int)
 
             raw_recs = db.get_student_raw_records_from_db(p_name, reg_int)
@@ -452,6 +468,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                                     "Semester": SEMESTER_MAP.get(sem_num, f"Semester {sem_num}")
                                 })
 
+        analysis_bar.empty()
         st.session_state.pending_finder_results = pd.DataFrame(results)
 
     df_results = st.session_state.pending_finder_results
