@@ -184,7 +184,17 @@ if btn_find or "pending_finder_results" in st.session_state:
             and (not latest_impr_year or latest_impr_year - first_yr <= 2)
         ) if criteria_type != "Retake" else set(eligible_batches)
 
-        # STAGE 2: Filter candidate students (GP <= 2.75 in main exam subjects)
+        # Stage 2 GP threshold: narrow by mode so we don't over-fetch.
+        # Retake mode only cares about failing grades (< 2.0).
+        # Improvement mode only cares about borderline grades (2.0–2.75).
+        if criteria_type == "Retake":
+            gp_filter = "sg.grade_point < 2.0"
+        elif criteria_type == "Improvement":
+            gp_filter = "sg.grade_point BETWEEN 2.0 AND 2.75"
+        else:  # All
+            gp_filter = "sg.grade_point <= 2.75"
+
+        # STAGE 2: Filter candidate students
         candidates = []
         with db.get_connection() as conn:
             b_placeholders = ",".join(["?"] * len(eligible_batches))
@@ -198,7 +208,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                       AND sg.reg_no = er.reg_no AND sg.exam_id = er.exam_id
                     JOIN students s ON sg.profile_name = s.profile_name AND sg.reg_no = s.reg_no
                     WHERE sg.profile_name IN ({b_placeholders})
-                      AND sg.grade_point <= 2.75
+                      AND {gp_filter}
                       AND sg.subject_code IN ({c_placeholders})
                       AND LOWER(er.exam_name) NOT LIKE '%retake%'
                       AND LOWER(er.exam_name) NOT LIKE '%re-take%'
@@ -211,7 +221,8 @@ if btn_find or "pending_finder_results" in st.session_state:
                 """
                 sql_params = list(eligible_batches) + list(target_course_codes)
             else:
-                # Fallback to filtering by exam_name if no courses defined
+                # Fallback to filtering by exam_name if no courses defined.
+                # This correctly handles old-curriculum batches (CSE 05/06).
                 sql_candidates = f"""
                     SELECT DISTINCT sg.profile_name, sg.reg_no, s.name, s.sess_id
                     FROM subject_grades sg
@@ -219,7 +230,7 @@ if btn_find or "pending_finder_results" in st.session_state:
                       AND sg.reg_no = er.reg_no AND sg.exam_id = er.exam_id
                     JOIN students s ON sg.profile_name = s.profile_name AND sg.reg_no = s.reg_no
                     WHERE sg.profile_name IN ({b_placeholders})
-                      AND sg.grade_point <= 2.75
+                      AND {gp_filter}
                       AND LOWER(er.exam_name) LIKE ?
                       AND LOWER(er.exam_name) NOT LIKE '%retake%'
                       AND LOWER(er.exam_name) NOT LIKE '%re-take%'
@@ -302,7 +313,16 @@ if btn_find or "pending_finder_results" in st.session_state:
             for eid in missing_eids:
                 candidate_tasks.append((reg_int, stu_sess, eid, p_name, pro_id))
 
-        # Execute targeted scan for missing candidate retakes (if any)
+        # Execute targeted scan for missing candidate retakes (if any).
+        # Cap tasks to prevent runaway portal scans from hanging the app.
+        MAX_CANDIDATE_TASKS = 500
+        if len(candidate_tasks) > MAX_CANDIDATE_TASKS:
+            st.warning(
+                f"⚠️ {len(candidate_tasks)} portal tasks detected — capped at {MAX_CANDIDATE_TASKS} "
+                "to prevent timeout. Scan a specific semester or course to narrow scope."
+            )
+            candidate_tasks = candidate_tasks[:MAX_CANDIDATE_TASKS]
+
         if candidate_tasks:
             tasks_by_profile = {}
             for reg_int, stu_sess, eid, p_name, pro_id in candidate_tasks:
