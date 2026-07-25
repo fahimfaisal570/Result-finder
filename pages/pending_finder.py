@@ -261,13 +261,39 @@ if btn_find or "pending_finder_results" in st.session_state:
             existing_recs = db.get_student_raw_records_from_db(p_name, reg_int)
             existing_eids = set(str(r.get('_exam_id')) for r in existing_recs)
 
+            # Ascending exam_id optimization: find student's earliest main exam_id
+            min_main_eid = 0
+            for r in existing_recs:
+                ename = r.get('_exam_name', '')
+                if not any(kw in ename.lower() for kw in RETAKE_KEYWORDS):
+                    try:
+                        eid_val = int(r.get('_exam_id', 0))
+                        if min_main_eid == 0 or eid_val < min_main_eid:
+                            min_main_eid = eid_val
+                    except (ValueError, TypeError):
+                        pass
+
             relevant_eids = cs.get_relevant_exams(stu_sess, portal_sessions, p_exams)
-            # Filter relevant exams to ONLY retake / improvement / special exams missing from SQLite
-            missing_eids = [
-                eid for eid in relevant_eids 
-                if str(eid) not in existing_eids
-                and any(kw in p_exams.get(eid, '').lower() for kw in RETAKE_KEYWORDS)
-            ]
+            # Filter relevant exams to ONLY retake/special exams missing from SQLite
+            # and published ON OR AFTER the student's earliest main exam_id
+            missing_eids = []
+            for eid in relevant_eids:
+                if str(eid) in existing_eids:
+                    continue
+                ename = p_exams.get(eid, '')
+                ename_lower = ename.lower()
+                
+                is_retake = any(kw in ename_lower for kw in RETAKE_KEYWORDS)
+                if not is_retake:
+                    continue
+
+                try:
+                    if min_main_eid > 0 and int(eid) < min_main_eid:
+                        continue
+                except ValueError:
+                    pass
+
+                missing_eids.append(eid)
 
             for eid in missing_eids:
                 candidate_tasks.append((reg_int, stu_sess, eid, p_name, pro_id))
