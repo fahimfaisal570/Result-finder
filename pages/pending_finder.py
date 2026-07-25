@@ -123,12 +123,17 @@ if btn_find or "pending_finder_results" in st.session_state:
         special_lookup = db.build_special_exam_lookup(dept)
 
         # Instant Metadata Resolution: Read cached portal metadata from local DB (0ms, zero network delay)
-        cached_meta = db.get_meta_cache("portal_meta", ttl_seconds=0) or {}
+        # NOTE: ttl_seconds=0 means elapsed < 0 which is always False — must use a real TTL like 86400
+        cached_meta = db.get_meta_cache("portal_meta", ttl_seconds=86400) or {}
         portal_sessions = cached_meta.get("sessions")
 
         if not portal_sessions:
             with st.spinner("Connecting to University Portal metadata..."):
                 portal_programs, portal_sessions = cs.fetch_programs_and_sessions()
+                # fetch_programs_and_sessions already calls set_meta_cache internally, but
+                # save explicitly here in case it returned early without saving
+                if portal_sessions:
+                    db.set_meta_cache("portal_meta", {"programs": {}, "sessions": dict(portal_sessions)})
 
         if not portal_sessions:
             # Emergency fallback: standard session map so search can proceed even if portal metadata is uncreatable
