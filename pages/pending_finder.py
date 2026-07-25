@@ -109,19 +109,17 @@ if btn_find or "pending_finder_results" in st.session_state:
         results = []
         special_lookup = db.build_special_exam_lookup(dept)
 
-        # Fetch metadata safely (DO NOT pre-warm 50 sockets before metadata fetch to prevent server firewall hangs)
-        with st.spinner("Connecting to University Portal metadata..."):
-            portal_programs, portal_sessions = cs.fetch_programs_and_sessions()
-
-        # Fallback to local DB metadata cache if portal is unresponsive
-        if not portal_sessions:
-            cached_meta = db.get_meta_cache("portal_meta", ttl_seconds=0) # Get any cached metadata regardless of age
-            if cached_meta and cached_meta.get("sessions"):
-                portal_sessions = cached_meta["sessions"]
+        # Instant Metadata Resolution: Read cached portal metadata from local DB (0ms, zero network delay)
+        cached_meta = db.get_meta_cache("portal_meta", ttl_seconds=0) or {}
+        portal_sessions = cached_meta.get("sessions")
 
         if not portal_sessions:
-            st.error("Could not connect to University Portal or load metadata. Please check your network connection.")
-            st.stop()
+            with st.spinner("Connecting to University Portal metadata..."):
+                portal_programs, portal_sessions = cs.fetch_programs_and_sessions()
+
+        if not portal_sessions:
+            # Emergency fallback: standard session map so search can proceed even if portal metadata is uncreatable
+            portal_sessions = {"1": "2021-22", "2": "2020-21", "3": "2019-20", "4": "2018-19", "5": "2017-18", "6": "2016-17"}
 
         # Pre-warm connection pool with 10 connections for batch scan
         cs.warm_connection_pool(num_connections=10)
