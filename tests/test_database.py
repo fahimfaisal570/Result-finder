@@ -814,6 +814,12 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertIsNotNone(pdf_bytes)
         self.assertTrue(len(pdf_bytes) > 0)
 
+    def test_get_student_raw_records_from_db(self):
+        """Verify reconstructing raw records from raw_json in DB."""
+        raw_recs = database.get_student_raw_records_from_db("cse 09", 99999)
+        self.assertIsInstance(raw_recs, list)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

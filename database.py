@@ -760,6 +760,32 @@ def get_profiles() -> dict:
     return profiles
 
 
+def get_student_raw_records_from_db(profile_name: str, reg_no: int) -> list:
+    """Reconstruct raw_records from DB for compute_deep_analysis."""
+    records = []
+    try:
+        with get_connection() as conn:
+            cur = conn.execute("""
+                SELECT exam_id, exam_name, raw_json
+                FROM exam_results
+                WHERE profile_name = ? AND reg_no = ?
+            """, (profile_name, reg_no))
+            for eid, ename, rj in cur.fetchall():
+                if not rj:
+                    continue
+                try:
+                    rec = json.loads(rj)
+                    rec['_exam_id'] = str(eid)
+                    rec['_exam_name'] = ename or ''
+                    records.append(rec)
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.error("get_student_raw_records_from_db error for %s %s: %s", profile_name, reg_no, e)
+    return records
+
+
+
 
 def get_effective_cgpa_per_student(profile_name: str) -> list:
     """

@@ -137,6 +137,7 @@ if mode == "Interactive Scan":
 else: # Saved Profiles Mode
     st.sidebar.divider()
     st.sidebar.page_link("pages/analytics.py", label="Open Data Analytics", icon=":material/analytics:")
+    st.sidebar.page_link("pages/pending_finder.py", label="Pending Finder", icon=":material/search:")
     st.sidebar.divider()
     
     # --- Create Manual Batch in Sidebar ---
