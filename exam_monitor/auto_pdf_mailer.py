@@ -452,8 +452,8 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name)
     
     # --- ADDED FOR V2 SYNC CROSS-BRANCH WORKFLOW ---
-    import tempfile
-    sync_file = os.path.join(tempfile.gettempdir(), "v2_sync_tasks.json")
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sync_file = os.path.join(repo_root, "v2_sync_tasks.json")
     task_data = {
         "pro_id": pro_id,
         "exam_id": exam_id,
