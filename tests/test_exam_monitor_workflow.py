@@ -90,6 +90,15 @@ def test_hybrid_profiles():
 
 check('hybrid   :: auto_pdf_mailer supports both saved_profiles.json and db.get_profiles', test_hybrid_profiles)
 
+# 6. API signature contract: fetch_student_result requires 4 positional args
+def test_fetch_student_result_signature():
+    app_src = read_file('app.py')
+    mailer_src = read_file('exam_monitor/auto_pdf_mailer.py')
+    assert 'fetch_student_result(reg, active_sess_id, chk_exam_id)' not in app_src, 'app.py has missing pro_id in fetch_student_result call'
+    assert 'cs.fetch_student_result(test_reg, pro_id, sess_id, exam_id)' in mailer_src, 'auto_pdf_mailer has malformed fetch_student_result call'
+
+check('signature:: fetch_student_result callers pass all 4 positional parameters', test_fetch_student_result_signature)
+
 def _report():
     print('\n' + '=' * 65)
     print('  EXAM MONITOR WORKFLOW - INTEGRATION SMOKE TEST')

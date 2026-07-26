@@ -194,8 +194,8 @@ else: # Saved Profiles Mode
                     with st.spinner("Probing portal with sample students..."):
                         matched = False
                         for reg in probe_regs:
-                            res = cs.fetch_student_result(reg, active_sess_id, chk_exam_id)
-                            if res and 'GPA' in res:
+                            res_data, success = cs.fetch_student_result(reg, profile_data.get('pro_id'), active_sess_id, chk_exam_id)
+                            if success and isinstance(res_data, dict) and 'GPA' in res_data:
                                 matched = True
                                 break
                         
