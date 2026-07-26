@@ -3,7 +3,7 @@ import json
 import tempfile
 import cli_scraper as cs
 import database as db
-SYNC_FILE = os.path.join(tempfile.gettempdir(), "v2_sync_tasks.json")  # Cross-platform temp path
+SYNC_FILE = os.getenv("SYNC_FILE_PATH", os.path.join(tempfile.gettempdir(), "v2_sync_tasks.json"))
 
 def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_results):
     """

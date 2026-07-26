@@ -42,19 +42,11 @@ def file_process_lock(lock_path, timeout=30):
             pass
 
 
-# Dynamic Scraper Jitter Monkeypatch for Workflow Performance (Wave 10 Alignment)
-import random
-_orig_uniform = random.uniform
-def _workflow_uniform(a, b):
-    # Scale down safety & jitter delays <= 1.0s by 85% to accelerate automated monitor scans
-    if b <= 1.0:
-        return _orig_uniform(a * 0.15, b * 0.15)
-    return _orig_uniform(a, b)
-random.uniform = _workflow_uniform
 
-# Add parent dir to path to import cli_scraper
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cli_scraper as cs
+import database as db
 
 # Department mapping to Github Secrets for Email Routing
 DEPT_EMAIL_SECRETS = {
@@ -69,16 +61,19 @@ def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
     if not exam_id: 
         return None, None
         
+    profiles = {}
     profiles_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "saved_profiles.json")
-    if not os.path.exists(profiles_path):
-        print("saved_profiles.json not found")
-        return None, None
-        
-    try:
-        with open(profiles_path, "r") as f:
-            profiles = json.load(f)
-    except Exception as e:
-        print(f"Error loading profiles: {e}")
+    if os.path.exists(profiles_path):
+        try:
+            with open(profiles_path, "r") as f:
+                profiles = json.load(f)
+        except Exception as e:
+            print(f"Error reading saved_profiles.json: {e}")
+            profiles = {}
+    if not profiles:
+        profiles = db.get_profiles()
+    if not profiles:
+        print("No profiles found in saved_profiles.json or database.")
         return None, None
 
     # Gather matching profiles
@@ -396,36 +391,37 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     print(f"Filtered to {len(results)} participating students.")
 
     # --- Readd Detection Phase (Subject-Overlap Fingerprinting) & Promotion ---
+    all_profiles = {}
     profiles_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "saved_profiles.json"
     )
-    with file_process_lock(profiles_path):
-        with open(profiles_path, "r") as f:
-            all_profiles = json.load(f)
-            
-        readd_results, readd_info = detect_readds_main_branch(
-            all_profiles, profile_name, pro_id, exam_id, results, should_save=False
-        )
-        if readd_results:
-            results.extend(readd_results)
-            print(f"  [Readd] {len(readd_results)} readd student(s) merged into report.")
-
-        # --- Auto-Promote Provisional Batch (Main Branch) ---
-        promoted = False
-        if all_profiles.get(profile_name, {}).get("is_provisional"):
-            all_profiles[profile_name]["is_provisional"] = False
-            promoted = True
-            
+    if os.path.exists(profiles_path):
         try:
-            with open(profiles_path, "w") as f:
-                json.dump(all_profiles, f, indent=2)
-            if readd_results:
-                print(f"  [Readd] Persisted {len(readd_info)} readd(s) to saved_profiles.json.")
-            if promoted:
-                print(f"  [Promotion] '{profile_name}' promoted from provisional to full (main branch).")
-        except Exception as e:
-            print(f"  [Promotion] WARNING: Failed to promote in saved_profiles.json: {e}")
+            with open(profiles_path, "r") as f:
+                all_profiles = json.load(f)
+        except Exception:
+            all_profiles = {}
+    if not all_profiles:
+        all_profiles = db.get_profiles()
+
+    readd_results, readd_info = detect_readds_main_branch(
+        all_profiles, profile_name, pro_id, exam_id, results, should_save=bool(os.path.exists(profiles_path))
+    )
+    if readd_results:
+        results.extend(readd_results)
+        print(f"  [Readd] {len(readd_results)} readd student(s) merged into report.")
+
+    if all_profiles.get(profile_name, {}).get("is_provisional"):
+        db.promote_provisional_profile(profile_name)
+        if os.path.exists(profiles_path):
+            all_profiles[profile_name]["is_provisional"] = False
+            try:
+                with open(profiles_path, "w") as f:
+                    json.dump(all_profiles, f, indent=2)
+            except Exception as e:
+                print(f"  [Promotion] WARNING: Failed to update saved_profiles.json: {e}")
+        print(f"  [Promotion] '{profile_name}' promoted from provisional to full.")
 
     print("Generating Printable Thesis HTML format...")
     # Inject profile_name into title so it appears nicely in the central PDF rendering engine

@@ -27,8 +27,8 @@ if os.path.exists(CREDIT_MAP_PATH):
     try:
         with open(CREDIT_MAP_PATH, 'r') as f:
             _credit_map = json.load(f)
-    except:
-        pass
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to load credit mapping from %s: %s", CREDIT_MAP_PATH, e)
 
 def get_dept_from_profile(profile_name: str) -> str:
     """Map profile names like 'cse 09' or 'eee 09' to PDF department keys."""
@@ -68,29 +68,10 @@ def get_subject_credits(subject_code: str, profile_name: str, exam_name: str = N
     # We NO LONGER default to 3.0. Returning None allows the caller
     # to detect missing mappings and fall back to portal data if needed.
     return None
-class ClosedOnExitConnection:
-    def __init__(self, conn):
-        self._conn = conn
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-    def __enter__(self):
-        self._conn.__enter__()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # We commit/rollback on transaction block exit but do NOT close the connection
-        # since it is pooled and reused on the same thread.
-        return self._conn.__exit__(exc_type, exc_val, exc_tb)
-
 _thread_local = threading.local()
 
 def get_connection():
-    """
-    Returns a local SQLite database connection from a thread-local pool, wrapped to manage transactions.
-    Keyed by DB_PATH to support dynamic swap in unit test runners.
-    """
+    """Returns a local SQLite database connection from a thread-local pool."""
     conns = getattr(_thread_local, 'conns', {})
     conn = conns.get(DB_PATH)
     if conn is None:
@@ -99,46 +80,24 @@ def get_connection():
         conn.execute("PRAGMA busy_timeout = 30000")
         conns[DB_PATH] = conn
         _thread_local.conns = conns
-    return ClosedOnExitConnection(conn)
+    return conn
 
 
 
 def ensure_database_indices(conn):
-    """
-    Creates optimized compound indices on major query and lookup keys to eliminate full table scans.
-    """
-    def column_exists(table_name, column_name):
+    """Creates optimized compound indices on major query and lookup keys to eliminate full table scans."""
+    indices = [
+        "CREATE INDEX IF NOT EXISTS idx_subject_grades_lookup ON subject_grades(profile_name, reg_no, sess_id)",
+        "CREATE INDEX IF NOT EXISTS idx_exam_results_lookup ON exam_results(profile_name, reg_no, sess_id)",
+        "CREATE INDEX IF NOT EXISTS idx_students_lookup ON students(profile_name, reg_no, sess_id)",
+        "CREATE INDEX IF NOT EXISTS idx_subject_grades_exam ON subject_grades(profile_name, exam_id)",
+        "CREATE INDEX IF NOT EXISTS idx_exam_results_exam ON exam_results(profile_name, exam_id)",
+    ]
+    for sql in indices:
         try:
-            cur = conn.execute(f"PRAGMA table_info({table_name})")
-            columns = [row[1] for row in cur.fetchall()]
-            return column_name in columns
-        except Exception:
-            return False
-
-    # Check if subject_grades exists and contains sess_id column
-    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='subject_grades'").fetchone()
-    if res and column_exists('subject_grades', 'sess_id'):
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_subject_grades_lookup ON subject_grades(profile_name, reg_no, sess_id)")
-    
-    # Check if exam_results exists and contains sess_id column
-    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='exam_results'").fetchone()
-    if res and column_exists('exam_results', 'sess_id'):
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_results_lookup ON exam_results(profile_name, reg_no, sess_id)")
-
-    # Check if students exists and contains sess_id column
-    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='students'").fetchone()
-    if res and column_exists('students', 'sess_id'):
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_students_lookup ON students(profile_name, reg_no, sess_id)")
-
-    # CR-002: Add compound index idx_subject_grades_exam ON subject_grades(profile_name, exam_id)
-    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='subject_grades'").fetchone()
-    if res:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_subject_grades_exam ON subject_grades(profile_name, exam_id)")
-
-    # CR-003: Add compound index idx_exam_results_exam ON exam_results(profile_name, exam_id)
-    res = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='exam_results'").fetchone()
-    if res:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_exam_results_exam ON exam_results(profile_name, exam_id)")
+            conn.execute(sql)
+        except sqlite3.OperationalError:
+            pass
 
 
 def init_db():

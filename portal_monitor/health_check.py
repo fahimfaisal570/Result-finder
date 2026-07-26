@@ -5,15 +5,16 @@ import os
 import smtplib
 import time
 import contextlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # Configuration
 CHECK_URL = "https://ducmc.du.ac.bd/"
-ALERT_RECIPIENT = os.getenv("RECEIVER_EMAIL", "fahimfaisal2657@gmail.com")
+ALERT_RECIPIENT = os.getenv("RECEIVER_EMAIL", "")
 PORTAL_MONITOR_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(PORTAL_MONITOR_DIR, "state.json")
+BD_TZ = timezone(timedelta(hours=6))
 
 # Custom 5-line parser to load a local .env file for local development/testing
 def load_env():
@@ -27,7 +28,6 @@ def load_env():
                     k, v = line.split("=", 1)
                     os.environ[k.strip()] = v.strip()
 
-# Zero-dependency, cross-process and cross-thread atomic directory lock
 @contextlib.contextmanager
 def file_process_lock(lock_path, timeout=30):
     lock_dir = lock_path + ".lock"
@@ -38,17 +38,13 @@ def file_process_lock(lock_path, timeout=30):
             break
         except FileExistsError:
             if time.time() - start_time > timeout:
-                print(f"Lock acquisition timed out for {lock_path}. Continuing...")
                 break
             time.sleep(0.2)
     try:
         yield
     finally:
-        try:
-            if os.path.exists(lock_dir):
-                os.rmdir(lock_dir)
-        except OSError:
-            pass
+        with contextlib.suppress(OSError):
+            os.rmdir(lock_dir)
 
 def check_portal():
     headers = {
@@ -103,12 +99,12 @@ def send_alert_email(new_status, reason):
     smtp_user = os.getenv("EMAIL_USER")
     smtp_pass = os.getenv("EMAIL_PASS")
     
-    if not smtp_user or not smtp_pass:
-        print("Skipping email: Missing SMTP credentials (EMAIL_USER/EMAIL_PASS).")
+    if not smtp_user or not smtp_pass or not ALERT_RECIPIENT:
+        print("Skipping email: Missing SMTP credentials or ALERT_RECIPIENT (EMAIL_USER/EMAIL_PASS/RECEIVER_EMAIL).")
         return
         
     subject = f"🔔 Portal Alert: DUCMC is {'ONLINE' if new_status == 'online' else 'DOWN'}"
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(BD_TZ).strftime("%Y-%m-%d %H:%M:%S BST (UTC+6)")
     
     body = f"The Dhaka University Constituent Colleges (DUCMC) portal state has changed.\n\n"
     body += f"Current State: {new_status.upper()}\n"
@@ -184,7 +180,7 @@ def main():
             with open(STATE_FILE, "w") as f:
                 json.dump({
                     "last_status": current_status,
-                    "last_check": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    "last_check": datetime.now(BD_TZ).strftime("%Y-%m-%d %H:%M:%S BST")
                 }, f, indent=4)
         except Exception as e:
             print(f"Failed to save state file: {e}")

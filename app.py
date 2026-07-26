@@ -4,6 +4,7 @@ import base64
 import time
 import re
 import json
+from urllib.parse import quote as _quote
 import cli_scraper as cs
 import database as db
 import ui_components as ui
@@ -12,25 +13,6 @@ import ui_components as ui
 # --- Session State Initialization ---
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = True
-
-# --- Helper: Logo Base64 ---
-def get_base64_logo(file_path):
-    if not os.path.exists(file_path): return ""
-    with open(file_path, "rb") as f:
-        return base64.b64encode(f.read()).decode()
-
-# --- Logic Delegation ---
-classify_exams = cs.classify_exams
-fetch_exams = cs.fetch_exams
-fetch_student_result = cs.fetch_student_result
-format_session = cs.format_session
-parse_range_string = cs.parse_range 
-make_request = cs.make_request
-extract_options_from_html = cs.extract_options_from_html
-BASE_URL = cs.BASE_URL
-AJAX_URL = cs.AJAX_URL
-SESSIONS_CACHE = cs.SESSIONS_CACHE
-PROGRAMS_CACHE = cs.PROGRAMS_CACHE
 
 # --- Essential Design System ---
 st.set_page_config(page_title="Result Finder", page_icon="favicon.ico", layout="wide")
@@ -76,8 +58,8 @@ if mode == "Interactive Scan":
         session_name = st.selectbox("Session", options=s_list)
         sess_id = [k for k, v in st.session_state.sessions.items() if v == session_name][0]
         
-        exams_raw = fetch_exams(pro_id) if pro_id else {}
-        mains, others = classify_exams(exams_raw, session_name)
+        exams_raw = cs.fetch_exams(pro_id) if pro_id else {}
+        mains, others = cs.classify_exams(exams_raw, session_name)
         exam_type = st.radio("Exam Category", ["Main Exams", "Retake / All Exams"], horizontal=True)
         
         if exam_type == "Main Exams" and mains:
@@ -121,7 +103,6 @@ if mode == "Interactive Scan":
         st.rerun()
 
     if exam_id and (main_range or st.session_state.ra_items):
-        from urllib.parse import quote as _quote
         payload = []
         if main_range: payload.append([main_range, sess_id])
         for ra in st.session_state.ra_items:
@@ -200,7 +181,7 @@ else: # Saved Profiles Mode
             st.markdown("### Check Portal for Results")
             st.info("Check if DUCMC portal has published the first exam results for this batch.")
             
-            exams_raw = fetch_exams(profile_data.get('pro_id')) if profile_data.get('pro_id') else {}
+            exams_raw = cs.fetch_exams(profile_data.get('pro_id')) if profile_data.get('pro_id') else {}
             if exams_raw:
                 chk_exam_name = st.selectbox("Select Exam to Check Against", options=list(exams_raw.values()), key="chk_portal_exam")
                 chk_exam_id = [k for k, v in exams_raw.items() if v == chk_exam_name][0]
@@ -224,7 +205,6 @@ else: # Saved Profiles Mode
                             st.success("Results found on portal! Redirecting to scraper...", icon=":material/check_circle:")
                             payload = [[f"{p_regs[0][0]}-{p_regs[-1][0]}", active_sess_id]]
                             payload_str = base64.b64encode(json.dumps(payload).encode()).decode()
-                            from urllib.parse import quote as _quote
                             st.markdown(f'<meta http-equiv="refresh" content="0; url=/results?profile={_quote(p_selected)}&exam_id={chk_exam_id}&exam_name={_quote(chk_exam_name)}">', unsafe_allow_html=True)
                             st.link_button("Launch Full Import & Promotion", url=f"/results?profile={_quote(p_selected)}&exam_id={chk_exam_id}&exam_name={_quote(chk_exam_name)}")
             st.divider()
@@ -234,24 +214,23 @@ else: # Saved Profiles Mode
         with st.expander("View Student List", icon=":material/list:"):
             p_regs = profile_data.get('regs', [])
             pro_id_p = profile_data.get('pro_id', '')
-            import urllib.parse as _urlparse
             links = []
             for r in p_regs:
                 reg_no = r[0] if isinstance(r, list) else r
                 name   = r[2] if isinstance(r, list) and len(r) > 2 else f"Reg {reg_no}"
-                url = f"/transcript?reg={reg_no}&pro_id={_urlparse.quote(str(pro_id_p))}&profile={_urlparse.quote(p_selected)}"
+                url = f"/transcript?reg={reg_no}&pro_id={_quote(str(pro_id_p))}&profile={_quote(p_selected)}"
                 links.append(f"• [{name} ({reg_no})]({url})")
             st.markdown("\n".join(links))
  
-        exams_raw = fetch_exams(profile_data.get('pro_id')) if profile_data.get('pro_id') else {}
+        exams_raw = cs.fetch_exams(profile_data.get('pro_id')) if profile_data.get('pro_id') else {}
         if exams_raw:
             p_regs = profile_data.get('regs', [])
             active_sess_id = profile_data.get('sess_id') or (p_regs[0][1] if p_regs else "Any")
-            active_sess_name = SESSIONS_CACHE.get(str(active_sess_id), str(active_sess_id))
+            active_sess_name = cs.SESSIONS_CACHE.get(str(active_sess_id), str(active_sess_id))
             probe_regs = [r[0] for r in p_regs if str(r[1]) == str(active_sess_id)][:5]
             _classify_key = f"classify_{p_selected}_{profile_data.get('pro_id')}_{active_sess_id}"
             if _classify_key not in st.session_state:
-                st.session_state[_classify_key] = classify_exams(
+                st.session_state[_classify_key] = cs.classify_exams(
                     exams_raw,
                     active_sess_name,
                     probe_regs=probe_regs,
@@ -260,7 +239,6 @@ else: # Saved Profiles Mode
                 )
             mains_dict, others_dict = st.session_state[_classify_key]
             
-            from urllib.parse import quote as _quote
             st.markdown("<div style='text-align: center; color: var(--text-color); opacity: 0.6; font-size: 0.8rem; letter-spacing: 0.1em; margin-bottom: 20px; text-transform: uppercase;'>Main Batch Exams</div>", unsafe_allow_html=True)
             for eid, ename in mains_dict.items():
                 url = f"/results?profile={_quote(p_selected)}&exam_id={eid}&exam_name={_quote(ename)}"
