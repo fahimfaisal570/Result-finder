@@ -16,14 +16,18 @@ While the official university portal ([DUCMC](https://ducmc.du.ac.bd/)) restrict
 ### 1. Dedicated Pending Retake & Improvement Finder ([`pages/pending_finder.py`](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/pages/pending_finder.py))
 A high-performance multi-stage search engine designed for department heads and academic advisors to track uncleared failures and improvement-eligible courses across entire department batches:
 * **Stage 1 — Batch Eligibility Filter**: Automatically scans department profiles (CSE, EEE, Civil) to identify all cohorts that completed the specified semester.
-* **Stage 2 — Database Candidate Extraction**: Filters students using exact grade point criteria ($GP < 2.0$ for failing retakes vs $2.0 \le GP \le 2.75$ for improvement candidates).
+* **Stage 2 — Database Candidate Extraction**: Filters students using exact grade point criteria (GP < 2.0 for failing retakes vs 2.0 <= GP <= 2.75 for improvement candidates).
 * **Stage 3 — Live Portal Verification (30-Thread Concurrent Engine)**: Connects to the portal to query missing exam schedules and retake publications in real time, caching fresh records into the database.
 * **Stage 4 — Deep Projection & Special Retake Classification**: Differentiates between regular retakes and Special Retakes (governed by institutional year-gap rules), producing downloadable CSV reports and metric breakdowns.
 
 ### 2. Hybrid Machine Learning Predictor ([`ml_predictor.py`](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/ml_predictor.py))
 Forecasts a student's remaining semester GPAs and predicted graduation CGPA using historical performance:
-* **Dual-Model Blending**: Combines 1st-degree polynomial linear regression (`np.polyfit`) for directional trend with Exponential Moving Average (EMA, $\alpha=0.6$) for recency bias:
-  $$\text{Forecast GPA} = 0.5 \times \text{LinearTrend}(t) + 0.5 \times \text{EMA}(t)$$
+* **Dual-Model Blending**: Combines 1st-degree polynomial linear regression (`np.polyfit`) for directional trend with Exponential Moving Average (EMA, α = 0.6) for recency bias:
+
+```text
+Forecast GPA = 0.5 * LinearTrend(t) + 0.5 * EMA(t)
+```
+
 * **Credit-Weighted Graduation CGPA**: Computes projected final graduation CGPA based on exact course credit weights across all 8 semesters.
 * **Trend Velocity Metrics**: Measures grade point trajectory slopes to identify students undergoing academic drift early.
 
@@ -40,7 +44,7 @@ Forecasts a student's remaining semester GPAs and predicted graduation CGPA usin
 ### 4. Retake-Aware Academic Calculations & Credit Engine ([`database.py`](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/database.py))
 * **Granular Subject Schema**: Stores individual course grades, credit hours, and attempt timestamps rather than relying on summary portal headers.
 * **True CGPA Math**: Uses syllabus credit mappings from [`credit_mapping.json`](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/credit_mapping.json). Best recorded grades are used for effective CGPA calculations, while failed subjects remain tracked as pending until cleared.
-* **Re-Admitted Student Detection**: Compares candidate subject patterns against regular batch fingerprints ($\ge 50\%$ subject overlap and $\ge 70\%$ credit load ratio) to detect re-admitted students and ignore retake guests.
+* **Re-Admitted Student Detection**: Compares candidate subject patterns against regular batch fingerprints (≥ 50% subject overlap and ≥ 70% credit load ratio) to detect re-admitted students and ignore retake guests.
 
 ### 5. Automated Background Synchronization ([`v2_auto_sync.py`](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/v2_auto_sync.py))
 * **Cross-Branch Interoperability**: Ingests automated scan tasks queued from `main`'s 24/7 exam watcher.
