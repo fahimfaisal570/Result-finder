@@ -46,7 +46,7 @@ A background automation suite running via GitHub Actions ([`.github/workflows/ex
 ### 5. Portal Uptime & Security Monitor ([`portal_monitor/`](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/portal_monitor/))
 An isolated monitor ([`.github/workflows/portal_health.yml`](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/.github/workflows/portal_health.yml)):
 * **Positive Signature Verification ([`health_check.py`](file:///c:/Users/Ucc/Downloads/result%20finder%20separate/portal_monitor/health_check.py))**: Verifies that responses contain expected DUCMC signatures (`DUCMC` + `University of Dhaka`) and flags WAF/CrowdSec security blocks.
-* **Transition-Only Alerts**: Dispatches email notifications strictly when status changes (`online` $\leftrightarrow$ `offline`), preventing alert fatigue.
+* **Transition-Only Alerts**: Dispatches email notifications strictly when status changes (online <-> offline), preventing alert fatigue.
 * **CLI Testing Flags**: Supports `--force-online`, `--force-offline`, and `--test-email` for manual verification.
 
 ---
