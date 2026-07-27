@@ -30,6 +30,11 @@ temp_*.json
 !cli_scraper.py
 !app.py
 
+# SQLite temp files
+*.db-shm
+*.db-wal
+research/logs/
+
 # Environments
 .env
 .venv

@@ -1,5 +1,5 @@
 {
-  "record_count": 37677,
+  "record_count": 37675,
   "forecasting_benchmark": {
     "Naive (Last Value)": {
       "MAE": 0.5381,
