@@ -1,0 +1,37 @@
+{
+  "record_count": 37677,
+  "forecasting_benchmark": {
+    "Naive (Last Value)": {
+      "MAE": 0.5381,
+      "RMSE": 0.8008
+    },
+    "Moving Average (k=3)": {
+      "MAE": 0.3948,
+      "RMSE": 0.5556
+    },
+    "EMA Only (\u03b1=0.6)": {
+      "MAE": 0.4234,
+      "RMSE": 0.6035
+    },
+    "Linear Fit Only": {
+      "MAE": 0.4123,
+      "RMSE": 0.5619
+    },
+    "Proposed Hybrid Model": {
+      "MAE": 0.3983,
+      "RMSE": 0.5508
+    }
+  },
+  "readmission_benchmark": {
+    "Simple Overlap Baseline": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "Proposed Dual-Filter Fingerprinting": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    }
+  }
+}

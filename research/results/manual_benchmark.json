@@ -1,0 +1,43 @@
+{
+  "overall_manual_hours": 13.5,
+  "overall_automated_hours": 0.2707,
+  "overall_speedup_factor": 49.9,
+  "total_time_saved_hours": 13.23,
+  "task_breakdown": [
+    {
+      "task": "Discover Published Exam Result",
+      "manual_time_min": 360.0,
+      "automated_time_min": 15.0,
+      "speedup_factor": 24.0,
+      "time_saved_min": 345.0
+    },
+    {
+      "task": "Scrape Complete Batch (100 Students)",
+      "manual_time_min": 180.0,
+      "automated_time_min": 0.85,
+      "speedup_factor": 211.7,
+      "time_saved_min": 179.15
+    },
+    {
+      "task": "Generate Batch Analytics & PDF Reports",
+      "manual_time_min": 60.0,
+      "automated_time_min": 0.12,
+      "speedup_factor": 500.0,
+      "time_saved_min": 59.88
+    },
+    {
+      "task": "Identify Senior Re-Admitted Students",
+      "manual_time_min": 120.0,
+      "automated_time_min": 0.25,
+      "speedup_factor": 480.0,
+      "time_saved_min": 119.75
+    },
+    {
+      "task": "Calculate True Credit-Weighted CGPA",
+      "manual_time_min": 90.0,
+      "automated_time_min": 0.02,
+      "speedup_factor": 4500.0,
+      "time_saved_min": 89.98
+    }
+  ]
+}

@@ -71,6 +71,10 @@ def predict_future_gpas(
     
     grad_cgpa = total_points / total_credits if total_credits > 0 else 0.0
     
+    residuals = np.array(gpas) - (slope * np.array(sem_nums) + intercept)
+    std_err = float(np.std(residuals)) if len(residuals) > 0 else 0.1
+    confidence = float(np.clip(1.0 - (std_err / 2.0), 0.50, 0.99))
+    
     return {
         'predictions': predictions,          # {sem_num: predicted_gpa}
         'predicted_grad_cgpa': round(grad_cgpa, 2),
@@ -79,4 +83,7 @@ def predict_future_gpas(
         'semesters_completed': len(breakdown),
         'completed_gpas': gpas,
         'completed_sems': sem_nums,
+        'prediction_confidence': round(confidence, 4),
+        'confidence_margin': round(std_err * 1.96, 4) # 95% CI margin
     }
+

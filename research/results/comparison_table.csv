@@ -1,0 +1,6 @@
+,MAE,RMSE
+Naive (Last Value),0.5381,0.8008
+Moving Average (k=3),0.3948,0.5556
+EMA Only (α=0.6),0.4234,0.6035
+Linear Fit Only,0.4123,0.5619
+Proposed Hybrid Model,0.3983,0.5508

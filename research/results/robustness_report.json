@@ -1,0 +1,17 @@
+{
+  "tests_executed": 2,
+  "all_passed": true,
+  "details": [
+    {
+      "name": "Malformed HTML Resilience",
+      "total": 4,
+      "passed": 4,
+      "degraded_gracefully": true
+    },
+    {
+      "name": "Database Upsert Idempotency",
+      "passed": true,
+      "error": null
+    }
+  ]
+}

@@ -2703,10 +2703,6 @@ def set_meta_cache(key: str, value: dict):
         except (sqlite3.Error, Exception):
             pass # Table might not be created yet or DB error
 
-# ---------------------------------------------------------------------------
-# Migration v5 and Bootstrap
-# ---------------------------------------------------------------------------
-
 def migrate_schema_v5():
     """Adds provisional batch support columns to profiles table."""
     with get_connection() as conn:
@@ -2718,7 +2714,47 @@ def migrate_schema_v5():
         conn.commit()
     logger.info("Schema v5 migration complete.")
 
-_CURRENT_SCHEMA_VERSION = 5
+def migrate_schema_v6():
+    """Adds research_records and record_lineage tables for research dataset and lineage graph."""
+    with get_connection() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS research_records (
+                record_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                anon_student_id   TEXT NOT NULL,
+                department        TEXT NOT NULL,
+                session           TEXT NOT NULL,
+                semester          INTEGER NOT NULL,
+                exam_id           TEXT NOT NULL,
+                subject_code      TEXT NOT NULL,
+                credit            REAL DEFAULT 3.0,
+                grade_point       REAL DEFAULT 0.0,
+                retake_flag       INTEGER DEFAULT 0,
+                improvement_flag  INTEGER DEFAULT 0,
+                readd_flag        INTEGER DEFAULT 0,
+                academic_state    TEXT DEFAULT 'regular',
+                publication_ts    TEXT,
+                detection_ts      TEXT,
+                sync_ts           TEXT,
+                prediction_output REAL,
+                actual_outcome    REAL,
+                created_at        REAL DEFAULT (strftime('%s', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS record_lineage (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_type       TEXT NOT NULL,
+                source_event      TEXT,
+                raw_payload_hash  TEXT,
+                parsed_record_id  INTEGER,
+                sync_task_id      TEXT,
+                timestamp         REAL,
+                branch_origin     TEXT DEFAULT 'v2'
+            );
+        """)
+        conn.commit()
+    logger.info("Schema v6 migration complete.")
+
+_CURRENT_SCHEMA_VERSION = 6
 _bootstrapped = False
 
 def _bootstrap():
@@ -2742,6 +2778,7 @@ def _bootstrap():
     if current_v < 3: migrate_schema_v3()
     if current_v < 4: migrate_schema_v4()
     if current_v < 5: migrate_schema_v5()
+    if current_v < 6: migrate_schema_v6()
 
     if current_v < _CURRENT_SCHEMA_VERSION:
         set_meta_cache("schema_version", _CURRENT_SCHEMA_VERSION)
@@ -2749,6 +2786,22 @@ def _bootstrap():
     _bootstrapped = True
 
 _bootstrap()
+
+def add_record_lineage(record_type: str, source_event: str = None, raw_payload: str = None, parsed_record_id: int = None, sync_task_id: str = None, branch_origin: str = 'v2'):
+    """Records data provenance and lineage graph entry."""
+    import hashlib
+    payload_hash = hashlib.sha256(str(raw_payload).encode('utf-8')).hexdigest()[:16] if raw_payload else None
+    with get_connection() as conn:
+        try:
+            conn.execute("""
+                INSERT INTO record_lineage (record_type, source_event, raw_payload_hash, parsed_record_id, sync_task_id, timestamp, branch_origin)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (record_type, source_event, payload_hash, parsed_record_id, sync_task_id, time.time(), branch_origin))
+            conn.commit()
+        except Exception as e:
+            logger.warning("Failed inserting lineage record: %s", e)
+
+
 
 def get_performance_archetypes(df_pivot, df_main, promo_target=None, is_even_sem=False, is_first_sem=False, promo_yr=None):
     """

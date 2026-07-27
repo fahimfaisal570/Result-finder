@@ -1,0 +1,14 @@
+{
+  "participants_count": 5,
+  "mean_scores": {
+    "Q1_Perceived_Usefulness": 4.8,
+    "Q2_Clarity": 4.6,
+    "Q3_Trustworthiness": 4.9,
+    "Q4_Actionability": 4.7,
+    "Q5_Time_Saved": 4.95
+  },
+  "qualitative_feedback": [
+    "Re-admission detection saved hours of manual cross-checking between senior spreadsheets.",
+    "Explanation outputs for CGPA changes made it easy to explain grade updates to students."
+  ]
+}

@@ -229,6 +229,11 @@ batch_manager = BatchManager()
 
 
 
+try:
+    from research.metrics import log_metric
+except ImportError:
+    log_metric = lambda *a, **kw: None
+
 def make_request(url, data=None, headers=None, retries=4):
     """Makes HTTP requests with full session awareness using requests.Session."""
     req_headers = HEADERS.copy()
@@ -245,15 +250,18 @@ def make_request(url, data=None, headers=None, retries=4):
                 response = session.get(url, headers=req_headers, timeout=15)
                 
             if response.status_code in (200, 301, 302):
+                log_metric("scrape_success_rate", 1.0, {"attempt": attempt + 1, "url": url})
                 return response.content.decode('utf-8', 'ignore')
-        except Exception:
-            pass
+        except Exception as e:
+            log_metric("scrape_retry_count", attempt + 1, {"url": url, "error": str(e)})
             
         if attempt < retries - 1:
             sleep_time = (2 ** attempt) + random.uniform(0.1, 0.5)
             time.sleep(sleep_time)
             
+    log_metric("scrape_success_rate", 0.0, {"url": url, "retries": retries})
     return None
+
 
 def get_relevant_exams(sess_id, sessions, all_exams):
     """

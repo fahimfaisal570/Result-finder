@@ -1,0 +1,22 @@
+{
+  "prediction_errors": {
+    "count": 0,
+    "threshold_exceeded_samples": []
+  },
+  "missed_readmissions": {
+    "count": 0,
+    "samples": []
+  },
+  "false_retake_detections": {
+    "count": 0,
+    "samples": []
+  },
+  "duplicate_db_records": {
+    "count": 0,
+    "samples": []
+  },
+  "parse_or_sync_failures": {
+    "count": 0,
+    "samples": []
+  }
+}
