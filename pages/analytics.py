@@ -1066,34 +1066,86 @@ with tabs[1]:
           dept = db.get_dept_from_profile(profile_name)
           sess_id = _p_data.get("sess_id", "AUTO")
           all_regs = df_longitudinal['reg_no'].unique()
-          all_rows = []
-          progress = st.progress(0, text="Fetching live data from portal...")
 
-          for i, reg in enumerate(all_regs):
-            stu_name = df_longitudinal[df_longitudinal['reg_no'] == reg].iloc[0]['name']
-            progress.progress((i + 1) / len(all_regs), text=f"Analyzing {stu_name} ({i+1}/{len(all_regs)})...")
-            result = _run_deep_analysis(reg, stu_name, sess_id)
-            if result and result.get('effective_grades'):
-              breakdown = db.compute_per_semester_breakdown(
-                result['effective_grades'], dept,
-                result['current_semester'],
-                official_records=result.get('official_semester_records')
-              )
-              for sem in breakdown:
-                all_rows.append({
-                  'reg_no': reg,
-                  'name': stu_name,
-                  'semester_num': sem['semester'],
-                  'semester_label': sem['label'],
-                  'gpa': sem['computed_gpa'],          # True / retake-adjusted GPA
-                  'official_gpa': sem['official_gpa'],  # Official portal GPA
-                })
-          progress.empty()
-          if all_rows:
-            st.session_state[cache_key] = pd.DataFrame(all_rows)
-            st.rerun()
+          # Fetch portal metadata once
+          _programs, _sessions = cs.fetch_programs_and_sessions()
+          _all_exams = cs.fetch_exams(_pro_id) if _pro_id else {}
+          if not _all_exams:
+            st.warning("Could not fetch exam list from portal.")
           else:
-            st.warning("No data could be fetched from portal.")
+            _filtered_eids = cs.get_relevant_exams(sess_id, _sessions, _all_exams)
+
+            # ponytail: batch ALL students × ALL exams into one engine call
+            # instead of N sequential _run_deep_analysis calls.
+            # 15 threads now process ~(students × exams) tasks concurrently.
+            batch_tasks = [
+              (int(reg), sess_id, eid)
+              for reg in all_regs
+              for eid in _filtered_eids
+            ]
+
+            progress = st.progress(0, text="Fetching live data from portal...")
+            def _update_progress(current, total, status_text=None):
+              frac = current / total if total > 0 else 0
+              progress.progress(frac, text=f"Portal scan: {current}/{total} requests...")
+
+            all_history = cs.run_batch_scan_engine(
+              tasks=batch_tasks,
+              pro_id=_pro_id,
+              exam_id="0",
+              all_sessions=_sessions,
+              progress_callback=_update_progress,
+              num_threads=15
+            )
+
+            # Attach exam names
+            for rec in all_history:
+              eid = rec.get('_exam_id')
+              if eid and eid in _all_exams:
+                rec['_exam_name'] = _all_exams[eid]
+
+            # Group results by student reg_no
+            from collections import defaultdict
+            student_records = defaultdict(list)
+            for rec in all_history:
+              sreg = rec.get('Registration No')
+              if sreg is not None:
+                student_records[int(sreg)].append(rec)
+
+            # Build name lookup
+            name_lookup = df_longitudinal.drop_duplicates('reg_no').set_index('reg_no')['name'].to_dict()
+
+            # Compute deep analysis per student
+            progress.progress(0.0, text="Computing deep analysis...")
+            all_rows = []
+            processed = 0
+            for reg, records in student_records.items():
+              result = db.compute_deep_analysis(records, profile_name, selected_label)
+              if result and result.get('effective_grades'):
+                breakdown = db.compute_per_semester_breakdown(
+                  result['effective_grades'], dept,
+                  result['current_semester'],
+                  official_records=result.get('official_semester_records')
+                )
+                stu_name = name_lookup.get(reg, 'Unknown')
+                for sem in breakdown:
+                  all_rows.append({
+                    'reg_no': reg,
+                    'name': stu_name,
+                    'semester_num': sem['semester'],
+                    'semester_label': sem['label'],
+                    'gpa': sem['computed_gpa'],
+                    'official_gpa': sem['official_gpa'],
+                  })
+              processed += 1
+              progress.progress(processed / len(student_records), text=f"Analysis: {processed}/{len(student_records)} students...")
+
+            progress.empty()
+            if all_rows:
+              st.session_state[cache_key] = pd.DataFrame(all_rows)
+              st.rerun()
+            else:
+              st.warning("No data could be fetched from portal.")
 
       # Render from cache
       if cache_key in st.session_state:
