@@ -1184,9 +1184,11 @@ with tabs[1]:
           return 1.0 if row['name'] == spotlight else 0.05
 
         def get_dyn_color(row):
-          if row['is_median']: return '#f59e0b'        # Gold for Class Median
-          if row['line_type'] == 'official': return '#f97316' # Orange for Official GPA
-          return '#ef4444' if row['name'] == spotlight else '#22c55e' # Red spotlight / Green True GPA
+          if row['is_median']:
+            return '#ef4444' if spotlight != 'None' else '#f59e0b'  # Red median when spotlight active, else gold
+          if row['line_type'] == 'official':
+            return '#9ca3af' if row['name'] == spotlight else '#f97316'  # Ashen for spotlight official, orange otherwise
+          return '#22c55e'  # True GPA always green
 
         def get_dyn_stroke_dash(row):
           if row['is_median']: return [5, 5]
@@ -1199,7 +1201,10 @@ with tabs[1]:
         chart_df['line_id'] = chart_df['reg_no'].astype(str) + '_' + chart_df['line_type']
         chart_df['strokeWidth'] = chart_df['is_median'].apply(lambda x: 3 if x else 1.5)
 
-        st.caption("**Class Median** (Gold Dashed)  ·  **True GPA** (Green Solid)  ·  **Official GPA** (Orange Dotted)  ·  **Spotlight Student** (Red)")
+        if spotlight != 'None':
+          st.caption("**Class Median** (Red Dashed)  ·  **True GPA** (Green Solid)  ·  **Official GPA** (Ash Dotted)  ·  Other students dimmed")
+        else:
+          st.caption("**Class Median** (Gold Dashed)  ·  **True GPA** (Green Solid)  ·  **Official GPA** (Orange Dotted)")
 
         traj_chart = alt.Chart(chart_df).mark_line(point=True).encode(
           x=alt.X('semester_num:O', title='Semester Index'),
