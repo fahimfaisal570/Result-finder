@@ -1051,105 +1051,272 @@ with tabs[1]:
   if df_longitudinal is None or df_longitudinal.empty:
     st.info("No longitudinal data available for this profile. Try scanning more semesters.")
   else:
-    # Section 3.1: Batch GPA Trajectory Chart
-    if max_semester:
-      st.caption(f"ℹ️ **Batch Progress Cap:** Showing data up to Semester {max_semester} (excluding future results of readmitted students)")
-    st.markdown("#### Batch GPA Trajectory")
-    
-    median_df = df_longitudinal.groupby('semester_num')['gpa'].median().reset_index()
-    median_df['name'] ='Batch Median'
-    median_df['reg_no'] = 0
-    median_df['is_median'] = True
-    
-    chart_df = df_longitudinal.copy()
-    chart_df['is_median'] = False
-    chart_df = pd.concat([chart_df, median_df], ignore_index=True)
-    
-    # Spotlight selector
-    student_list = ["None"] + sorted(df_longitudinal['name'].unique().tolist())
-    spotlight = st.selectbox("Spotlight Student:", student_list)
-    
-    # Determine opacity and color dynamically based on spotlight
-    def get_opacity(row):
-      if row['is_median']: return 1.0
-      if spotlight == "None": return 0.3
-      return 1.0 if row['name'] == spotlight else 0.05
-      
-    def get_color(row):
-      if row['is_median']: return'#ffffff'
-      return'#ef4444' if row['name'] == spotlight else'#3b82f6'
+    dynamic_mode = st.toggle("Dynamic (Live Portal)", key="trends_dynamic_mode")
 
-    def get_stroke_dash(row):
-      return [5, 5] if row['is_median'] else [0]
-      
-    chart_df['opacity'] = chart_df.apply(get_opacity, axis=1)
-    chart_df['color'] = chart_df.apply(get_color, axis=1)
-    chart_df['strokeDash'] = chart_df.apply(get_stroke_dash, axis=1)
+    if dynamic_mode:
+      # ── Dynamic Mode (Deep Analysis Live Fetch) ──────────────────────
+      cache_key = f"_trends_dynamic_{profile_name}"
 
-    traj_chart = alt.Chart(chart_df).mark_line(point=True).encode(
-      x=alt.X('semester_num:O', title='Semester Index'),
-      y=alt.Y('gpa:Q', title='GPA', scale=alt.Scale(domain=[1.5, 4.0], clamp=True)),
-      detail='reg_no:N',
-      color=alt.Color('color:N', scale=None),
-      opacity=alt.Opacity('opacity:Q', scale=None),
-      strokeDash=alt.StrokeDash('strokeDash:N', scale=None),
-      tooltip=['name','reg_no','semester_label','gpa']
-    ).properties(height=400)
-    
-    st.altair_chart(traj_chart, width='stretch')
-    
-    st.divider()
-
-    # Section 3.2: Student Trajectory Metrics Table
-    st.markdown("#### Student Trajectory Metrics")
-    
-    metrics = []
-    for reg, group in df_longitudinal.groupby('reg_no'):
-      if len(group) < 2:
-        metrics.append({
-         'reg_no': reg,'name': group.iloc[0]['name'],'peak': group['gpa'].max(),
-         'valley': group['gpa'].min(),'consistency': 1.0,'trajectory':'Stable'
-        })
-        continue
-        
-      sorted_group = group.sort_values('semester_num')
-      gpas = sorted_group['gpa'].tolist()
-      sem_nums = sorted_group['semester_num'].tolist()
-      peak = max(gpas)
-      valley = min(gpas)
-      consistency = max(0.0, 1.0 - float(np.std(gpas)))
-      
-      # Use actual sem_nums as independent variable for polyfit to prevent distortion
-      try:
-        if len(set(sem_nums)) >= 2:
-          slope, _ = np.polyfit(sem_nums, gpas, 1)
+      if st.button("Fetch Latest", key="trends_fetch_btn"):
+        _p_data = profiles.get(profile_name, {})
+        _pro_id = _p_data.get("pro_id", "")
+        if not _pro_id:
+          st.warning("Portal ID not configured for this profile. Use static mode.")
         else:
-          slope = 0.0
-      except Exception:
-        slope = 0.0
-      
-      if slope > 0.08:
-        traj = "Rising"
-      elif slope < -0.08:
-        traj = "Declining"
+          dept = db.get_dept_from_profile(profile_name)
+          sess_id = _p_data.get("sess_id", "AUTO")
+          all_regs = df_longitudinal['reg_no'].unique()
+          all_rows = []
+          progress = st.progress(0, text="Fetching live data from portal...")
+
+          for i, reg in enumerate(all_regs):
+            stu_name = df_longitudinal[df_longitudinal['reg_no'] == reg].iloc[0]['name']
+            progress.progress((i + 1) / len(all_regs), text=f"Analyzing {stu_name} ({i+1}/{len(all_regs)})...")
+            result = _run_deep_analysis(reg, stu_name, sess_id)
+            if result and result.get('effective_grades'):
+              breakdown = db.compute_per_semester_breakdown(
+                result['effective_grades'], dept,
+                result['current_semester'],
+                official_records=result.get('official_semester_records')
+              )
+              for sem in breakdown:
+                all_rows.append({
+                  'reg_no': reg,
+                  'name': stu_name,
+                  'semester_num': sem['semester'],
+                  'semester_label': sem['label'],
+                  'gpa': sem['computed_gpa'],          # True / retake-adjusted GPA
+                  'official_gpa': sem['official_gpa'],  # Official portal GPA
+                })
+          progress.empty()
+          if all_rows:
+            st.session_state[cache_key] = pd.DataFrame(all_rows)
+            st.rerun()
+          else:
+            st.warning("No data could be fetched from portal.")
+
+      # Render from cache
+      if cache_key in st.session_state:
+        df_dynamic = st.session_state[cache_key]
+        st.caption("**Dynamic Mode:** True GPA (retake-adjusted) vs Official GPA live from portal")
+
+        if max_semester:
+          st.caption(f"**Batch Progress Cap:** Showing data up to Semester {max_semester}")
+        st.markdown("#### Batch GPA Trajectory (Dynamic)")
+
+        # Prepare dual-line chart data: true GPA + official GPA per student
+        true_df = df_dynamic[['reg_no','name','semester_num','semester_label','gpa']].copy()
+        true_df['line_type'] = 'true'
+        true_df['is_median'] = False
+
+        off_df = df_dynamic[['reg_no','name','semester_num','semester_label','official_gpa']].copy()
+        off_df = off_df.rename(columns={'official_gpa': 'gpa'})
+        off_df['line_type'] = 'official'
+        off_df['is_median'] = False
+
+        # Compute median based on True GPA
+        median_df = true_df.groupby('semester_num')['gpa'].median().reset_index()
+        median_df['name'] = 'Batch Median'
+        median_df['reg_no'] = 0
+        median_df['is_median'] = True
+        median_df['line_type'] = 'median'
+
+        chart_df = pd.concat([true_df, off_df, median_df], ignore_index=True)
+
+        student_list = ["None"] + sorted(df_dynamic['name'].unique().tolist())
+        spotlight = st.selectbox("Spotlight Student:", student_list, key="dyn_spotlight")
+
+        def get_dyn_opacity(row):
+          if row['is_median']: return 1.0
+          if spotlight == "None": return 0.45
+          return 1.0 if row['name'] == spotlight else 0.05
+
+        def get_dyn_color(row):
+          if row['is_median']: return '#f59e0b'        # Gold for Class Median
+          if row['line_type'] == 'official': return '#f97316' # Orange for Official GPA
+          return '#ef4444' if row['name'] == spotlight else '#22c55e' # Red spotlight / Green True GPA
+
+        def get_dyn_stroke_dash(row):
+          if row['is_median']: return [5, 5]
+          if row['line_type'] == 'official': return [2, 4]
+          return [0]
+
+        chart_df['opacity'] = chart_df.apply(get_dyn_opacity, axis=1)
+        chart_df['color'] = chart_df.apply(get_dyn_color, axis=1)
+        chart_df['strokeDash'] = chart_df.apply(get_dyn_stroke_dash, axis=1)
+        chart_df['line_id'] = chart_df['reg_no'].astype(str) + '_' + chart_df['line_type']
+        chart_df['strokeWidth'] = chart_df['is_median'].apply(lambda x: 3 if x else 1.5)
+
+        st.caption("**Class Median** (Gold Dashed)  ·  **True GPA** (Green Solid)  ·  **Official GPA** (Orange Dotted)  ·  **Spotlight Student** (Red)")
+
+        traj_chart = alt.Chart(chart_df).mark_line(point=True).encode(
+          x=alt.X('semester_num:O', title='Semester Index'),
+          y=alt.Y('gpa:Q', title='GPA', scale=alt.Scale(domain=[1.5, 4.0], clamp=True)),
+          detail='line_id:N',
+          color=alt.Color('color:N', scale=None),
+          opacity=alt.Opacity('opacity:Q', scale=None),
+          strokeDash=alt.StrokeDash('strokeDash:N', scale=None),
+          strokeWidth=alt.StrokeWidth('strokeWidth:Q', scale=None),
+          tooltip=['name','reg_no','semester_label','gpa','line_type']
+        ).properties(height=400)
+
+        st.altair_chart(traj_chart, width='stretch')
+
+        st.divider()
+
+        # Dynamic Metrics Table (using True GPA)
+        st.markdown("#### Student Trajectory Metrics (True GPA)")
+        
+        metrics = []
+        for reg, group in df_dynamic.groupby('reg_no'):
+          if len(group) < 2:
+            metrics.append({
+             'reg_no': reg, 'name': group.iloc[0]['name'], 'peak': group['gpa'].max(),
+             'valley': group['gpa'].min(), 'consistency': 1.0, 'trajectory': 'Stable'
+            })
+            continue
+            
+          sorted_group = group.sort_values('semester_num')
+          gpas = sorted_group['gpa'].tolist()
+          sem_nums = sorted_group['semester_num'].tolist()
+          peak = max(gpas)
+          valley = min(gpas)
+          consistency = max(0.0, 1.0 - float(np.std(gpas)))
+          
+          try:
+            if len(set(sem_nums)) >= 2:
+              slope, _ = np.polyfit(sem_nums, gpas, 1)
+            else:
+              slope = 0.0
+          except Exception:
+            slope = 0.0
+          
+          if slope > 0.08:
+            traj = "Rising"
+          elif slope < -0.08:
+            traj = "Declining"
+          else:
+            valley_idx = gpas.index(valley)
+            if 0 < valley_idx < len(gpas) - 1:
+              if gpas[0] - valley > 0.2 and gpas[-1] - valley > 0.2:
+                traj = "Recovery (V-shape)"
+              else:
+                traj = "Stable"
+            else:
+              traj = "Stable"
+              
+          metrics.append({
+           'reg_no': reg, 'name': sorted_group.iloc[0]['name'], 'peak': round(peak, 2),
+           'valley': round(valley, 2), 'consistency': round(consistency, 2),
+           'trajectory': traj
+          })
+          
+        metrics_df = pd.DataFrame(metrics).sort_values('consistency', ascending=False)
+        st.dataframe(metrics_df, hide_index=True, width='stretch')
       else:
-        valley_idx = gpas.index(valley)
-        if 0 < valley_idx < len(gpas) - 1:
-          if gpas[0] - valley > 0.2 and gpas[-1] - valley > 0.2:
-            traj = "Recovery (V-shape)"
+        st.info("Click 'Fetch Latest' to perform deep analysis and load live portal data for all students.")
+
+    else:
+      # ── Static Mode (Database Cached Results) ────────────────────────
+      if max_semester:
+        st.caption(f"**Batch Progress Cap:** Showing data up to Semester {max_semester} (excluding future results of readmitted students)")
+      st.markdown("#### Batch GPA Trajectory (Static)")
+      
+      median_df = df_longitudinal.groupby('semester_num')['gpa'].median().reset_index()
+      median_df['name'] = 'Batch Median'
+      median_df['reg_no'] = 0
+      median_df['is_median'] = True
+      
+      chart_df = df_longitudinal.copy()
+      chart_df['is_median'] = False
+      chart_df = pd.concat([chart_df, median_df], ignore_index=True)
+      
+      student_list = ["None"] + sorted(df_longitudinal['name'].unique().tolist())
+      spotlight = st.selectbox("Spotlight Student:", student_list)
+      
+      def get_opacity(row):
+        if row['is_median']: return 1.0
+        if spotlight == "None": return 0.35
+        return 1.0 if row['name'] == spotlight else 0.05
+        
+      def get_color(row):
+        if row['is_median']: return '#f59e0b'        # Gold for Class Median
+        return '#ef4444' if row['name'] == spotlight else '#6366f1' # Red spotlight / Indigo students
+
+      def get_stroke_dash(row):
+        return [5, 5] if row['is_median'] else [0]
+        
+      chart_df['opacity'] = chart_df.apply(get_opacity, axis=1)
+      chart_df['color'] = chart_df.apply(get_color, axis=1)
+      chart_df['strokeDash'] = chart_df.apply(get_stroke_dash, axis=1)
+      chart_df['strokeWidth'] = chart_df['is_median'].apply(lambda x: 3 if x else 1.5)
+
+      st.caption("**Class Median** (Gold Dashed)  ·  **Student Lines** (Indigo Solid)  ·  **Spotlight Student** (Red Solid)")
+
+      traj_chart = alt.Chart(chart_df).mark_line(point=True).encode(
+        x=alt.X('semester_num:O', title='Semester Index'),
+        y=alt.Y('gpa:Q', title='GPA', scale=alt.Scale(domain=[1.5, 4.0], clamp=True)),
+        detail='reg_no:N',
+        color=alt.Color('color:N', scale=None),
+        opacity=alt.Opacity('opacity:Q', scale=None),
+        strokeDash=alt.StrokeDash('strokeDash:N', scale=None),
+        strokeWidth=alt.StrokeWidth('strokeWidth:Q', scale=None),
+        tooltip=['name','reg_no','semester_label','gpa']
+      ).properties(height=400)
+      
+      st.altair_chart(traj_chart, width='stretch')
+      
+      st.divider()
+
+      # Section 3.2: Student Trajectory Metrics Table
+      st.markdown("#### Student Trajectory Metrics")
+      
+      metrics = []
+      for reg, group in df_longitudinal.groupby('reg_no'):
+        if len(group) < 2:
+          metrics.append({
+           'reg_no': reg,'name': group.iloc[0]['name'],'peak': group['gpa'].max(),
+           'valley': group['gpa'].min(),'consistency': 1.0,'trajectory':'Stable'
+          })
+          continue
+          
+        sorted_group = group.sort_values('semester_num')
+        gpas = sorted_group['gpa'].tolist()
+        sem_nums = sorted_group['semester_num'].tolist()
+        peak = max(gpas)
+        valley = min(gpas)
+        consistency = max(0.0, 1.0 - float(np.std(gpas)))
+        
+        try:
+          if len(set(sem_nums)) >= 2:
+            slope, _ = np.polyfit(sem_nums, gpas, 1)
+          else:
+            slope = 0.0
+        except Exception:
+          slope = 0.0
+        
+        if slope > 0.08:
+          traj = "Rising"
+        elif slope < -0.08:
+          traj = "Declining"
+        else:
+          valley_idx = gpas.index(valley)
+          if 0 < valley_idx < len(gpas) - 1:
+            if gpas[0] - valley > 0.2 and gpas[-1] - valley > 0.2:
+              traj = "Recovery (V-shape)"
+            else:
+              traj = "Stable"
           else:
             traj = "Stable"
-        else:
-          traj = "Stable"
-          
-      metrics.append({
-       'reg_no': reg,'name': sorted_group.iloc[0]['name'],'peak': round(peak, 2),
-       'valley': round(valley, 2),'consistency': round(consistency, 2),
-       'trajectory': traj
-      })
-      
-    metrics_df = pd.DataFrame(metrics).sort_values('consistency', ascending=False)
-    st.dataframe(metrics_df, hide_index=True, width='stretch')
+            
+        metrics.append({
+         'reg_no': reg,'name': sorted_group.iloc[0]['name'],'peak': round(peak, 2),
+         'valley': round(valley, 2),'consistency': round(consistency, 2),
+         'trajectory': traj
+        })
+        
+      metrics_df = pd.DataFrame(metrics).sort_values('consistency', ascending=False)
+      st.dataframe(metrics_df, hide_index=True, width='stretch')
 
 
 

@@ -1,12 +1,12 @@
-# Code Rabbit Senior Review Report
+# Code Rabbit Review Report
 **Author:** Senior Review Agent (Code Rabbit Superpower)
-**Target Branch / Commit:** `v2` / Research Infrastructure Layer
+**Target Branch / Commit:** `main` / `feat-trends-dynamic-toggle`
 
 ## Severity Breakdown
 - 🔴 **Critical**: 0
 - 🟡 **Major**: 0
 - 🟢 **Minor**: 0
-- 🔵 **Style/Info**: 2
+- 🔵 **Style/Info**: 1
 
 ## Findings
 
@@ -20,7 +20,12 @@
 *None.*
 
 ### 🔵 Style/Info
-- **File:** `research/run_experiments.py`
-  - **Note:** Matplotlib uses non-interactive `Agg` backend to avoid GUI window popups during automated headless execution.
-- **File:** `database.py`
-  - **Note:** Schema version bumped from v5 to v6 with backward compatibility checks for `research_records` and `record_lineage` tables.
+- **File:** `pages/analytics.py` (L1054-L1240)
+  - **Issue:** Multi-threaded deep analysis portal requests (`_run_deep_analysis`) take ~30–90 seconds for large cohorts.
+  - **Recommendation:** Cached in Streamlit `session_state` (`_trends_dynamic_{profile_name}`) so live scans only run on explicit user action ("Fetch Latest" button click).
+
+---
+## Verification Summary
+- **Syntax**: `py_compile` clean.
+- **Color System**: Class median `#f59e0b` (gold, dashed, 3px width) clearly distinguishable from student lines (`#6366f1` static / `#22c55e` true GPA / `#f97316` official GPA).
+- **Code Reuse**: Reuses pre-existing `_run_deep_analysis` and `db.compute_per_semester_breakdown`.
