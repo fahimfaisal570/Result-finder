@@ -92,8 +92,18 @@ with tab2:
     if os.path.exists(abl_file):
         with open(abl_file, "r", encoding="utf-8") as f:
             abl_data = json.load(f)
-        abl_df = pd.DataFrame.from_dict(abl_data, orient="index").fillna("-")
-        st.dataframe(abl_df, use_container_width=True)
+        abl_df = pd.DataFrame.from_dict(abl_data, orient="index")
+        
+        # Clean PyArrow string conversion to prevent ArrowInvalid double conversion errors & blank spaces
+        def _fmt(v):
+            if v is None or pd.isna(v) or v == "-":
+                return "N/A"
+            if isinstance(v, (int, float)):
+                return f"{v:.4f}"
+            return str(v)
+
+        formatted_df = abl_df.map(_fmt)
+        st.dataframe(formatted_df, use_container_width=True)
 
 # --- TAB 3: TEMPORAL ANALYTICS ---
 with tab3:
