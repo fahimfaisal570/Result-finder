@@ -14,19 +14,39 @@ from email.mime.application import MIMEApplication
 # multi-department parallel workflow runs, so all writes must be serialised.
 _file_write_lock = threading.Lock()
 
-# Dynamic Scraper Jitter Monkeypatch for Workflow Performance (Wave 10 Alignment)
-import random
-_orig_uniform = random.uniform
-def _workflow_uniform(a, b):
-    # Scale down safety & jitter delays <= 1.0s by 85% to accelerate automated monitor scans
-    if b <= 1.0:
-        return _orig_uniform(a * 0.15, b * 0.15)
-    return _orig_uniform(a, b)
-random.uniform = _workflow_uniform
+import contextlib
+import time
 
-# Add parent dir to path to import cli_scraper
+# Cross-process and cross-thread atomic directory lock to prevent JSON state corruption.
+# Standard library, zero-dependency, and safe across Windows/Linux OS boundaries.
+@contextlib.contextmanager
+def file_process_lock(lock_path, timeout=30):
+    lock_dir = lock_path + ".lock"
+    start_time = time.time()
+    while True:
+        try:
+            os.mkdir(lock_dir)
+            break
+        except FileExistsError:
+            if time.time() - start_time > timeout:
+                print(f"Lock acquisition timed out for {lock_path}. Proceeding with fallback to avoid blockages...")
+                break
+            time.sleep(0.2)
+    try:
+        yield
+    finally:
+        try:
+            if os.path.exists(lock_dir):
+                os.rmdir(lock_dir)
+        except OSError:
+            pass
+
+
+
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cli_scraper as cs
+import database as db
 
 # Department mapping to Github Secrets for Email Routing
 DEPT_EMAIL_SECRETS = {
@@ -41,16 +61,19 @@ def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
     if not exam_id: 
         return None, None
         
+    profiles = {}
     profiles_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "saved_profiles.json")
-    if not os.path.exists(profiles_path):
-        print("saved_profiles.json not found")
-        return None, None
-        
-    try:
-        with open(profiles_path, "r") as f:
-            profiles = json.load(f)
-    except Exception as e:
-        print(f"Error loading profiles: {e}")
+    if os.path.exists(profiles_path):
+        try:
+            with open(profiles_path, "r") as f:
+                profiles = json.load(f)
+        except Exception as e:
+            print(f"Error reading saved_profiles.json: {e}")
+            profiles = {}
+    if not profiles:
+        profiles = db.get_profiles()
+    if not profiles:
+        print("No profiles found in saved_profiles.json or database.")
         return None, None
 
     # Gather matching profiles
@@ -80,6 +103,7 @@ def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
             else:
                 std_regs.append(str(r))
                 
+        samples = []
         if std_regs:
             step = max(1, len(std_regs) // 5)
             samples = std_regs[::step][:5]
@@ -190,7 +214,7 @@ def _get_senior_profiles_json(profiles, profile_name):
     return senior
 
 
-def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_results):
+def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_results, should_save=True):
     """
     Readd detection using subject-overlap fingerprinting.
     Scans senior batch students against the exam. A student is a genuine readd
@@ -279,11 +303,15 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
         reg = r.get('Registration No', r.get('Reg', '?'))
         name = r.get('Name', 'Unknown')
 
-        if overlap_ratio >= 0.5:
+        candidate_subject_count = len(candidate_codes)
+        reference_subject_count = len(reference_codes)
+        subject_load_ratio = candidate_subject_count / reference_subject_count if reference_subject_count else 0
+
+        if overlap_ratio >= 0.5 and subject_load_ratio >= 0.7:
             filtered_readds.append(r)
             print(f"    [READD] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%})")
         else:
-            print(f"    [GHOST] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%}) -> skipped")
+            print(f"    [IMPROVEMENT GUEST / GHOST] {name} ({reg}) - {candidate_subject_count}/{reference_subject_count} subjects ({subject_load_ratio:.0%} load), {overlap_ratio:.0%} overlap -> skipped")
 
     if not filtered_readds:
         print("  [Readd] No genuine readd students detected after subject-overlap filter.")
@@ -300,18 +328,19 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
         profiles[profile_name].setdefault("regs", []).append([reg, sess_id, name])
         readd_info.append({'reg_no': reg, 'name': name, 'source': source})
 
-    profiles_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "saved_profiles.json"
-    )
-    try:
-        # Serialise the write so concurrent department runs cannot clobber each other.
-        with _file_write_lock:
-            with open(profiles_path, "w") as f:
-                json.dump(profiles, f, indent=2)
-        print(f"  [Readd] Persisted {len(readd_info)} readd(s) to saved_profiles.json.")
-    except Exception as e:
-        print(f"  [Readd] WARNING: Failed to persist readds: {e}")
+    if should_save:
+        profiles_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "saved_profiles.json"
+        )
+        try:
+            # Serialise the write using process-safe directory lock
+            with file_process_lock(profiles_path):
+                with open(profiles_path, "w") as f:
+                    json.dump(profiles, f, indent=2)
+            print(f"  [Readd] Persisted {len(readd_info)} readd(s) to saved_profiles.json.")
+        except Exception as e:
+            print(f"  [Readd] WARNING: Failed to persist readds: {e}")
 
     return filtered_readds, readd_info
 
@@ -361,20 +390,38 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     
     print(f"Filtered to {len(results)} participating students.")
 
-    # --- Readd Detection Phase (Subject-Overlap Fingerprinting) ---
+    # --- Readd Detection Phase (Subject-Overlap Fingerprinting) & Promotion ---
+    all_profiles = {}
     profiles_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "saved_profiles.json"
     )
-    with open(profiles_path, "r") as f:
-        all_profiles = json.load(f)
-        
+    if os.path.exists(profiles_path):
+        try:
+            with open(profiles_path, "r") as f:
+                all_profiles = json.load(f)
+        except Exception:
+            all_profiles = {}
+    if not all_profiles:
+        all_profiles = db.get_profiles()
+
     readd_results, readd_info = detect_readds_main_branch(
-        all_profiles, profile_name, pro_id, exam_id, results
+        all_profiles, profile_name, pro_id, exam_id, results, should_save=bool(os.path.exists(profiles_path))
     )
     if readd_results:
         results.extend(readd_results)
         print(f"  [Readd] {len(readd_results)} readd student(s) merged into report.")
+
+    if all_profiles.get(profile_name, {}).get("is_provisional"):
+        db.promote_provisional_profile(profile_name)
+        if os.path.exists(profiles_path):
+            all_profiles[profile_name]["is_provisional"] = False
+            try:
+                with open(profiles_path, "w") as f:
+                    json.dump(all_profiles, f, indent=2)
+            except Exception as e:
+                print(f"  [Promotion] WARNING: Failed to update saved_profiles.json: {e}")
+        print(f"  [Promotion] '{profile_name}' promoted from provisional to full.")
 
     print("Generating Printable Thesis HTML format...")
     # Inject profile_name into title so it appears nicely in the central PDF rendering engine
@@ -405,7 +452,8 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name)
     
     # --- ADDED FOR V2 SYNC CROSS-BRANCH WORKFLOW ---
-    sync_file = "v2_sync_tasks.json"
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sync_file = os.path.join(repo_root, "v2_sync_tasks.json")
     task_data = {
         "pro_id": pro_id,
         "exam_id": exam_id,
@@ -416,7 +464,7 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     try:
         # Serialise the read-modify-write so parallel department workflow jobs
         # cannot interleave and produce a truncated or duplicate sync task list.
-        with _file_write_lock:
+        with file_process_lock(sync_file):
             existing_tasks = []
             if os.path.exists(sync_file):
                 with open(sync_file, "r") as f:
@@ -433,5 +481,4 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
 
 if __name__ == "__main__":
     # Internal Test execution 
-    pass
-# Force trigger - Clean version v2
+    pass
