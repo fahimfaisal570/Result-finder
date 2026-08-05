@@ -1895,7 +1895,16 @@ def generate_pdf_from_html(html_str):
             from weasyprint import HTML
             return HTML(string=html_with_page).write_pdf()
         except Exception as e2:
-            raise RuntimeError("PDF engine unavailable. Please install wkhtmltopdf or weasyprint.")
+            try:
+                from io import BytesIO
+                from xhtml2pdf import pisa
+                result_buf = BytesIO()
+                pdf_status = pisa.pisaDocument(BytesIO(html_with_page.encode("utf-8")), result_buf)
+                if not pdf_status.err:
+                    return result_buf.getvalue()
+                raise RuntimeError(f"xhtml2pdf error code: {pdf_status.err}")
+            except Exception as e3:
+                raise RuntimeError("PDF engine unavailable. Please install wkhtmltopdf, weasyprint, or xhtml2pdf.")
 
 
 def generate_transcript_report(records, title, name, return_html=False):

@@ -1,0 +1,6 @@
+wkhtmltopdf
+libpango-1.0-0
+libpangocairo-1.0-0
+libcairo2
+libgobject-2.0-0
+libffi-dev
