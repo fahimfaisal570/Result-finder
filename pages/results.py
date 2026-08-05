@@ -204,12 +204,22 @@ else:
     progress_bar.empty()
     status_msg.empty()
 
-    if not results:
-        st.warning("No results found. The portal might be busy or the session expired. Try again or check the CLI.")
-        st.stop()
+    # Detect if this is a retake/improvement/special exam
+    _ename_lower = exam_name.lower()
+    is_retake_exam = any(kw in _ename_lower for kw in [
+        "retake", "improvement", "clearance", "special", "backlog", "junior"
+    ])
 
-    html_out = cs.generate_html_report(results, exam_name, pro_id=pro_id, sess_id=sess_id)
-    st.html(html_out)
+    if is_retake_exam:
+        # --- Retake/Improvement Exam: transcript-style per-student output ---
+        html_out = cs.generate_retake_report(results or [], exam_name, return_html=True)
+        st.html(html_out)
+    else:
+        if not results:
+            st.warning("No results found. The portal might be busy or the session expired. Try again or check the CLI.")
+            st.stop()
+        html_out = cs.generate_html_report(results, exam_name, pro_id=pro_id, sess_id=sess_id)
+        st.html(html_out)
 
     if results:
         st.divider()
@@ -244,12 +254,27 @@ else:
                         except Exception as e:
                             st.error(f"Failed to save profile: {e}")
 
-    st.download_button(
-        label="Download CLI Results HTML",
-        data=html_out.encode("utf-8"),
-        file_name=f"Results_{profile_name.replace(' ','_')}_{exam_id}.html",
-        mime="text/html",
-        width='stretch'
-    )
+    # --- Download Buttons (Side by Side) ---
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        st.download_button(
+            label="Download CLI Results HTML",
+            data=html_out.encode("utf-8"),
+            file_name=f"Results_{profile_name.replace(' ','_')}_{exam_id}.html",
+            mime="text/html",
+            width='stretch'
+        )
+    with col_dl2:
+        try:
+            pdf_bytes = cs.generate_pdf_from_html(html_out)
+            st.download_button(
+                label="Download CLI Results PDF",
+                data=pdf_bytes,
+                file_name=f"Results_{profile_name.replace(' ','_')}_{exam_id}.pdf",
+                mime="application/pdf",
+                width='stretch'
+            )
+        except Exception as pe:
+            st.error(f"PDF generation failed: {pe}")
 
 ui.add_contact_section()

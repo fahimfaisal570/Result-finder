@@ -1668,12 +1668,225 @@ def parse_exam_semester_sort_key(record):
     abs_sem = (yr - 1) * 2 + sem if (yr > 0 and sem > 0) else 99
     is_extra = 1 if any(kw in ename_lower for kw in ["retake", "improvement", "clearance", "special", "backlog", "junior"]) else 0
     
+    raw_eid = record.get('_exam_id')
     try:
-        eid = int(record.get('_exam_id', 0))
+        eid = int(raw_eid) if raw_eid is not None else 0
     except (ValueError, TypeError):
         eid = 0
         
     return (abs_sem, is_extra, eid, ename_lower)
+
+
+def generate_retake_report(results, exam_name, return_html=False):
+    """
+    Renders a retake/improvement/special exam in per-student transcript style
+    (same CSS as generate_transcript_report). Each student gets their own section.
+    Shows 'No participants' message when results list is empty.
+    """
+    import datetime
+    bd_time = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
+    timestamp_str = bd_time.strftime("%Y-%m-%d %H:%M:%S")
+
+    css = """
+    #cli-retake-root {
+        background-color: transparent !important;
+        color: #000000 !important;
+        font-family: 'Times New Roman', Times, 'Georgia', serif !important;
+        line-height: 1.5 !important;
+        margin: 0 !important;
+        padding: 10px 0 !important;
+    }
+    #cli-retake-root .container { max-width: 920px !important; margin: 0 auto !important; }
+    #cli-retake-root .report-block {
+        background: #ffffff !important;
+        color: #000000 !important;
+        padding: 30px 35px !important;
+        border-radius: 0px !important;
+        margin-bottom: 30px !important;
+        border: 1px solid #000000 !important;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25) !important;
+        display: block !important;
+        box-sizing: border-box !important;
+    }
+    #cli-retake-root .title-section {
+        text-align: center !important;
+        margin-bottom: 22px !important;
+        border-bottom: 2px solid #000000 !important;
+        padding-bottom: 14px !important;
+    }
+    #cli-retake-root h1 {
+        color: #000000 !important;
+        font-size: 24px !important;
+        font-weight: 800 !important;
+        margin: 0 0 4px 0 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1.5px !important;
+        font-family: 'Times New Roman', serif !important;
+    }
+    #cli-retake-root .summary-text {
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: #333333 !important;
+        letter-spacing: 0.5px !important;
+    }
+    #cli-retake-root h2 {
+        color: #000000 !important;
+        font-size: 17px !important;
+        font-weight: 700 !important;
+        margin: 22px 0 8px 0 !important;
+        border-left: 5px solid #000000 !important;
+        padding-left: 12px !important;
+        font-family: 'Times New Roman', serif !important;
+    }
+    #cli-retake-root .no-participants {
+        text-align: center !important;
+        font-size: 15px !important;
+        color: #555555 !important;
+        font-style: italic !important;
+        padding: 30px 0 !important;
+    }
+    #cli-retake-root table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 13.5px !important;
+        margin-bottom: 8px !important;
+        background: #ffffff !important;
+        border: 1px solid #000000 !important;
+    }
+    #cli-retake-root th {
+        background: #f4f4f4 !important;
+        color: #000000 !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        text-transform: uppercase !important;
+        font-size: 12.5px !important;
+        letter-spacing: 0.8px !important;
+        padding: 8px 10px !important;
+        border: 1px solid #000000 !important;
+    }
+    #cli-retake-root td {
+        padding: 8px 10px !important;
+        text-align: left !important;
+        border: 1px solid #000000 !important;
+        color: #000000 !important;
+        background: #ffffff !important;
+    }
+    #cli-retake-root tr:nth-child(even) td { background: #fafafa !important; }
+    #cli-retake-root td.col-code {
+        font-weight: 700 !important;
+        color: #000000 !important;
+        font-family: 'Courier New', monospace !important;
+        font-size: 13px !important;
+        width: 120px !important;
+    }
+    #cli-retake-root td.col-grade {
+        font-weight: 700 !important;
+        color: #000000 !important;
+        width: 70px !important;
+        text-align: center !important;
+    }
+    #cli-retake-root td.col-gp {
+        font-weight: 700 !important;
+        color: #000000 !important;
+        width: 70px !important;
+        text-align: center !important;
+    }
+    #cli-retake-root .summary-row {
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        color: #000000 !important;
+        margin-top: 4px !important;
+        padding: 4px 0 14px 0 !important;
+    }
+    """
+
+    html = "<div id='cli-retake-root'><style>" + css + "</style><div class='container'><div class='report-block'>"
+    html += "<div class='title-section'>"
+    html += "<h1>Faridpur Engineering College</h1>"
+    html += "<span class='summary-text'>{}</span><br>".format(exam_name)
+    count_str = "No participants from this profile" if not results else "{} participant(s)".format(len(results))
+    html += "<span class='summary-text'>{} &nbsp;|&nbsp; Generated: {}</span>".format(count_str, timestamp_str)
+    html += "</div>"
+
+    if not results:
+        html += "<div class='no-participants'>No students from this profile participated in this examination.</div>"
+    else:
+        for r in sorted(results, key=lambda x: str(x.get('Name', ''))):
+            name = r.get('Name') or r.get('Student Name') or 'Unknown'
+            reg = r.get('Registration No') or r.get('Reg', '-')
+            html += "<h2>{} &nbsp;<span style='font-size:13px; font-weight:normal; font-style:italic;'>(Reg: {})</span></h2>".format(name, reg)
+            if r.get('Subjects'):
+                html += "<table><thead><tr>"
+                html += "<th style='width:120px; text-align:left;'>Course Code</th>"
+                html += "<th style='text-align:left;'>Course Title</th>"
+                html += "<th style='width:70px;'>Grade</th>"
+                html += "<th style='width:70px;'>GP</th>"
+                html += "</tr></thead><tbody>"
+                for s in r['Subjects']:
+                    html += "<tr><td class='col-code'>{}</td><td>{}</td><td class='col-grade'>{}</td><td class='col-gp'>{}</td></tr>".format(
+                        s.get('code', '-'), s.get('name', '-'), s.get('grade', '-'), s.get('gp', '-')
+                    )
+                html += "</tbody></table>"
+            overall = r.get('Overall Result', '-')
+            if overall and overall != '-':
+                html += "<div class='summary-row'>Result: <b>{}</b></div>".format(overall)
+
+    html += "</div></div></div>"
+    if return_html:
+        return html
+    return html
+
+
+def get_pdfkit_config():
+    import os
+    import pdfkit
+    possible_paths = [
+        r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe",
+        r"C:\Program Files (x86)\wkhtmltopdf\bin\wkhtmltopdf.exe",
+        r"C:\wkhtmltopdf\bin\wkhtmltopdf.exe"
+    ]
+    for p in possible_paths:
+        if os.path.exists(p):
+            try: return pdfkit.configuration(wkhtmltopdf=p)
+            except Exception: pass
+    return None
+
+def generate_pdf_from_html(html_str):
+    """
+    Converts HTML report string into PDF bytes via pdfkit (wkhtmltopdf).
+    Auto-detects wkhtmltopdf executable path on Windows and falls back to WeasyPrint if needed.
+    """
+    page_css = """<style>
+        @page { size: 230mm 5000mm; margin: 0mm; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    </style>"""
+    html_with_page = html_str.replace('</head>', page_css + '</head>', 1) if '</head>' in html_str else page_css + html_str
+
+    options = {
+        'page-height': '5000mm',
+        'page-width': '230mm',
+        'margin-top': '0mm',
+        'margin-right': '0mm',
+        'margin-bottom': '0mm',
+        'margin-left': '0mm',
+        'encoding': 'UTF-8',
+        'enable-local-file-access': None,
+        'quiet': ''
+    }
+
+    try:
+        import pdfkit
+        config = get_pdfkit_config()
+        if config:
+            return pdfkit.from_string(html_with_page, False, options=options, configuration=config)
+        else:
+            return pdfkit.from_string(html_with_page, False, options=options)
+    except Exception as e1:
+        try:
+            from weasyprint import HTML
+            return HTML(string=html_with_page).write_pdf()
+        except Exception as e2:
+            raise RuntimeError("PDF engine unavailable. Please install wkhtmltopdf or weasyprint.")
 
 
 def generate_transcript_report(records, title, name, return_html=False):

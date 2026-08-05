@@ -131,12 +131,27 @@ except Exception as e:
 # --- Render inline report ---
 st.html(html_out)
 
-# --- Download Button ---
-st.download_button(
-    label="Download Student Record HTML",
-    data=html_out.encode("utf-8"),
-    file_name=f"Student_Record_{student_name.replace(' ', '_')}_{st_reg}.html",
-    mime="text/html"
-)
+# --- Download Buttons (Side by Side) ---
+col_dl1, col_dl2 = st.columns(2)
+with col_dl1:
+    st.download_button(
+        label="Download Student Record HTML",
+        data=html_out.encode("utf-8"),
+        file_name=f"Student_Record_{student_name.replace(' ', '_')}_{st_reg}.html",
+        mime="text/html",
+        width='stretch'
+    )
+with col_dl2:
+    try:
+        pdf_bytes = cs.generate_pdf_from_html(html_out)
+        st.download_button(
+            label="Download Student Record PDF",
+            data=pdf_bytes,
+            file_name=f"Student_Record_{student_name.replace(' ', '_')}_{st_reg}.pdf",
+            mime="application/pdf",
+            width='stretch'
+        )
+    except Exception as pe:
+        st.error(f"PDF generation failed: {pe}")
 
 ui.add_contact_section()
