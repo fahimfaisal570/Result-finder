@@ -118,7 +118,7 @@ for res in history:
     if eid and eid in all_exams:
         res['_exam_name'] = all_exams[eid]
 
-history.sort(key=lambda x: str(x.get('_exam_name', '')), reverse=False)
+history.sort(key=cs.parse_exam_semester_sort_key)
 student_name = history[0].get("Name") or history[0].get("Student Name") or f"Student {st_reg}"
 
 # --- Generate Native CLI HTML Transcript ---

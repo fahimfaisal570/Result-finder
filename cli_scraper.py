@@ -105,8 +105,8 @@ def warm_connection_pool(num_connections=6):
 global_backoff_until = 0
 
 # Compiled regular expressions for robust, zero-dependency HTML parsing
-PAT_PUB_DATE_1 = re.compile(r"Publication\s*Date.*?(\d{2}-\d{2}-\d{4})", re.I | re.S)
-PAT_PUB_DATE_2 = re.compile(r"Date\s*of\s*Publication.*?(\d{2}-\d{2}-\d{4})", re.I | re.S)
+PAT_PUB_DATE_1 = re.compile(r"(?:Publication\s*Date|Date\s*of\s*Publication|Result\s*Publish(?:ed)?(?:\s*Date)?|Published\s*(?:On|Date)?)[^\d]*?(\d{2}[-/\.]\d{2}[-/\.]\d{4}|\d{4}[-/\.]\d{2}[-/\.]\d{2})", re.I | re.S)
+PAT_PUB_DATE_2 = re.compile(r"(?:Date|Published)[^\d]*?(\d{2}[-/\.]\d{2}[-/\.]\d{4}|\d{4}[-/\.]\d{2}[-/\.]\d{2})", re.I | re.S)
 PAT_STUDENT_NAME = re.compile(r"(?:Student\'?s?\s*)?\bName\b(?!.*College).*?<td[^>]*>\s*(.*?)\s*</td>", re.I | re.S)
 PAT_STUDENT_NAME_FB = re.compile(r"(?:Student\'?s?\s+)?Name\s*[:\-]?\s*<[^>]+>\s*([^<]+)", re.I)
 PAT_GPA_CGPA = re.compile(r'(?:C\.?G\.?P\.?A\.?|G\.?P\.?A\.?|S\.?G\.?P\.?A\.?|Y\.?G\.?P\.?A\.?)[^\d]*([\d\.]+)', re.I)
@@ -601,38 +601,45 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
     valid_cgpa_results.sort(key=lambda x: x[0], reverse=True)
     css = """
     <style>
-        body { 
-            font-family: 'Times New Roman', Times, serif; 
-            background-color: #fff; color: #000; line-height: 1.5; margin: 0; padding: 20px 10px;
+        #cli-report-root { 
+            background-color: transparent !important;
+            color: #000000 !important;
+            font-family: 'Times New Roman', Times, 'Georgia', serif !important;
+            line-height: 1.5 !important;
+            margin: 0 !important;
+            padding: 10px 0 !important;
         }
-        #cli-report-root .container { max-width: 900px; margin: 0 auto; }
+        #cli-report-root .container { max-width: 920px !important; margin: 0 auto !important; }
         #cli-report-root .report-block { 
-            background: #fff; padding: 25px; border-radius: 0; margin-bottom: 40px;
-            border: 1px solid #000;
-            display: block;
-            box-sizing: border-box;
-            page-break-inside: avoid;
+            background: #ffffff !important;
+            color: #000000 !important;
+            padding: 30px 35px !important;
+            border-radius: 0px !important;
+            margin-bottom: 30px !important;
+            border: 1px solid #000000 !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25) !important;
+            display: block !important;
+            box-sizing: border-box !important;
         }
-        #cli-report-root .title-section { text-align: center; margin-bottom: 25px; border-bottom: 2px solid #000; padding-bottom: 15px; }
-        #cli-report-root h1 { color: #000; font-size: 26px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 1px; }
+        #cli-report-root .title-section { text-align: center !important; margin-bottom: 22px !important; border-bottom: 2px solid #000000 !important; padding-bottom: 14px !important; }
+        #cli-report-root h1 { color: #000000 !important; font-size: 24px !important; font-weight: 800 !important; margin: 0 0 4px 0 !important; text-transform: uppercase !important; letter-spacing: 1.5px !important; font-family: 'Times New Roman', serif !important; }
         #cli-report-root h2 { 
-            color: #000; font-size: 20px; margin: 20px 0 10px 0; font-weight: bold; 
-            border-left: 5px solid #000; padding-left: 12px;
-            page-break-after: avoid;
+            color: #000000 !important; font-size: 18px !important; font-weight: 700 !important; margin: 18px 0 10px 0 !important; 
+            border-left: 5px solid #000000 !important; padding-left: 12px !important; font-family: 'Times New Roman', serif !important;
         }
-        #cli-report-root .summary-text { font-size: 15px; font-weight: bold; color: #333; }
-        #cli-report-root .table-container { overflow-x: visible; margin-top: 15px; page-break-inside: avoid; }
-        #cli-report-root table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px; table-layout: auto; }
-        #cli-report-root tr { page-break-inside: avoid; }
-        #cli-report-root th { background: #f4f4f4; color: #000; font-weight: bold; text-align: center; text-transform: uppercase; font-size: 13px; }
-        #cli-report-root th, #cli-report-root td { padding: 8px 10px; text-align: left; border: 1px solid #000; }
-        #cli-report-root td.center { text-align: center; }
-        #cli-report-root .col-sl { width: 45px; text-align: center; }
-        #cli-report-root .col-reg { width: 90px; text-align: center; }
-        #cli-report-root .col-res { width: 90px; text-align: center; }
-        #cli-report-root .col-gpa, #cli-report-root .col-cgpa { width: 60px; text-align: center; }
-        #cli-report-root .data-bold { font-weight: bold; }
-        #cli-report-root .award-text { font-weight: bold; font-style: italic; }
+        #cli-report-root .summary-text { font-size: 13px !important; font-weight: 600 !important; color: #333333 !important; letter-spacing: 0.5px !important; }
+        #cli-report-root .table-container { overflow-x: auto !important; margin-top: 12px !important; }
+        #cli-report-root table { width: 100% !important; border-collapse: collapse !important; font-size: 13.5px !important; margin-bottom: 18px !important; background: #ffffff !important; border: 1px solid #000000 !important; }
+        #cli-report-root th { background: #f4f4f4 !important; color: #000000 !important; font-weight: 700 !important; text-align: center !important; text-transform: uppercase !important; font-size: 12.5px !important; letter-spacing: 0.8px !important; padding: 8px 10px !important; border: 1px solid #000000 !important; }
+        #cli-report-root td { padding: 8px 10px !important; text-align: left !important; border: 1px solid #000000 !important; color: #000000 !important; background: #ffffff !important; }
+        #cli-report-root tr:nth-child(even) td { background: #fafafa !important; }
+        #cli-report-root td.center { text-align: center !important; }
+        #cli-report-root .col-sl { width: 45px !important; text-align: center !important; color: #000000 !important; }
+        #cli-report-root .col-reg { width: 95px !important; text-align: center !important; font-weight: 700 !important; font-family: 'Courier New', monospace !important; color: #000000 !important; }
+        #cli-report-root .col-res { width: 95px !important; text-align: center !important; color: #000000 !important; }
+        #cli-report-root .col-gpa, #cli-report-root .col-cgpa { width: 70px !important; text-align: center !important; font-weight: 700 !important; color: #000000 !important; }
+        #cli-report-root .data-bold { font-weight: 700 !important; color: #000000 !important; }
+        #cli-report-root .award-text { font-weight: 700 !important; color: #000000 !important; font-style: italic !important; }
     </style>
     """
 
@@ -1631,51 +1638,223 @@ def hidden_menu_handler(programs, sessions):
         print("Error: {}".format(e))
         return
             
-def generate_transcript_report(records, title, name, return_html=False):
-    css = """
-    :root { 
-        --bg: #111827; --text: #f3f4f6; --card: #1f2937; --border: #374151; 
-        --primary: #3b82f6; --accent: #60a5fa; --header: #374151;
-    }
-    #cli-transcript-root { background-color: var(--bg); color: var(--text); padding: 25px; font-family: 'Outfit', sans-serif; min-height: 100vh; }
-    #cli-transcript-root .header-card { background: var(--card); padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 25px; border: 1px solid var(--border); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-width: 900px; margin-left: auto; margin-right: auto; }
-    #cli-transcript-root h2 { margin: 0 0 10px 0; font-size: 1.2em; color: var(--primary); }
-    #cli-transcript-root p { margin: 0; font-size: 1em; color: var(--text); opacity: 0.9; }
-    #cli-transcript-root .exam-block { background: var(--card); border: 1px solid var(--border); border-left: 5px solid var(--primary); border-radius: 6px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-width: 900px; margin-left: auto; margin-right: auto; overflow: hidden; }
-    #cli-transcript-root .exam-title { color: var(--accent); padding: 15px 20px; font-weight: 600; font-size: 0.95em; margin: 0; background: var(--header); }
-    #cli-transcript-root table { width: 100%; border-collapse: collapse; }
-    #cli-transcript-root th, #cli-transcript-root td { padding: 12px 20px; text-align: left; }
-    #cli-transcript-root th { background: var(--header); color: var(--text); font-weight: 700; font-size: 0.85em; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); opacity: 0.8; }
-    #cli-transcript-root td { border-bottom: 1px solid var(--border); font-size: 0.9em; color: var(--text); }
-    #cli-transcript-root .summary { background: var(--header); padding: 12px 20px; font-weight: 600; color: var(--text); font-size: 0.9em; border-top: 1px solid var(--border); border-radius: 0 0 6px 6px; display: flex; gap: 5px;}
+def parse_exam_semester_sort_key(record):
     """
-    # CSS Prefixing for Dashboard Injection
-    css_wrapped = "<div id='cli-transcript-root'><style>" + css + "</style>"
+    Chronologically sort exams from 1st Year 1st Sem to 4th Year 2nd Sem,
+    placing retakes/improvements of the same semester right next to each other.
+    """
+    ename = str(record.get('_exam_name', '')).strip()
+    ename_lower = ename.lower()
     
-    # Header Section
+    yr_m = re.search(r'(\d)(?:st|nd|rd|th)?\s*year', ename_lower)
+    sem_m = re.search(r'(\d)(?:st|nd|rd|th)?\s*sem', ename_lower)
+    
+    yr = int(yr_m.group(1)) if yr_m else 0
+    sem = int(sem_m.group(1)) if sem_m else 0
+    
+    if yr == 0 or sem == 0:
+        subjects = record.get('Subjects', [])
+        for s in subjects:
+            code = str(s.get('code', '')).upper()
+            m = re.search(r'([A-Z]+)[-_\s]*(\d)', code)
+            if m:
+                digit = int(m.group(2))
+                calc_yr = (digit - 1) // 2 + 1
+                calc_sem = 1 if digit % 2 == 1 else 2
+                if 1 <= calc_yr <= 4 and 1 <= calc_sem <= 2:
+                    yr, sem = calc_yr, calc_sem
+                    break
+    
+    abs_sem = (yr - 1) * 2 + sem if (yr > 0 and sem > 0) else 99
+    is_extra = 1 if any(kw in ename_lower for kw in ["retake", "improvement", "clearance", "special", "backlog", "junior"]) else 0
+    
+    try:
+        eid = int(record.get('_exam_id', 0))
+    except (ValueError, TypeError):
+        eid = 0
+        
+    return (abs_sem, is_extra, eid, ename_lower)
+
+
+def generate_transcript_report(records, title, name, return_html=False):
+    if records:
+        records.sort(key=parse_exam_semester_sort_key)
+        
+    css = """
+    #cli-transcript-root { 
+        background-color: transparent !important;
+        color: #000000 !important;
+        font-family: 'Times New Roman', Times, 'Georgia', serif !important;
+        line-height: 1.5 !important;
+        margin: 0 !important;
+        padding: 10px 0 !important;
+    }
+    #cli-transcript-root .transcript-paper {
+        max-width: 920px !important;
+        margin: 0 auto !important;
+    }
+    #cli-transcript-root .report-block { 
+        background: #ffffff !important;
+        color: #000000 !important;
+        padding: 30px 35px !important;
+        border-radius: 0px !important;
+        margin-bottom: 30px !important;
+        border: 1px solid #000000 !important;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25) !important;
+        display: block !important;
+        box-sizing: border-box !important;
+    }
+    #cli-transcript-root .title-section { 
+        text-align: center !important; 
+        margin-bottom: 22px !important; 
+        border-bottom: 2px solid #000000 !important; 
+        padding-bottom: 14px !important; 
+    }
+    #cli-transcript-root h1 { 
+        color: #000000 !important; 
+        font-size: 24px !important; 
+        font-weight: 800 !important; 
+        margin: 0 0 4px 0 !important; 
+        text-transform: uppercase !important; 
+        letter-spacing: 1.5px !important; 
+        font-family: 'Times New Roman', serif !important; 
+    }
+    #cli-transcript-root .summary-text { 
+        font-size: 13px !important; 
+        font-weight: 600 !important; 
+        color: #333333 !important; 
+        letter-spacing: 0.5px !important; 
+    }
+    #cli-transcript-root h2 { 
+        color: #000000 !important; 
+        font-size: 17px !important; 
+        font-weight: 700 !important; 
+        margin: 22px 0 8px 0 !important; 
+        border-left: 5px solid #000000 !important; 
+        padding-left: 12px !important; 
+        font-family: 'Times New Roman', serif !important;
+    }
+    #cli-transcript-root .pub-date-text { 
+        font-size: 13px !important;
+        font-weight: normal !important;
+        color: #333333 !important;
+        font-style: italic !important;
+    }
+    #cli-transcript-root .exam-type-tag {
+        font-size: 12px !important;
+        font-weight: 700 !important;
+        color: #333333 !important;
+        font-style: italic !important;
+    }
+    #cli-transcript-root table { 
+        width: 100% !important; 
+        border-collapse: collapse !important; 
+        font-size: 13.5px !important; 
+        margin-bottom: 8px !important; 
+        background: #ffffff !important; 
+        border: 1px solid #000000 !important; 
+    }
+    #cli-transcript-root th { 
+        background: #f4f4f4 !important; 
+        color: #000000 !important; 
+        font-weight: 700 !important; 
+        text-align: center !important; 
+        text-transform: uppercase !important; 
+        font-size: 12.5px !important; 
+        letter-spacing: 0.8px !important; 
+        padding: 8px 10px !important; 
+        border: 1px solid #000000 !important; 
+    }
+    #cli-transcript-root td { 
+        padding: 8px 10px !important; 
+        text-align: left !important; 
+        border: 1px solid #000000 !important; 
+        color: #000000 !important; 
+        background: #ffffff !important; 
+    }
+    #cli-transcript-root tr:nth-child(even) td { 
+        background: #fafafa !important; 
+    }
+    #cli-transcript-root td.col-code { 
+        font-weight: 700 !important; 
+        color: #000000 !important; 
+        font-family: 'Courier New', monospace !important;
+        font-size: 13px !important; 
+        width: 120px !important; 
+    }
+    #cli-transcript-root td.col-grade { 
+        font-weight: 700 !important; 
+        color: #000000 !important; 
+        width: 70px !important; 
+        text-align: center !important;
+    }
+    #cli-transcript-root td.col-gp { 
+        font-weight: 700 !important; 
+        color: #000000 !important; 
+        width: 70px !important; 
+        text-align: center !important;
+    }
+    #cli-transcript-root .summary-row { 
+        font-size: 13px !important; 
+        font-weight: 700 !important; 
+        color: #000000 !important; 
+        margin-top: 4px !important;
+        padding: 4px 0 14px 0 !important;
+    }
+    """
+    import datetime
+    bd_time = datetime.datetime.utcnow() + datetime.timedelta(hours=6)
+    timestamp_str = bd_time.strftime("%Y-%m-%d %H:%M:%S")
+
+    css_wrapped = "<div id='cli-transcript-root'><style>" + css + "</style><div class='transcript-paper'>"
+
     reg_val = records[0].get('Registration No', '-') if records else '-'
-    html = css_wrapped + "<div class='header-card'><h2>&#127775; Student Record</h2><p><b>" + str(name) + "</b> (Reg: " + str(reg_val) + ")</p></div>"
+
+    html = css_wrapped + "<div class='report-block'>"
+    html += "<div class='title-section'>"
+    html += "<h1>Faridpur Engineering College</h1>"
+    html += "<span class='summary-text'>Student Academic Transcript &nbsp;|&nbsp; Name: <b>{}</b> &nbsp;|&nbsp; Reg No: <b>{}</b></span><br>".format(str(name), str(reg_val))
+    html += "<span class='summary-text'>Generated: {}</span>".format(timestamp_str)
+    html += "</div>"
 
     for r in records:
-        html += "<div class='exam-block'>"
-        
         exam_name_parsed = r.get('_exam_name', title)
-        html += "<div class='exam-title'>&#128197; {}</div>".format(exam_name_parsed)
-        
+        e_name = exam_name_parsed.lower()
+        is_extra = any(x in e_name for x in ["retake", "improvement", "clearance", "special", "backlog", "junior"])
+
+        pub_date = r.get('Pub Date') or r.get('pub_date') or r.get('publish_date') or r.get('Result Published')
+        date_str = ""
+        if pub_date and str(pub_date).strip() not in ('-', '', 'None'):
+            date_str = " &nbsp;|&nbsp; <span class='pub-date-text'>Published: {}</span>".format(pub_date)
+
+        type_tag = " &nbsp;<span class='exam-type-tag'>[Retake / Improvement]</span>" if is_extra else ""
+
+        html += "<h2>{}{}{}</h2>".format(exam_name_parsed, type_tag, date_str)
+
         if r.get('Subjects'):
-            html += "<table><thead><tr><th>Code</th><th>Subject</th><th>Grade</th><th>GP</th></tr></thead><tbody>"
+            html += "<table><thead><tr>"
+            html += "<th style='width:120px; text-align:left;'>Course Code</th>"
+            html += "<th style='text-align:left;'>Course Title</th>"
+            html += "<th style='width:70px;'>Grade</th>"
+            html += "<th style='width:70px;'>GP</th>"
+            html += "</tr></thead><tbody>"
             for s in r['Subjects']:
-                html += "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(s.get('code','-'), s['name'], s['grade'], s['gp'])
+                html += "<tr><td class='col-code'>{}</td><td>{}</td><td class='col-grade'>{}</td><td class='col-gp'>{}</td></tr>".format(
+                    s.get('code', '-'), s['name'], s['grade'], s['gp']
+                )
             html += "</tbody></table>"
-            
-        e_name = r.get('_exam_name', '').lower()
-        is_extra = any(x in e_name for x in ["retake", "improvement", "clearance", "special", "junior"])
-        
+
         if not is_extra:
-            html += "<div class='summary'>"
-            html += "Result: {} | GPA: {} | CGPA: {}".format(r.get('Overall Result', '-'), r.get('GPA', r.get('SGPA', '-')), r.get('CGPA', '-'))
-            html += "</div>"
-        html += "</div>"
+            res_val = r.get('Overall Result', '-')
+            gpa_val = r.get('GPA', r.get('SGPA', '-'))
+            cgpa_val = r.get('CGPA', '-')
+            html += "<div class='summary-row'>Result: <b>{}</b> &nbsp;&nbsp; Semester GPA: <b>{}</b> &nbsp;&nbsp; Cumulative CGPA: <b>{}</b></div>".format(
+                res_val, gpa_val, cgpa_val
+            )
+
+    html += "</div>"  # close report-block
+    html += "</div></div>"  # close transcript-paper and cli-transcript-root
+    if return_html: return html
         
     html += "</div>" # Close cli-transcript-root
     if return_html: return html
