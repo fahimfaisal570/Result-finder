@@ -1417,13 +1417,22 @@ with tabs[4]:
     "text/csv"
   )
 
-  col_c1, col_c2 = st.columns([3, 1])
-  with col_c1:
-    sort_col = st.selectbox("Sort Table By", options=['cgpa', 'gpa', 'reg_no', 'name', 'retake_count', 'improvement_count'], index=0, help="Select column to re-rank table with clean 1..N serial numbers")
-  with col_c2:
-    sort_order = st.radio("Order", options=["Desc", "Asc"], horizontal=True)
+  sort_map = {
+    "🎓 CGPA (High → Low)": ("cgpa", False),
+    "🏆 GPA (High → Low)": ("gpa", False),
+    "🔢 Reg No": ("reg_no", True),
+    "⚠️ Retakes": ("retake_count", False),
+    "📈 Improvements": ("improvement_count", False),
+  }
+  pill_choice = st.pills(
+    "Sort By",
+    options=list(sort_map.keys()),
+    default="🎓 CGPA (High → Low)",
+    label_visibility="collapsed"
+  ) or "🎓 CGPA (High → Low)"
 
-  disp_df = df_main.sort_values(sort_col, ascending=(sort_order == "Asc")).reset_index(drop=True)
+  sort_col, sort_asc = sort_map.get(pill_choice, ("cgpa", False))
+  disp_df = df_main.sort_values(sort_col, ascending=sort_asc).reset_index(drop=True)
   disp_df.insert(0, '#', range(1, len(disp_df) + 1))
 
   disp_cols = ['#', 'reg_no', 'name', 'gpa', 'cgpa', 'result_status', 'improvement_count', 'retake_count']
