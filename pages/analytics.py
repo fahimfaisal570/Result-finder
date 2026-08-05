@@ -1417,9 +1417,17 @@ with tabs[4]:
     "text/csv"
   )
 
-  disp_cols = ['reg_no','name','gpa','cgpa','result_status','improvement_count','retake_count']
-  disp_df = df_main.sort_values('cgpa', ascending=False).reset_index(drop=True)
-  st.dataframe(disp_df[disp_cols], width='stretch')
+  col_c1, col_c2 = st.columns([3, 1])
+  with col_c1:
+    sort_col = st.selectbox("Sort Table By", options=['cgpa', 'gpa', 'reg_no', 'name', 'retake_count', 'improvement_count'], index=0, help="Select column to re-rank table with clean 1..N serial numbers")
+  with col_c2:
+    sort_order = st.radio("Order", options=["Desc", "Asc"], horizontal=True)
+
+  disp_df = df_main.sort_values(sort_col, ascending=(sort_order == "Asc")).reset_index(drop=True)
+  disp_df.insert(0, '#', range(1, len(disp_df) + 1))
+
+  disp_cols = ['#', 'reg_no', 'name', 'gpa', 'cgpa', 'result_status', 'improvement_count', 'retake_count']
+  st.dataframe(disp_df[disp_cols], hide_index=True, width='stretch')
 
 
 
