@@ -316,9 +316,54 @@ is_first_sem = (df_main['cgpa'].sum() == 0) or \
         (df_main['gpa'].equals(df_main['cgpa'])) or \
         ("1st Yr 1st Sem" in selected_label)
 
-df_pivot = pd.DataFrame()
-if not df_sub.empty:
-  df_pivot = df_sub.pivot_table(index='reg_no', columns='subject_code', values='gp', aggfunc='first')
+def get_clean_subject_pivot(df_sub, mode="standardized", show_code=False, hide_rare_retakes=True):
+    if df_sub.empty:
+        return pd.DataFrame(), []
+        
+    total_students = df_sub['reg_no'].nunique()
+    if total_students == 0:
+        return pd.DataFrame(), []
+        
+    counts = df_sub.groupby('subject_code')['reg_no'].nunique()
+    
+    min_cohort_threshold = max(2, int(total_students * 0.15)) if total_students >= 5 else 1
+    retake_subs = counts[counts < min_cohort_threshold].index.tolist()
+    
+    if mode == "full_raw":
+        return df_sub.pivot_table(index='reg_no', columns='subject_code', values='gp', aggfunc='first'), retake_subs
+
+    df_clean = df_sub[~df_sub['subject_code'].isin(retake_subs)] if hide_rare_retakes else df_sub
+    
+    if mode == "raw_cohort":
+        if df_clean.empty:
+            return pd.DataFrame(), retake_subs
+        return df_clean.pivot_table(index='reg_no', columns='subject_code', values='gp', aggfunc='first'), retake_subs
+
+    clean_counts = df_clean.groupby('subject_code')['reg_no'].nunique()
+    core_subs = clean_counts[clean_counts >= max(2, int(total_students * 0.6))].index.tolist()
+    elec_subs = clean_counts[clean_counts < max(2, int(total_students * 0.6))].index.tolist()
+    
+    records = []
+    for reg, grp in df_clean.groupby('reg_no'):
+        row = {'reg_no': reg}
+        for cs in core_subs:
+            sub_row = grp[grp['subject_code'] == cs]
+            row[cs] = sub_row['gp'].iloc[0] if not sub_row.empty else None
+            
+        elec_grp = grp[grp['subject_code'].isin(elec_subs)].sort_values('subject_code')
+        for i, (_, erow) in enumerate(elec_grp.iterrows(), 1):
+            col_name = f'Elective {i}'
+            val = erow['gp']
+            row[col_name] = f'{val:.2f} ({erow["subject_code"]})' if show_code else val
+            
+        records.append(row)
+        
+    df_out = pd.DataFrame(records)
+    if not df_out.empty:
+        df_out = df_out.set_index('reg_no')
+    return df_out, retake_subs
+
+df_pivot, _retake_subs_detected = get_clean_subject_pivot(df_sub, mode="raw_cohort", hide_rare_retakes=True)
 
 # Extract promotion conditions
 promo_target, is_even_sem, promo_yr = get_promotion_rules(selected_label)
@@ -1308,14 +1353,38 @@ with tabs[2]:
 # =========================================================================
 with tabs[3]:
   st.subheader("Interactive Pivot Dimension")
-  pivot_type = st.radio(
-    "Cube Rotation:",
-    ["Show Breakdown per Student", "Show Summary per Subject"],
-    horizontal=True
-  )
-  if not df_pivot.empty:
-    if "Student" in pivot_type:
-      st.dataframe(df_pivot, width='stretch')
+  
+  col_p1, col_p2 = st.columns([2, 1])
+  with col_p1:
+    pivot_mode = st.radio(
+      "View Mode / Structure:",
+      [
+        "📌 Standardized View (Core + Elective Slots)",
+        "📊 Raw Subject Codes (Clean Batch)",
+        "📋 Full Raw Matrix (Includes Retakes)",
+        "🔄 Show Summary per Subject"
+      ],
+      index=0,
+      horizontal=False
+    )
+  with col_p2:
+    show_code_in_elective = st.checkbox("Show Course Code in Elective Slots", value=True, help="Display e.g. '3.75 (CE-801)' instead of plain GP")
+    hide_retakes_cb = st.checkbox("Filter Retake-Only Courses (<15% Cohort)", value=True, help="Exclude courses taken by isolated retake/backlog students")
+
+  if not df_sub.empty:
+    if "Standardized" in pivot_mode:
+      df_display, ret_found = get_clean_subject_pivot(df_sub, mode="standardized", show_code=show_code_in_elective, hide_rare_retakes=hide_retakes_cb)
+      st.dataframe(df_display, width='stretch')
+      if ret_found:
+        st.caption(f"ℹ **Retake Course(s) Isolated:** `{', '.join(ret_found)}` (taken by single retake/backlog student, excluded from main grid).")
+    elif "Raw Subject Codes" in pivot_mode:
+      df_display, ret_found = get_clean_subject_pivot(df_sub, mode="raw_cohort", hide_rare_retakes=hide_retakes_cb)
+      st.dataframe(df_display, width='stretch')
+      if ret_found:
+        st.caption(f"ℹ **Retake Course(s) Excluded:** `{', '.join(ret_found)}`.")
+    elif "Full Raw Matrix" in pivot_mode:
+      df_display, ret_found = get_clean_subject_pivot(df_sub, mode="full_raw")
+      st.dataframe(df_display, width='stretch')
     else:
       flipped = df_sub.pivot_table(
         index='subject_code', columns='reg_no', values='gp', aggfunc='first'
