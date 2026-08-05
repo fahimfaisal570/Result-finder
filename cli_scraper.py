@@ -857,8 +857,17 @@ def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None,
     # Identify batch start year
     batch_start_year = None
     if batch_session:
-        s_match = re.search(r"(\d{4})", str(batch_session))
-        if s_match: batch_start_year = int(s_match.group(1))
+        s_str = str(batch_session).strip()
+        if s_str in SESSIONS_CACHE:
+            s_str = str(SESSIONS_CACHE[s_str])
+            
+        s_match = re.search(r"(\d{4})", s_str)
+        if s_match:
+            batch_start_year = int(s_match.group(1))
+        elif re.match(r"^\d{1,2}$", s_str):
+            s_num = int(s_str)
+            if 10 <= s_num <= 40:
+                batch_start_year = 2000 + s_num - 1
 
     # Extended Exclusion List
     exclusions = ["retake", "improvement", "clearance", "junior", "special", "backlog", "short", "carry"]

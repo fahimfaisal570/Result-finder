@@ -228,6 +228,8 @@ else: # Saved Profiles Mode
         if exams_raw:
             p_regs = profile_data.get('regs', [])
             active_sess_id = profile_data.get('sess_id') or (p_regs[0][1] if p_regs else "Any")
+            if not cs.SESSIONS_CACHE:
+                cs.fetch_programs_and_sessions()
             active_sess_name = cs.SESSIONS_CACHE.get(str(active_sess_id), str(active_sess_id))
             probe_regs = [r[0] for r in p_regs if str(r[1]) == str(active_sess_id)][:5]
             _classify_key = f"classify_{p_selected}_{profile_data.get('pro_id')}_{active_sess_id}"
