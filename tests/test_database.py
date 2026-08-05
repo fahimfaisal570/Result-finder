@@ -844,6 +844,27 @@ class TestSchemaAndAcid(unittest.TestCase):
         self.assertEqual(len(matched_1038), 1)
         self.assertEqual(matched_1038[0]["profile_name"], "civil 10")
 
+    def test_incomplete_history_prior_anchoring(self):
+        """Test that missing early semesters anchor prior CGPA correctly without false green deltas."""
+        effective_grades = {
+            'CSE-401': {'gp': 3.52, 'credit': 3.0, 'source': 'main'},
+            'CSE-402': {'gp': 3.52, 'credit': 1.5, 'source': 'main'},
+        }
+        official_records = {
+            4: {'gpa': 3.52, 'cgpa': 3.09}
+        }
+        breakdown = database.compute_per_semester_breakdown(
+            effective_grades=effective_grades,
+            dept='CSE',
+            current_semester=4,
+            official_records=official_records,
+            profile_name='cse 05'
+        )
+        self.assertTrue(len(breakdown) > 0)
+        sem4_entry = [b for b in breakdown if b['semester'] == 4][0]
+        # Adjusted CGPA at sem 4 should be 3.09 (matching official CGPA 3.09, delta 0.00)
+        self.assertAlmostEqual(sem4_entry['computed_cgpa'], 3.09, delta=0.02)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

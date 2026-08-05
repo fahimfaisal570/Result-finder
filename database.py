@@ -1180,6 +1180,20 @@ def get_subject_data_for_exam(profile_name: str, exam_id: str, exclude_retakes: 
 
 
 
+def is_old_curriculum_profile(profile_name: str = "", effective_grades: dict | None = None) -> bool:
+    """Returns True ONLY if the profile or course set belongs to an old curriculum batch (05, 06 batch)."""
+    p_lower = str(profile_name).strip().lower()
+    if any(p_lower.endswith(b) or f" {b}" in p_lower for b in ("05", "06", "batch 5", "batch 6", "batch 05", "batch 06")):
+        return True
+    if effective_grades:
+        import re
+        for code in effective_grades.keys():
+            m = re.match(r'^[A-Z]{2,6}[-\s]?(\d{3})\**$', str(code).strip().upper())
+            if m:
+                return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Deep Analysis Engine (Precise Credit-Weighted Computation)
 # ---------------------------------------------------------------------------
@@ -1637,7 +1651,11 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
     # --- Step 5: Calculate true CGPA ---
     total_points = sum(g['gp'] * g['credit'] for g in effective_grades.values())
     total_credits = sum(g['credit'] for g in effective_grades.values())
-    true_cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
+
+    # Detect if early semesters are missing from scanned history
+    dept = get_dept_from_profile(profile_name)
+    scanned_sems = [get_semester_from_code(code, dept) for code in effective_grades if get_semester_from_code(code, dept) > 0]
+    min_scanned_sem = min(scanned_sems) if scanned_sems else 1
 
     # --- Step 6: Get official CGPA from the latest main exam for comparison ---
     official_cgpa = 0.0
@@ -1663,6 +1681,22 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
         if pre_retake_credits > 0:
             official_cgpa = round(pre_retake_points / pre_retake_credits, 2)
 
+    # Prior Baseline Anchoring for True CGPA:
+    # ONLY applied for old curriculum main batch profiles (05, 06 batch) where early semesters (1..min_scanned_sem-1) are missing
+    is_old_batch = is_old_curriculum_profile(profile_name, effective_grades)
+    if is_old_batch and min_scanned_sem > 1 and official_semester_records and min_scanned_sem in official_semester_records:
+        prior_credits = sum(get_semester_total_credits(dept, s) for s in range(1, min_scanned_sem))
+        full_total_credits = prior_credits + total_credits
+        improvement_points = sum((g['gp'] - g.get('original_gp', g['gp'])) * g['credit'] for g in effective_grades.values())
+        if full_total_credits > 0 and official_cgpa > 0:
+            base_points = official_cgpa * full_total_credits
+            true_cgpa = round((base_points + improvement_points) / full_total_credits, 2)
+            total_credits = full_total_credits
+        else:
+            true_cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
+    else:
+        true_cgpa = round(total_points / total_credits, 2) if total_credits > 0 else 0.0
+
     cgpa_diff = round(true_cgpa - official_cgpa, 2)
 
     # --- Step 7: Identify pending retakes (GP < 2.0 = still failing) ---
@@ -1679,8 +1713,8 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
 
     # --- Step 8: Calculate precise target GPA ---
     # Parse current semester from exam label
-    yr_match = re.search(r'(\d)[a-z]{2}\s*Yr', current_exam_label, re.IGNORECASE)
-    sem_match = re.search(r'(\d)[a-z]{2}\s*Sem', current_exam_label, re.IGNORECASE)
+    yr_match = re.search(r'(\d)[a-z]{2}\s*(?:Yr|year)', current_exam_label, re.IGNORECASE)
+    sem_match = re.search(r'(\d)[a-z]{2}\s*(?:Sem|semester)', current_exam_label, re.IGNORECASE)
 
     precise_target_gpa = 0.0
     next_sem_credits = 0.0
@@ -1691,6 +1725,18 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
         yr = int(yr_match.group(1))
         sem_in_yr = int(sem_match.group(1))
         current_abs_sem = (yr - 1) * 2 + sem_in_yr
+    else:
+        # Fallback: derive max absolute semester from scanned main exams
+        max_s = 0
+        for sem_label, (eid_int, rec) in semester_groups.items():
+            s = _get_abs_sem(rec)
+            if s > max_s:
+                max_s = s
+        current_abs_sem = max_s
+        yr = (current_abs_sem - 1) // 2 + 1 if current_abs_sem > 0 else 0
+        sem_in_yr = 1 if current_abs_sem % 2 == 1 else 2
+
+    if current_abs_sem > 0:
         next_abs_sem = current_abs_sem + 1
 
         # Promotion thresholds
@@ -2082,6 +2128,7 @@ def compute_per_semester_breakdown(
     current_semester: int,
     overrides: dict | None = None,
     official_records: dict | None = None,
+    profile_name: str = "",
 ) -> list[dict]:
     """
     Computes per-semester GPA and cumulative CGPA from effective grades.
@@ -2092,6 +2139,7 @@ def compute_per_semester_breakdown(
         current_semester: absolute semester number (1-8)
         overrides: optional per-code GP overrides (for Adjusted CGPA mode)
         official_records: optional dict of {semester_num: {gpa, cgpa}} from portal
+        profile_name: optional profile name to scope old curriculum logic
 
     Returns:
         List of dicts sorted by semester:
@@ -2127,7 +2175,34 @@ def compute_per_semester_breakdown(
     cumulative_points_adj = 0.0
     cumulative_credits_adj = 0.0
 
-    for sem_num in range(1, current_semester + 1):
+    target_max_sem = current_semester
+    if target_max_sem <= 0:
+        if sem_courses:
+            target_max_sem = max(sem_courses.keys())
+        elif official_records:
+            target_max_sem = max(official_records.keys())
+        else:
+            target_max_sem = 8
+
+    # Prior Baseline Anchoring: ONLY for old curriculum main batch profiles (05, 06 batch).
+    # If early semesters are missing from scanned history, seed cumulative points & credits
+    # using the official CGPA record of the first available semester so running CGPA isn't
+    # artificially inflated over a cherry-picked subset of upper semesters.
+    min_scanned_sem = min(sem_courses.keys()) if sem_courses else 1
+    is_old_batch = is_old_curriculum_profile(profile_name, effective_grades)
+    if is_old_batch and min_scanned_sem > 1 and official_records and min_scanned_sem in official_records:
+        o_cgpa = official_records[min_scanned_sem].get('cgpa', 0.0)
+        o_gpa = official_records[min_scanned_sem].get('gpa', 0.0)
+        if o_cgpa > 0 and o_gpa > 0:
+            c_m = sum(cr for _, _, _, cr in sem_courses[min_scanned_sem])
+            c_prior = sum(get_semester_total_credits(dept, s) for s in range(1, min_scanned_sem))
+            p_prior = max(0.0, o_cgpa * (c_prior + c_m) - o_gpa * c_m)
+            cumulative_credits_orig = c_prior
+            cumulative_points_orig = p_prior
+            cumulative_credits_adj = c_prior
+            cumulative_points_adj = p_prior
+
+    for sem_num in range(1, target_max_sem + 1):
         courses = sem_courses.get(sem_num, [])
         if not courses:
             continue

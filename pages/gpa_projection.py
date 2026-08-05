@@ -389,6 +389,7 @@ def render_student_projection_card(row):
                     current_semester=_current_sem,
                     overrides=overrides,
                     official_records=_official_sem_records,
+                    profile_name=profile_name,
                 )
 
                 if _sem_breakdown:
