@@ -5,9 +5,9 @@ import os
 import smtplib
 import time
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 def get_bd_time():
-    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=6)
+    return datetime.utcnow() + timedelta(hours=6)
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 # auto_pdf_mailer import is now deferred to main() to allow fast-boot detection without dependencies.
@@ -154,12 +154,8 @@ def main(check_only=False):
                     if not check_only:
                         # 2. Lazy Import of heavy modules
                         import sys
-                        monitor_dir = os.path.dirname(os.path.abspath(__file__))
-                        root_dir = os.path.dirname(monitor_dir)
-                        if monitor_dir not in sys.path:
-                            sys.path.insert(0, monitor_dir)
-                        if root_dir not in sys.path:
-                            sys.path.append(root_dir)
+                        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                        if root_dir not in sys.path: sys.path.append(root_dir)
                         import auto_pdf_mailer
                         
                         # 3. Text Notification (Admin + Head)

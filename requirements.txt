@@ -1,10 +1,2 @@
 streamlit
-starlette<1.0.0
 pandas
-numpy
-altair
-requests
-fpdf2
-matplotlib
-weasyprint
-xhtml2pdf
