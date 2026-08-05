@@ -1,0 +1,43 @@
+name: Portal Uptime Health Check
+
+on:
+  repository_dispatch:
+    types: [check_uptime]
+  workflow_dispatch: # Allows manual verification triggers from GitHub UI
+
+jobs:
+  check-uptime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Restore state.json from previous run using Actions Cache
+      - name: Restore Uptime State Cache
+        uses: actions/cache/restore@v4
+        with:
+          path: portal_monitor/state.json
+          key: portal-uptime-state-${{ github.run_id }}
+          restore-keys: |
+            portal-uptime-state-
+
+      # Execute checker
+      - name: Run Uptime Checker
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+        run: python portal_monitor/health_check.py
+
+      # Save the updated state.json back to the cache for the next run
+      - name: Save Uptime State Cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: portal_monitor/state.json
+          key: portal-uptime-state-${{ github.run_id }}
