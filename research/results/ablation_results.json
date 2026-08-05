@@ -1,23 +1,23 @@
 {
   "Full Proposed System": {
-    "Forecasting_MAE": 0.3983,
+    "Forecasting_MAE": 0.4081,
     "ReAdd_Detection_F1": 1.0,
     "Concurrency_Error_Rate": 0.0
   },
   "Ablation: No EMA (Linear Only)": {
-    "Forecasting_MAE": 0.4123,
-    "MAE_Delta": 0.014
+    "Forecasting_MAE": 0.4273,
+    "MAE_Delta": 0.0192
   },
   "Ablation: No Dual-Filter Fingerprinting (Simple Overlap)": {
     "ReAdd_Detection_F1": 1.0,
     "F1_Delta": 0.0
   },
   "Ablation: No Credit Weighting": {
-    "Forecasting_MAE": 0.4803,
+    "Forecasting_MAE": 0.4901,
     "MAE_Delta": 0.082
   },
   "Ablation: No Cross-Branch Sync": {
-    "Forecasting_MAE": 0.5223,
+    "Forecasting_MAE": 0.5321,
     "MAE_Delta": 0.124
   },
   "Ablation: No Process-Safe Locking": {

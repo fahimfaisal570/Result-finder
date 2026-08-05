@@ -215,8 +215,17 @@ except Exception:
 # ---------------------------------------------------------------------------
 # SIDEBAR — Slice & Dice filters
 # ---------------------------------------------------------------------------
-subjects_available = sorted(df_sub_raw['subject_code'].unique().tolist()) if not df_sub_raw.empty else []
-selected_subjects = st.sidebar.multiselect("Slice by Subjects:", subjects_available, default=subjects_available)
+if not df_sub_raw.empty:
+  _tot_stus = df_raw['reg_no'].nunique() if not df_raw.empty else len(df_sub_raw['reg_no'].unique())
+  _counts = df_sub_raw.groupby('subject_code')['reg_no'].nunique()
+  _min_th = max(2, int(_tot_stus * 0.15)) if _tot_stus >= 5 else 1
+  default_cohort_subjects = sorted(_counts[_counts >= _min_th].index.tolist())
+  subjects_available = sorted(df_sub_raw['subject_code'].unique().tolist())
+else:
+  default_cohort_subjects = []
+  subjects_available = []
+
+selected_subjects = st.sidebar.multiselect("Slice by Subjects:", subjects_available, default=default_cohort_subjects)
 cgpa_range     = st.sidebar.slider("CGPA Range:", 0.0, 4.0, (0.0, 4.0))
 
 st.sidebar.divider()
@@ -1359,10 +1368,10 @@ with tabs[3]:
     pivot_mode = st.radio(
       "View Mode / Structure:",
       [
-        "📌 Standardized View (Core + Elective Slots)",
-        "📊 Raw Subject Codes (Clean Batch)",
-        "📋 Full Raw Matrix (Includes Retakes)",
-        "🔄 Show Summary per Subject"
+        "Standardized View (Core + Elective Slots)",
+        "Raw Subject Codes (Clean Batch)",
+        "Full Raw Matrix (Includes Retakes)",
+        "Show Summary per Subject"
       ],
       index=0,
       horizontal=False
@@ -1376,12 +1385,12 @@ with tabs[3]:
       df_display, ret_found = get_clean_subject_pivot(df_sub, mode="standardized", show_code=show_code_in_elective, hide_rare_retakes=hide_retakes_cb)
       st.dataframe(df_display, width='stretch')
       if ret_found:
-        st.caption(f"ℹ **Retake Course(s) Isolated:** `{', '.join(ret_found)}` (taken by single retake/backlog student, excluded from main grid).")
+        st.caption(f"Note: Retake Course(s) Isolated: `{', '.join(ret_found)}` (taken by single retake/backlog student, excluded from main grid).")
     elif "Raw Subject Codes" in pivot_mode:
       df_display, ret_found = get_clean_subject_pivot(df_sub, mode="raw_cohort", hide_rare_retakes=hide_retakes_cb)
       st.dataframe(df_display, width='stretch')
       if ret_found:
-        st.caption(f"ℹ **Retake Course(s) Excluded:** `{', '.join(ret_found)}`.")
+        st.caption(f"Note: Retake Course(s) Excluded: `{', '.join(ret_found)}`.")
     elif "Full Raw Matrix" in pivot_mode:
       df_display, ret_found = get_clean_subject_pivot(df_sub, mode="full_raw")
       st.dataframe(df_display, width='stretch')

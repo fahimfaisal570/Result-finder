@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 from enum import Enum
+from collections import defaultdict
 import pandas as pd
 import database as db
 
@@ -109,9 +110,21 @@ def populate_research_dataset(salt: str | None = None) -> int:
 
         # Track retakes per student+subject
         subject_counts = {}
+        exam_students = defaultdict(set)
+        exam_sub_students = defaultdict(set)
+
         for row in rows:
-            key = (row[1], str(row[4]).strip().upper())
-            subject_counts[key] = subject_counts.get(key, 0) + 1
+            p_name, r_no, e_id, s_code = row[0], row[1], row[3], str(row[4]).strip().upper()
+            sub_key = (r_no, s_code)
+            subject_counts[sub_key] = subject_counts.get(sub_key, 0) + 1
+            exam_students[(p_name, e_id)].add(r_no)
+            exam_sub_students[(p_name, e_id, s_code)].add(r_no)
+
+        isolated_retake_keys = set()
+        for (p_name, e_id, s_code), stus in exam_sub_students.items():
+            tot_stus = len(exam_students[(p_name, e_id)])
+            if tot_stus >= 5 and len(stus) < max(2, int(tot_stus * 0.15)):
+                isolated_retake_keys.add((p_name, e_id, s_code))
 
         for row in rows:
             prof_name, reg_no, sess_id, exam_id, sub_code, credit, gp, sem_gpa, sem_cgpa, exam_name, raw_json = row
@@ -130,8 +143,9 @@ def populate_research_dataset(salt: str | None = None) -> int:
                     sem_num = int(sem_match.group(1))
 
             sub_key = (reg_no, str(sub_code).strip().upper())
-            retake_flag = 1 if subject_counts.get(sub_key, 0) > 1 else 0
-            improvement_flag = 1 if retake_flag and gp > 0.0 else 0
+            is_isolated = (prof_name, str(exam_id), str(sub_code).strip().upper()) in isolated_retake_keys
+            retake_flag = 1 if (subject_counts.get(sub_key, 0) > 1 or is_isolated) else 0
+            improvement_flag = 1 if retake_flag and (gp or 0.0) > 0.0 else 0
             readd_flag = 1 if int(reg_no) in readd_set else 0
 
             cgpa_val = float(sem_cgpa) if sem_cgpa else 0.0

@@ -1,25 +1,25 @@
 {
-  "record_count": 37675,
+  "record_count": 38071,
   "forecasting_benchmark": {
     "Naive (Last Value)": {
-      "MAE": 0.5381,
-      "RMSE": 0.8008
+      "MAE": 0.5208,
+      "RMSE": 0.7808
     },
     "Moving Average (k=3)": {
-      "MAE": 0.3948,
-      "RMSE": 0.5556
+      "MAE": 0.3911,
+      "RMSE": 0.5514
     },
     "EMA Only (\u03b1=0.6)": {
-      "MAE": 0.4234,
-      "RMSE": 0.6035
+      "MAE": 0.4213,
+      "RMSE": 0.5999
     },
     "Linear Fit Only": {
-      "MAE": 0.4123,
-      "RMSE": 0.5619
+      "MAE": 0.4273,
+      "RMSE": 0.5798
     },
     "Proposed Hybrid Model": {
-      "MAE": 0.3983,
-      "RMSE": 0.5508
+      "MAE": 0.4081,
+      "RMSE": 0.5592
     }
   },
   "readmission_benchmark": {

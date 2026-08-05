@@ -32,13 +32,14 @@ def forecast_ema_only(gpas: list[float], alpha: float = 0.6) -> float:
     return float(np.clip(ema, 0.0, 4.0))
 
 import warnings
+RankWarning = getattr(getattr(np, 'exceptions', np), 'RankWarning', Warning)
 
 def forecast_linear_only(sem_nums: list[int], gpas: list[float], target_sem: int) -> float:
     """Linear regression trend baseline."""
     if len(gpas) < 2:
         return float(gpas[-1]) if gpas else 0.0
     with warnings.catch_warnings():
-        warnings.simplefilter('ignore', np.RankWarning)
+        warnings.simplefilter('ignore', RankWarning)
         slope, intercept = np.polyfit(sem_nums, gpas, 1)
     pred = slope * target_sem + intercept
     return float(np.clip(pred, 0.0, 4.0))
@@ -48,7 +49,7 @@ def forecast_hybrid(sem_nums: list[int], gpas: list[float], target_sem: int, alp
     if len(gpas) < 2:
         return float(gpas[-1]) if gpas else 0.0
     with warnings.catch_warnings():
-        warnings.simplefilter('ignore', np.RankWarning)
+        warnings.simplefilter('ignore', RankWarning)
         slope, intercept = np.polyfit(sem_nums, gpas, 1)
     linear_pred = slope * target_sem + intercept
     

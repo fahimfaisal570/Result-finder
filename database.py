@@ -1147,10 +1147,11 @@ def get_student_data_for_exam(profile_name: str, exam_id: str) -> list:
     return results
 
 
-def get_subject_data_for_exam(profile_name: str, exam_id: str) -> list:
+def get_subject_data_for_exam(profile_name: str, exam_id: str, exclude_retakes: bool = True) -> list:
     """
     Returns flat subject-grade rows for one specific exam.
-    Useful for boxplots, heatmaps, clustering, difficulty ranking.
+    If exclude_retakes is True (default), isolates and filters out retake-only subjects
+    (subjects taken by < 15% of the total cohort in the exam) so they do not distort batch analytics.
     """
     with get_connection() as conn:
         cur = conn.execute("""
@@ -1163,7 +1164,19 @@ def get_subject_data_for_exam(profile_name: str, exam_id: str) -> list:
             WHERE sg.profile_name=? AND sg.exam_id=?
         """, (profile_name, exam_id))
         cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+
+        if exclude_retakes and rows:
+            total_stus = len(set(r['reg_no'] for r in rows))
+            if total_stus >= 5:
+                sub_counts = defaultdict(set)
+                for r in rows:
+                    sub_counts[r['subject_code']].add(r['reg_no'])
+                min_th = max(2, int(total_stus * 0.15))
+                cohort_subs = {code for code, stus in sub_counts.items() if len(stus) >= min_th}
+                rows = [r for r in rows if r['subject_code'] in cohort_subs]
+
+        return rows
 
 
 
