@@ -1,0 +1,11 @@
+# CodeRabbit Configuration File
+language: "en-US"
+tone_instructions: "Be concise, focused on security, stability, and Streamlit performance."
+reviews:
+  profile: "chill"
+  request_tools:
+    ast-grep:
+      rule_dirs: []
+      util_dirs: []
+chat:
+  auto_reply: true
