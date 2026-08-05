@@ -819,7 +819,33 @@ class TestSchemaAndAcid(unittest.TestCase):
         raw_recs = database.get_student_raw_records_from_db("cse 09", 99999)
         self.assertIsInstance(raw_recs, list)
 
+    def test_search_students_across_profiles(self):
+        """Verify cross-profile student search and readd deduplication."""
+        database.save_provisional_profile("test_profile", "99", "42", [(88801,)])
+        database.upsert_student("test_profile", 88801, "Test Student Alpha", "42")
+        res_by_name = database.search_students_across_profiles("Alpha")
+        self.assertTrue(any(r["reg_no"] == 88801 for r in res_by_name))
+
+        res_by_reg = database.search_students_across_profiles("88801")
+        self.assertTrue(any(r["reg_no"] == 88801 for r in res_by_reg))
+
+        res_filtered = database.search_students_across_profiles("Alpha", filter_profile="test_profile")
+        self.assertTrue(any(r["reg_no"] == 88801 for r in res_filtered))
+
+        # Readd deduplication test: student in civil 09 and civil 10
+        database.save_provisional_profile("civil 09", "99", "42", [(1038,)])
+        database.save_provisional_profile("civil 10", "99", "43", [(1038,)])
+        database.upsert_student("civil 09", 1038, "MD FAHIM SHAHRIAR", "42")
+        database.upsert_student("civil 10", 1038, "MD FAHIM SHAHRIAR", "43")
+
+        readd_res = database.search_students_across_profiles("1038")
+        # Should be deduplicated into 1 record showing active batch
+        matched_1038 = [r for r in readd_res if r["reg_no"] == 1038]
+        self.assertEqual(len(matched_1038), 1)
+        self.assertEqual(matched_1038[0]["profile_name"], "civil 10")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
 

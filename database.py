@@ -744,6 +744,104 @@ def get_student_raw_records_from_db(profile_name: str, reg_no: int) -> list:
     return records
 
 
+def search_students_across_profiles(query: str = "", filter_profile: str = None) -> list:
+    """
+    Search students by name or reg_no across all profiles.
+    Deduplicates readmitted students (who appear in multiple profiles) so that
+    only their latest active batch is shown as a single card, while capturing
+    their main/original batch for clear display (e.g. 'Main: civil 09 → Readd: civil 10').
+    """
+    results = []
+    if not query and not filter_profile:
+        return results
+
+    q_str = query.strip() if query else ""
+    is_num = q_str.isdigit()
+    reg_val = int(q_str) if is_num else -1
+    like_pat = f"%{q_str}%"
+
+    try:
+        with get_connection() as conn:
+            sql = """
+                SELECT s.reg_no, s.name, s.sess_id, s.profile_name,
+                       p.pro_id, p.is_provisional,
+                       latest.gpa AS latest_gpa, latest.cgpa AS latest_cgpa,
+                       COALESCE(latest.max_eid, 0) AS max_eid,
+                       COALESCE(ec.exam_count, 0) AS exam_count
+                FROM students s
+                JOIN profiles p ON s.profile_name = p.name
+                LEFT JOIN (
+                    SELECT profile_name, reg_no, sess_id, gpa, cgpa,
+                           MAX(CAST(exam_id AS INTEGER)) AS max_eid
+                    FROM exam_results
+                    GROUP BY profile_name, reg_no, sess_id
+                ) latest ON s.profile_name = latest.profile_name
+                         AND s.reg_no = latest.reg_no
+                         AND s.sess_id = latest.sess_id
+                LEFT JOIN (
+                    SELECT profile_name, reg_no, sess_id, COUNT(DISTINCT exam_id) AS exam_count
+                    FROM exam_results
+                    GROUP BY profile_name, reg_no, sess_id
+                ) ec ON s.profile_name = ec.profile_name
+                     AND s.reg_no = ec.reg_no
+                     AND s.sess_id = ec.sess_id
+                WHERE 1=1
+            """
+            params = []
+            if q_str:
+                if is_num:
+                    sql += " AND (s.reg_no = ? OR CAST(s.reg_no AS TEXT) LIKE ? OR s.name LIKE ?)"
+                    params.extend([reg_val, like_pat, like_pat])
+                else:
+                    sql += " AND (s.name LIKE ? OR CAST(s.reg_no AS TEXT) LIKE ?)"
+                    params.extend([like_pat, like_pat])
+
+            if filter_profile:
+                sql += " AND s.profile_name = ?"
+                params.append(filter_profile)
+
+            sql += " ORDER BY CASE WHEN s.reg_no = ? THEN 0 ELSE 1 END, s.name, s.reg_no"
+            params.append(reg_val if is_num else -1)
+
+            cur = conn.execute(sql, tuple(params))
+            raw_rows = cur.fetchall()
+
+            # Group rows by (dept, reg_no) to detect readds across profiles in the same department
+            grouped = defaultdict(list)
+            for row in raw_rows:
+                p_name = row[3]
+                dept = get_dept_from_profile(p_name)
+                reg_no = row[0]
+                group_key = (dept, reg_no)
+                grouped[group_key].append({
+                    "reg_no": row[0],
+                    "name": row[1] or f"Reg {row[0]}",
+                    "sess_id": row[2] or "AUTO",
+                    "profile_name": row[3],
+                    "pro_id": row[4],
+                    "is_provisional": bool(row[5]),
+                    "latest_gpa": round(float(row[6] or 0.0), 2),
+                    "latest_cgpa": round(float(row[7] or 0.0), 2),
+                    "max_eid": int(row[8] or 0),
+                    "exam_count": int(row[9] or 0),
+                })
+
+            for key, entries in grouped.items():
+                if len(entries) == 1:
+                    results.append(entries[0])
+                else:
+                    # Sort entries by (max_eid DESC, profile_name DESC)
+                    # The entry with the highest exam participation is the active/current batch
+                    entries.sort(key=lambda x: (x["max_eid"], x["profile_name"]), reverse=True)
+                    results.append(entries[0])
+
+    except Exception as e:
+        logger.error("search_students_across_profiles error: %s", e)
+
+    return results
+
+
+
 
 
 def get_effective_cgpa_per_student(profile_name: str) -> list:
@@ -1538,6 +1636,19 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
                 official_cgpa = round(float(rec.get('CGPA', 0) or 0), 2)
             except (ValueError, TypeError):
                 official_cgpa = 0.0
+
+    # Fallback if official CGPA from portal is missing or 0.0:
+    # Compute pre-retake cumulative CGPA across all completed semesters
+    if official_cgpa <= 0.0:
+        pre_retake_points = 0.0
+        pre_retake_credits = 0.0
+        for code, g in effective_grades.items():
+            orig_gp = g.get('original_gp', g['gp'])
+            cr = g['credit']
+            pre_retake_points += orig_gp * cr
+            pre_retake_credits += cr
+        if pre_retake_credits > 0:
+            official_cgpa = round(pre_retake_points / pre_retake_credits, 2)
 
     cgpa_diff = round(true_cgpa - official_cgpa, 2)
 
