@@ -1418,18 +1418,18 @@ with tabs[4]:
   )
 
   sort_map = {
-    "🎓 CGPA (High → Low)": ("cgpa", False),
-    "🏆 GPA (High → Low)": ("gpa", False),
-    "🔢 Reg No": ("reg_no", True),
-    "⚠️ Retakes": ("retake_count", False),
-    "📈 Improvements": ("improvement_count", False),
+    "CGPA (High → Low)": ("cgpa", False),
+    "GPA (High → Low)": ("gpa", False),
+    "Reg No": ("reg_no", True),
+    "Retakes": ("retake_count", False),
+    "Improvements": ("improvement_count", False),
   }
   pill_choice = st.pills(
     "Sort By",
     options=list(sort_map.keys()),
-    default="🎓 CGPA (High → Low)",
+    default="CGPA (High → Low)",
     label_visibility="collapsed"
-  ) or "🎓 CGPA (High → Low)"
+  ) or "CGPA (High → Low)"
 
   sort_col, sort_asc = sort_map.get(pill_choice, ("cgpa", False))
   disp_df = df_main.sort_values(sort_col, ascending=sort_asc).reset_index(drop=True)
