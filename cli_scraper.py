@@ -753,26 +753,31 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
     
     # Block 2: Scholarship Eligibility (Ranked by SGPA)
     if valid_gpa_results:
+        inst_th = "<th class='col-inst'>Inst</th>" if show_inst else ""
         html.append("<div class='report-block'><h2>Scholarship Eligibility List (Ranked by SGPA)</h2>")
-        html.append("<div class='table-container'><table><thead><tr><th class='col-sl'>Rank</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-gpa'>SGPA</th><th class='col-award'>Status</th></tr></thead><tbody>")
+        html.append(f"<div class='table-container'><table><thead><tr><th class='col-sl'>Rank</th><th class='col-reg'>Reg No</th><th>Name</th>{inst_th}<th class='col-gpa'>SGPA</th><th class='col-award'>Status</th></tr></thead><tbody>")
         for sl, item in enumerate(valid_gpa_results, 1):
             res = item[1]
             scholarship = "<span class='award-text'>Eligible</span>" if sl <= top_half_count else ""
-            html.append("<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td><td class='col-gpa data-bold'>{3}</td><td class='col-award center'>{4}</td></tr>".format(
-                sl, res['Registration No'], res['Name'], res['GPA'], scholarship
+            inst_td = f"<td class='col-inst center'>{college_to_initials(_get_college(res)) or 'FEC'}</td>" if show_inst else ""
+            html.append("<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td>{3}<td class='col-gpa data-bold'>{4}</td><td class='col-award center'>{5}</td></tr>".format(
+                sl, res['Registration No'], res['Name'], inst_td, res['GPA'], scholarship
             ))
         html.append("</tbody></table></div></div>")
     
     # Block 3: CGPA Ranking List
     if valid_cgpa_results:
+        inst_th = "<th class='col-inst'>Inst</th>" if show_inst else ""
         html.append("<div class='report-block'><h2>Overall Batch CGPA Ranking</h2>")
-        html.append("<div class='table-container'><table><thead><tr><th class='col-sl'>Rank</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-cgpa'>CGPA</th></tr></thead><tbody>")
+        html.append(f"<div class='table-container'><table><thead><tr><th class='col-sl'>Rank</th><th class='col-reg'>Reg No</th><th>Name</th>{inst_th}<th class='col-cgpa'>CGPA</th></tr></thead><tbody>")
         for sl, item in enumerate(valid_cgpa_results, 1):
             res = item[1]
-            html.append("<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td><td class='col-cgpa data-bold'>{3}</td></tr>".format(
-                sl, res['Registration No'], res['Name'], res['CGPA']
+            inst_td = f"<td class='col-inst center'>{college_to_initials(_get_college(res)) or 'FEC'}</td>" if show_inst else ""
+            html.append("<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td>{3}<td class='col-cgpa data-bold'>{4}</td></tr>".format(
+                sl, res['Registration No'], res['Name'], inst_td, res['CGPA']
             ))
         html.append("</tbody></table></div></div>")
+
     
     html.append("</div></div>")
     return "".join(html)
