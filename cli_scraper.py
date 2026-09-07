@@ -107,6 +107,9 @@ global_backoff_until = 0
 # Compiled regular expressions for robust, zero-dependency HTML parsing
 PAT_PUB_DATE_1 = re.compile(r"(?:Publication\s*Date|Date\s*of\s*Publication|Result\s*Publish(?:ed)?(?:\s*Date)?|Published\s*(?:On|Date)?)[^\d]*?(\d{2}[-/\.]\d{2}[-/\.]\d{4}|\d{4}[-/\.]\d{2}[-/\.]\d{2})", re.I | re.S)
 PAT_PUB_DATE_2 = re.compile(r"(?:Date|Published)[^\d]*?(\d{2}[-/\.]\d{2}[-/\.]\d{4}|\d{4}[-/\.]\d{2}[-/\.]\d{2})", re.I | re.S)
+# Strict: requires "Student's Name" label — never matches "College Name" regardless of html order
+PAT_STUDENT_NAME_STRICT = re.compile(r"Student'?s?\s+Name\b.*?<td[^>]*>\s*(.*?)\s*</td>", re.I | re.S)
+# Fallback: old pattern (buggy with dotall lookahead but kept for edge-case portals)
 PAT_STUDENT_NAME = re.compile(r"(?:Student\'?s?\s*)?\bName\b(?!.*College).*?<td[^>]*>\s*(.*?)\s*</td>", re.I | re.S)
 PAT_STUDENT_NAME_FB = re.compile(r"(?:Student\'?s?\s+)?Name\s*[:\-]?\s*<[^>]+>\s*([^<]+)", re.I)
 PAT_GPA_CGPA = re.compile(r'(?:C\.?G\.?P\.?A\.?|G\.?P\.?A\.?|S\.?G\.?P\.?A\.?|Y\.?G\.?P\.?A\.?)[^\d]*([\d\.]+)', re.I)
@@ -502,9 +505,9 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
     pub_match = PAT_PUB_DATE_1.search(html) or PAT_PUB_DATE_2.search(html)
     if pub_match:
         info['Pub Date'] = pub_match.group(1)
-    
-    # Resilient Name Matching
-    name_match = PAT_STUDENT_NAME.search(html)
+
+    # Resilient Name Matching — strict first (requires 'Student's Name' label, avoids College Name)
+    name_match = PAT_STUDENT_NAME_STRICT.search(html) or PAT_STUDENT_NAME.search(html)
     if name_match:
         info['Name'] = PAT_TAGS.sub('', name_match.group(1)).strip()
     else:
