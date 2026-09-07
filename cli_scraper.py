@@ -673,6 +673,7 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         #cli-report-root .col-inst { width: 55px !important; text-align: center !important; font-weight: 700 !important; font-size: 11.5px !important; color: #444444 !important; }
         #cli-report-root .data-bold { font-weight: 700 !important; color: #000000 !important; }
         #cli-report-root .award-text { font-weight: 700 !important; color: #000000 !important; font-style: italic !important; }
+        #cli-report-root .fec-row td { background: #f5f7f0 !important; }
     </style>
     """
 
@@ -760,8 +761,10 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
             res = item[1]
             scholarship = "<span class='award-text'>Eligible</span>" if sl <= top_half_count else ""
             inst_td = f"<td class='col-inst center'>{college_to_initials(_get_college(res)) or 'FEC'}</td>" if show_inst else ""
-            html.append("<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td>{3}<td class='col-gpa data-bold'>{4}</td><td class='col-award center'>{5}</td></tr>".format(
-                sl, res['Registration No'], res['Name'], inst_td, res['GPA'], scholarship
+            is_fec = _get_college(res).lower() in (_FEC_LOWER, '') if show_inst else False
+            row_class = " class='fec-row'" if is_fec else ""
+            html.append("<tr{0}><td class='col-sl center'>{1}</td><td class='col-reg data-bold center'>{2}</td><td>{3}</td>{4}<td class='col-gpa data-bold'>{5}</td><td class='col-award center'>{6}</td></tr>".format(
+                row_class, sl, res['Registration No'], res['Name'], inst_td, res['GPA'], scholarship
             ))
         html.append("</tbody></table></div></div>")
     
@@ -773,10 +776,13 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         for sl, item in enumerate(valid_cgpa_results, 1):
             res = item[1]
             inst_td = f"<td class='col-inst center'>{college_to_initials(_get_college(res)) or 'FEC'}</td>" if show_inst else ""
-            html.append("<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold center'>{1}</td><td>{2}</td>{3}<td class='col-cgpa data-bold'>{4}</td></tr>".format(
-                sl, res['Registration No'], res['Name'], inst_td, res['CGPA']
+            is_fec = _get_college(res).lower() in (_FEC_LOWER, '') if show_inst else False
+            row_class = " class='fec-row'" if is_fec else ""
+            html.append("<tr{0}><td class='col-sl center'>{1}</td><td class='col-reg data-bold center'>{2}</td><td>{3}</td>{4}<td class='col-cgpa data-bold'>{5}</td></tr>".format(
+                row_class, sl, res['Registration No'], res['Name'], inst_td, res['CGPA']
             ))
         html.append("</tbody></table></div></div>")
+
 
     
     html.append("</div></div>")
