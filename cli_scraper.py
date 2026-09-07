@@ -118,6 +118,28 @@ PAT_TAGS = re.compile(r'<[^>]*>')
 PAT_SUBJECT_CODE = re.compile(r'^[A-Z]{2,6}[\-\s]*\d{3,4}[\*]*$', re.I)
 PAT_SUBJECT_GP = re.compile(r'^[\d\.]+$')
 PAT_SUBJECT_GRADE = re.compile(r'^[A-D][\+\-]?$|^\bF\b$|^\bI\b$|^\bW\b$', re.I)
+PAT_COLLEGE = re.compile(r'College\s*(?:Name)?\b.*?<td[^>]*>\s*(.*?)\s*</td>', re.I | re.S)
+
+_KNOWN_ABBR = {
+    'faridpur engineering college': 'FEC',
+    'national institute of textile engineering and research': 'NITER',
+    'dhaka university of engineering & technology': 'DUET',
+    'rajshahi university of engineering & technology': 'RUET',
+    'khulna university of engineering & technology': 'KUET',
+    'chittagong university of engineering & technology': 'CUET',
+}
+_ABBR_STOP = {'of', 'the', 'and', 'in', 'for', 'a', 'an', 'at', 'by', '&'}
+
+def college_to_initials(name):
+    """Return short abbreviation for an institution name (e.g. 'FEC', 'NITER')."""
+    if not name:
+        return '?'
+    lower = name.strip().lower()
+    if lower in _KNOWN_ABBR:
+        return _KNOWN_ABBR[lower]
+    words = re.sub(r'[^a-z\s]', ' ', lower).split()
+    abbr = ''.join(w[0].upper() for w in words if w not in _ABBR_STOP)
+    return abbr or '?'
 
 _stealth_lock = None
 
@@ -491,7 +513,14 @@ def fetch_student_result(reg_no, pro_id, sess_id, exam_id, target_college="all")
             info['Name'] = PAT_TAGS.sub('', name_fb.group(1)).strip()
         else:
             return "PARSING_ERROR (Name Not Found)", False
-        
+
+    # College / Institution extraction (for multi-college INST column)
+    college_match = PAT_COLLEGE.search(html)
+    if college_match:
+        info['College'] = PAT_TAGS.sub('', college_match.group(1)).strip()
+    else:
+        info['College'] = ''
+
     # Flexible GPA/CGPA Extraction
     gp_m = PAT_GPA_CGPA.findall(html)
     if gp_m:
@@ -638,6 +667,7 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         #cli-report-root .col-reg { width: 95px !important; text-align: center !important; font-weight: 700 !important; font-family: 'Courier New', monospace !important; color: #000000 !important; }
         #cli-report-root .col-res { width: 95px !important; text-align: center !important; color: #000000 !important; }
         #cli-report-root .col-gpa, #cli-report-root .col-cgpa { width: 70px !important; text-align: center !important; font-weight: 700 !important; color: #000000 !important; }
+        #cli-report-root .col-inst { width: 55px !important; text-align: center !important; font-weight: 700 !important; font-size: 11.5px !important; color: #444444 !important; }
         #cli-report-root .data-bold { font-weight: 700 !important; color: #000000 !important; }
         #cli-report-root .award-text { font-weight: 700 !important; color: #000000 !important; font-style: italic !important; }
     </style>
@@ -659,10 +689,28 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         else:
             main_list.append(r)
 
+    # Detect if multiple distinct institutions are present across both lists.
+    # FEC is the default; only show INST column when non-FEC colleges appear.
+    _FEC_LOWER = 'faridpur engineering college'
+    def _get_college(res):
+        c = res.get('College', '').strip()
+        if not c:
+            # Fallback: if Name looks like an institution (long, no spaces typical of a person), treat it as college
+            n = res.get('Name', '')
+            if len(n) > 30 and any(w in n.lower() for w in ('institute', 'college', 'university', 'engineering')):
+                return n
+        return c
+
+    all_colleges = {_get_college(r).lower() for r in (main_list + readd_list) if _get_college(r)}
+    non_fec = {c for c in all_colleges if c and c != _FEC_LOWER}
+    show_inst = bool(non_fec)  # Only show INST column when there are non-FEC colleges
+
     def render_results_table(data_list, title_text, is_readd=False):
         if not data_list: return ""
         sec_html = f"<h2>{title_text} ({len(data_list)})</h2>"
-        sec_html += "<div class='table-container'><table><thead><tr><th class='col-sl'>Sl</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-res'>Result</th><th class='col-gpa'>SGPA</th><th class='col-cgpa'>CGPA</th></tr></thead><tbody>"
+        # Build header
+        inst_th = "<th class='col-inst'>Inst</th>" if show_inst else ""
+        sec_html += f"<div class='table-container'><table><thead><tr><th class='col-sl'>Sl</th><th class='col-reg'>Reg No</th><th>Name</th>{inst_th}<th class='col-res'>Result</th><th class='col-gpa'>SGPA</th><th class='col-cgpa'>CGPA</th></tr></thead><tbody>"
         
         for sl, res in enumerate(data_list, 1):
             reg_val = str(res['Registration No'])
@@ -672,14 +720,17 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
             # Show session tag for re-adds
             reg_display = reg_val
             if is_readd:
-                 reg_display = f"{reg_val} <small style='font-size:0.8em;'>[{s_id_final}]</small>"
+                reg_display = f"{reg_val} <small style='font-size:0.8em;'>[{s_id_final}]</small>"
 
-            if pro_id and sess_id:
-                # Removed <a> tag to eliminate underlines for PDF professional look
-                name_display = res['Name']
-                
-            sec_html += "<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold'>{1}</td><td>{2}</td><td class='col-res center'>{3}</td><td class='col-gpa data-bold'>{4}</td><td class='col-cgpa data-bold'>{5}</td></tr>".format(
-                sl, reg_display, name_display, res['Overall Result'], res['GPA'], res['CGPA']
+            # Build INST cell
+            inst_td = ""
+            if show_inst:
+                college_raw = _get_college(res)
+                abbr = college_to_initials(college_raw) if college_raw else 'FEC'
+                inst_td = f"<td class='col-inst center'>{abbr}</td>"
+
+            sec_html += "<tr><td class='col-sl center'>{0}</td><td class='col-reg data-bold'>{1}</td><td>{2}</td>{3}<td class='col-res center'>{4}</td><td class='col-gpa data-bold'>{5}</td><td class='col-cgpa data-bold'>{6}</td></tr>".format(
+                sl, reg_display, name_display, inst_td, res['Overall Result'], res['GPA'], res['CGPA']
             )
         sec_html += "</tbody></table></div>"
         return sec_html
