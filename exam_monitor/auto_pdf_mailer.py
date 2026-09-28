@@ -71,19 +71,18 @@ def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
     for p_name, p_data in sorted_candidates:
         sess_id = str(p_data.get("sess_id"))
         regs_raw = p_data.get("regs", [])
-        
-        # Pick up to 5 evenly distributed registration numbers to test
+        is_provisional = bool(p_data.get("is_provisional"))
+
+        # Provisional profiles may have many absentees on first exam —
+        # probe more aggressively (up to 15 samples vs 5 for full profiles).
         std_regs = []
         for r in regs_raw:
-            if isinstance(r, (list, tuple)):
-                std_regs.append(str(r[0]))
-            else:
-                std_regs.append(str(r))
-                
-        if std_regs:
-            step = max(1, len(std_regs) // 5)
-            samples = std_regs[::step][:5]
-            
+            std_regs.append(str(r[0]) if isinstance(r, (list, tuple)) else str(r))
+
+        max_samples = len(std_regs) if is_provisional else 15
+        step = max(1, len(std_regs) // max_samples)
+        samples = std_regs[::step][:max_samples]
+
         for test_reg in samples:
             res_data, success = cs.fetch_student_result(test_reg, pro_id, sess_id, exam_id)
             # A profile 'owns' an exam if its students have valid results AND
