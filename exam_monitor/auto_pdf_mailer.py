@@ -95,6 +95,169 @@ def identify_batch_for_exam(pro_id, exam_name, exam_id=None):
     print(f"Empirical probe failed. No profiles contain results for this exam.")
     return None, None
 
+
+# Dept name → short prefix used in profile names
+_DEPT_PREFIX = {"12": "civil", "13": "eee", "14": "cse"}
+
+# Regex to detect a 1st-semester main exam (e.g. "1-1", "1st year 1st semester")
+_FIRST_SEM_PAT = re.compile(r'\b1[-\s]?1\b|\b1st\s+year\s+1st\s+sem', re.IGNORECASE)
+
+
+def _infer_new_batch_reg_range(newest_regs):
+    """Given the newest batch's reg list, extrapolate a candidate range for the next batch.
+
+    The DUCMC reg format is YYYYDNNNNN where YYYY = admission year.
+    We replace the 4-digit year prefix with the next year and return the same
+    suffix numbers, giving us a plausible probe range without any hardcoded magic.
+    ponytail: O(n) scan; fine for <=200 regs.
+    """
+    numeric_regs = []
+    for r in newest_regs:
+        raw = int(r[0]) if isinstance(r, (list, tuple)) else int(r)
+        numeric_regs.append(raw)
+    if not numeric_regs:
+        return []
+
+    # Extract the 4-digit year prefix from the smallest reg number
+    min_reg = min(numeric_regs)
+    reg_str = str(min_reg)
+    if len(reg_str) < 10:
+        return []  # old-style short regs — can't extrapolate by year
+
+    old_year = int(reg_str[:4])
+    new_year = old_year + 1
+    new_year_str = str(new_year)
+
+    candidate_regs = []
+    for reg in sorted(set(numeric_regs)):
+        suffix = str(reg)[4:]  # everything after the 4-digit year
+        candidate_regs.append(int(new_year_str + suffix))
+    return candidate_regs
+
+
+def discover_new_batch(pro_id, exam_id, profiles_path):
+    """Fallback for when no saved profile owns a new exam.
+
+    Attempts to find students in the *next* unregistered batch by:
+      1. Inferring the next sess_id and batch number from existing profiles.
+      2. Generating candidate reg numbers from the newest batch's range.
+      3. Probing a sample against the portal.
+      4. If confirmed, running a full scan, creating a provisional profile,
+         and returning (profile_name, p_data) ready for process_and_mail.
+
+    Returns (None, None) if the batch cannot be discovered.
+    """
+    try:
+        with open(profiles_path, "r") as f:
+            profiles = json.load(f)
+    except Exception as e:
+        print(f"  [NewBatch] Cannot read profiles: {e}")
+        return None, None
+
+    dept_prefix = _DEPT_PREFIX.get(str(pro_id))
+    if not dept_prefix:
+        print(f"  [NewBatch] Unknown pro_id {pro_id}.")
+        return None, None
+
+    # Find max batch number and max sess_id for this dept
+    max_batch = 0
+    max_sess = 0
+    newest_regs = []
+    for p_name, p_data in profiles.items():
+        if str(p_data.get("pro_id")) != str(pro_id):
+            continue
+        _, batch_num = _parse_profile_parts(p_name)
+        if batch_num is None:
+            continue
+        sess = int(p_data.get("sess_id", 0))
+        if batch_num > max_batch:
+            max_batch = batch_num
+            max_sess = sess
+            newest_regs = p_data.get("regs", [])
+
+    if max_batch == 0:
+        print("  [NewBatch] No existing profiles to extrapolate from.")
+        return None, None
+
+    new_batch = max_batch + 1
+    new_sess = str(max_sess + 1)
+    new_profile_name = f"{dept_prefix} {new_batch}"
+
+    print(f"  [NewBatch] No match found. Attempting to discover batch '{new_profile_name}' (sess={new_sess})...")
+
+    candidate_regs = _infer_new_batch_reg_range(newest_regs)
+    if not candidate_regs:
+        print("  [NewBatch] Cannot extrapolate reg range from newest batch (short-format regs).")
+        return None, None
+
+    print(f"  [NewBatch] Probing {len(candidate_regs)} candidate regs against exam {exam_id}...")
+
+    # Probe a sample first (up to 10 evenly spaced) to confirm the batch exists
+    step = max(1, len(candidate_regs) // 10)
+    probe_sample = candidate_regs[::step][:10]
+    confirmed = False
+    for test_reg in probe_sample:
+        res_data, success = cs.fetch_student_result(str(test_reg), pro_id, new_sess, exam_id)
+        if success and isinstance(res_data, dict) and len(res_data.get('Subjects', [])) >= 4:
+            confirmed = True
+            print(f"  [NewBatch] Confirmed! Reg {test_reg} has results under sess {new_sess}.")
+            break
+
+    if not confirmed:
+        print(f"  [NewBatch] Probe failed — no results found for '{new_profile_name}' in exam {exam_id}.")
+        return None, None
+
+    # Full scan of all candidate regs
+    print(f"  [NewBatch] Running full scan of {len(candidate_regs)} candidates...")
+    scan_tasks = [(reg, new_sess, str(exam_id)) for reg in candidate_regs]
+    cs.fetch_programs_and_sessions()
+    results = cs.run_batch_scan_engine(
+        tasks=scan_tasks, pro_id=pro_id, exam_id=exam_id,
+        target_college="all", num_threads=10
+    )
+
+    found_regs = []
+    for r in results:
+        if r.get('Subjects') and len(r['Subjects']) >= 4:
+            reg = int(r.get('Registration No', r.get('Reg', 0)))
+            name = str(r.get('Name', 'Unknown'))
+            found_regs.append([reg, new_sess, name])
+
+    if not found_regs:
+        print(f"  [NewBatch] Full scan returned no valid students for '{new_profile_name}'.")
+        return None, None
+
+    print(f"  [NewBatch] Discovered {len(found_regs)} students. Creating provisional profile '{new_profile_name}'...")
+
+    # Persist provisional profile to saved_profiles.json
+    profiles[new_profile_name] = {
+        "pro_id": str(pro_id),
+        "sess_id": new_sess,
+        "regs": found_regs,
+        "is_provisional": True
+    }
+    try:
+        with _file_write_lock:
+            with open(profiles_path, "w") as f:
+                json.dump(profiles, f, indent=2)
+        print(f"  [NewBatch] Saved provisional profile '{new_profile_name}' to saved_profiles.json.")
+    except Exception as e:
+        print(f"  [NewBatch] WARNING: Failed to persist profile: {e}")
+
+    # Also persist to DB (v2 branch)
+    try:
+        import database as db
+        db.save_provisional_profile(
+            new_profile_name, str(pro_id), new_sess,
+            [[r[0], r[2]] for r in found_regs]  # (reg_no, name) tuples
+        )
+        print(f"  [NewBatch] Saved provisional profile '{new_profile_name}' to analytics DB.")
+    except Exception as e:
+        print(f"  [NewBatch] DB persist skipped (non-critical): {e}")
+
+    p_data = profiles[new_profile_name]
+    return new_profile_name, p_data
+
 def send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name):
     smtp_user = os.getenv("EMAIL_USER")
     smtp_pass = os.getenv("EMAIL_PASS")
@@ -322,8 +485,19 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     
     profile_name, p_data = identify_batch_for_exam(pro_id, exam_name, exam_id=exam_id)
     if not p_data:
-        print(f"No matching automated batch profile found for {exam_name}.")
-        return False
+        # For a brand-new batch's first-semester exam no saved profile exists yet.
+        # Attempt to discover and provision the new batch from the portal.
+        if _FIRST_SEM_PAT.search(exam_name):
+            print(f"  -> 1st-semester pattern detected. Attempting new batch discovery...")
+            profiles_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "saved_profiles.json"
+            )
+            profile_name, p_data = discover_new_batch(pro_id, exam_id, profiles_path)
+
+        if not p_data:
+            print(f"No matching automated batch profile found for {exam_name}. Workflow cannot continue.")
+            return False
         
     print(f"Target Profile Locked: {profile_name}")
     
