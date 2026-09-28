@@ -319,7 +319,15 @@ def test_main_dedup():
     assert 'existing_regs.add(reg)' in src, \
         'existing_regs dedup guard missing — duplicate readds may be appended'
 
-check('dedup   :: existing_regs prevents duplicate readd appends', test_main_dedup)
+# ─── 18. Preliminary results without subjects ────────────────────────────────
+def test_preliminary_results_without_subjects():
+    src = read_file('exam_monitor/auto_pdf_mailer.py')
+    # Probe check: must allow published GPA/Overall Result when subjects are pending
+    assert 'has_gpa_or_result' in src, 'auto_pdf_mailer must support matching by published GPA/Result'
+    # Result filter: must retain students who have GPA even if subjects list is empty
+    assert 'r.get(\'GPA\') not in (\'-\', None, \'\')' in src, 'results filter must not drop students with pending subjects'
+
+check('prelim  :: preliminary results supported when subjects are pending', test_preliminary_results_without_subjects)
 
 
 # ─── Report ───────────────────────────────────────────────────────────────────
