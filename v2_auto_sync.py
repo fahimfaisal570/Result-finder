@@ -30,18 +30,13 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
                     subject_freq[code] = subject_freq.get(code, 0) + 1
 
     if valid_student_count == 0:
-        print("  [Readd] No regular students with full results to build reference. Skipping.")
-        return []
-
-    # Reference = subject codes taken by >=30% of valid regular students
-    min_freq = max(1, valid_student_count * 0.3)
-    reference_codes = {code for code, count in subject_freq.items() if count >= min_freq}
-
-    if not reference_codes:
-        print("  [Readd] Could not build reference subject set. Skipping.")
-        return []
-
-    print(f"  [Readd] Reference fingerprint: {len(reference_codes)} subjects from {valid_student_count} regular students")
+        print("  [Readd] Regular students have no subject breakdown yet (preliminary results mode).")
+        reference_codes = set()
+    else:
+        # Reference = subject codes taken by >=30% of valid regular students
+        min_freq = max(1, valid_student_count * 0.3)
+        reference_codes = {code for code, count in subject_freq.items() if count >= min_freq}
+        print(f"  [Readd] Reference fingerprint: {len(reference_codes)} subjects from {valid_student_count} regular students")
 
     # Build set of regs already covered (profile roster + current results)
     existing_regs = db.get_profile_student_regs(profile_name)
@@ -91,26 +86,33 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
     # --- Step 4: Subject-overlap ghost filter ---
     filtered_readds = []
     for r in readd_results:
-        subjects = r.get('Subjects', [])
-        if len(subjects) < 4:
-            continue
-
-        candidate_codes = {s.get('code', '').strip() for s in subjects if s.get('code', '').strip()}
-        overlap = candidate_codes & reference_codes
-        overlap_ratio = len(overlap) / len(reference_codes) if reference_codes else 0
-
         reg = r.get('Registration No', r.get('Reg', '?'))
         name = r.get('Name', 'Unknown')
+        subjects = r.get('Subjects', [])
 
-        candidate_subject_count = len(candidate_codes)
-        reference_subject_count = len(reference_codes)
-        subject_load_ratio = candidate_subject_count / reference_subject_count if reference_subject_count else 0
+        if reference_codes:
+            if len(subjects) < 4:
+                continue
 
-        if overlap_ratio >= 0.5 and subject_load_ratio >= 0.7:
-            filtered_readds.append(r)
-            print(f"    [READD] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%})")
+            candidate_codes = {s.get('code', '').strip() for s in subjects if s.get('code', '').strip()}
+            overlap = candidate_codes & reference_codes
+            overlap_ratio = len(overlap) / len(reference_codes) if reference_codes else 0
+
+            candidate_subject_count = len(candidate_codes)
+            reference_subject_count = len(reference_codes)
+            subject_load_ratio = candidate_subject_count / reference_subject_count if reference_subject_count else 0
+
+            if overlap_ratio >= 0.5 and subject_load_ratio >= 0.7:
+                filtered_readds.append(r)
+                print(f"    [READD] {name} ({reg}) - {len(overlap)}/{len(reference_codes)} subject overlap ({overlap_ratio:.0%})")
+            else:
+                print(f"    [IMPROVEMENT GUEST / GHOST] {name} ({reg}) - {candidate_subject_count}/{reference_subject_count} subjects ({subject_load_ratio:.0%} load), {overlap_ratio:.0%} overlap -> skipped")
         else:
-            print(f"    [IMPROVEMENT GUEST / GHOST] {name} ({reg}) - {candidate_subject_count}/{reference_subject_count} subjects ({subject_load_ratio:.0%} load), {overlap_ratio:.0%} overlap -> skipped")
+            # Subjects pending: accept senior students with confirmed GPA or overall status in main exam
+            has_valid = (r.get('GPA') not in ('-', None, '')) or (r.get('Overall Result') not in ('-', 'Unknown', None, ''))
+            if has_valid:
+                filtered_readds.append(r)
+                print(f"    [READD-PRELIMINARY] {name} ({reg}) - confirmed in main exam (grades pending)")
     
     readd_results = filtered_readds
 
