@@ -128,6 +128,10 @@ else: # Saved Profiles Mode
         st.write("Create a provisional batch without portal results.")
         PROFILE_NAME_PATTERN = re.compile(r'^(cse|eee|civil)\s+\d+$', re.IGNORECASE)
         
+        if st.session_state.pop("clear_prov_inputs", False):
+            st.session_state.prov_name_input = ""
+            st.session_state.prov_regs_input = ""
+
         prov_name = st.text_input("Profile Name (e.g. cse 12)", placeholder="cse 12", key="prov_name_input")
         
         # Programs & Sessions
@@ -159,8 +163,7 @@ else: # Saved Profiles Mode
                     parsed_regs = list(dict.fromkeys(parsed_regs))
                     db.save_provisional_profile(prov_name.lower().strip(), pro_id_prov, sess_id_prov, [(r,) for r in parsed_regs])
                     cs.batch_manager.save_provisional_to_json(prov_name.lower().strip(), pro_id_prov, sess_id_prov, parsed_regs)
-                    st.session_state.prov_name_input = ""
-                    st.session_state.prov_regs_input = ""
+                    st.session_state.clear_prov_inputs = True
                     st.success(f"Provisional batch '{prov_name}' created!")
                     st.cache_data.clear()
                     time.sleep(1)
