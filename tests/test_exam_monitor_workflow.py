@@ -87,9 +87,10 @@ def test_lock_sites():
     src = read_file('exam_monitor/auto_pdf_mailer.py')
     assert '_file_write_lock = threading.Lock()' in src, 'lock declaration missing'
     sites = src.count('with _file_write_lock:')
-    assert sites == 2, f'expected 2 lock sites, found {sites}'
+    # 3 write sites: readd persistence, provisional promotion, sync task queuing
+    assert sites == 3, f'expected 3 lock sites, found {sites}'
 
-check('lock    :: 2 write sites guarded in auto_pdf_mailer', test_lock_sites)
+check('lock    :: 3 write sites guarded in auto_pdf_mailer', test_lock_sites)
 
 
 # ─── 3. threading import present in auto_pdf_mailer ──────────────────────────
@@ -299,6 +300,16 @@ def test_crossbranch_schema():
 
 check('contract :: v2_sync_tasks.json schema matches main<->v2', test_crossbranch_schema)
 
+# 4. Sync file path matching
+def test_sync_file_path():
+    main_src = read_file('exam_monitor/auto_pdf_mailer.py')
+    assert 'v2_sync_tasks.json' in main_src, 'auto_pdf_mailer missing v2_sync_tasks.json'
+    # auto_pdf_mailer writes the sync file with a bare relative path; GitHub Actions
+    # runs from repo root so the file lands in the right place.
+    assert 'sync_file = "v2_sync_tasks.json"' in main_src, 'auto_pdf_mailer should write sync file as bare relative path'
+
+check('filepath :: auto_pdf_mailer writes v2_sync_tasks.json in repo root for Actions step', test_sync_file_path)
+
 
 # ─── 13. v2 readd: uses db layer (not raw JSON writes) ───────────────────────
 
@@ -310,6 +321,16 @@ def test_v2_uses_db():
         'v2 not saving readd analytics to DB'
 
 check('v2      :: readd persistence uses db layer (not raw JSON)', test_v2_uses_db)
+
+# 5. Hybrid profile fallback in auto_pdf_mailer.py
+def test_hybrid_profiles():
+    main_src = read_file('exam_monitor/auto_pdf_mailer.py')
+    assert 'saved_profiles.json' in main_src, 'auto_pdf_mailer missing saved_profiles.json support for main branch'
+    # On main branch, auto_pdf_mailer reads from saved_profiles.json directly (not DB);
+    # it now also updates it during promotion (is_provisional → False, archived_regs).
+    assert 'archived_regs' in main_src, 'auto_pdf_mailer missing archived_regs promotion logic'
+
+check('hybrid   :: auto_pdf_mailer supports both saved_profiles.json and archived_regs promotion', test_hybrid_profiles)
 
 
 # ─── 14. main readd: existing_regs dedup guard present ───────────────────────
@@ -325,9 +346,27 @@ def test_preliminary_results_without_subjects():
     # Probe check: must allow published GPA/Overall Result when subjects are pending
     assert 'has_gpa_or_result' in src, 'auto_pdf_mailer must support matching by published GPA/Result'
     # Result filter: must retain students who have GPA even if subjects list is empty
-    assert 'r.get(\'GPA\') not in (\'-\', None, \'\')' in src, 'results filter must not drop students with pending subjects'
+    assert "r.get('GPA') not in ('-', None, '')" in src, 'results filter must not drop students with pending subjects'
 
 check('prelim  :: preliminary results supported when subjects are pending', test_preliminary_results_without_subjects)
+
+
+# ─── 19. Provisional promotion: name resolution + absent student archiving ───
+
+def test_provisional_promotion_logic():
+    main_src = read_file('exam_monitor/auto_pdf_mailer.py')
+    v2_src   = git_show('origin/v2:v2_auto_sync.py')
+    # main branch: saves found names, archives absents, flips is_provisional in JSON
+    assert 'archived_regs' in main_src, 'auto_pdf_mailer missing archived_regs archiving'
+    assert '["is_provisional"] = False' in main_src, \
+        'auto_pdf_mailer does not flip is_provisional=False on promotion'
+    assert 'found_names' in main_src, 'auto_pdf_mailer missing found_names in sync task payload'
+    # v2 branch: reads found_names, updates student names in DB, archives absents
+    assert 'found_names' in v2_src, 'v2_auto_sync missing found_names from sync task'
+    assert 'archive_absent_students' in v2_src, 'v2_auto_sync missing archive_absent_students call'
+    assert 'update_student_name' in v2_src, 'v2_auto_sync missing update_student_name call'
+
+check('promotion:: provisional→main sets real names + archives absent students', test_provisional_promotion_logic)
 
 
 # ─── Report ───────────────────────────────────────────────────────────────────
@@ -355,7 +394,6 @@ def _report():
     print(f'  RESULT: {passed}/{total} passed  |  {verdict}')
     print('=' * 65)
     return all_ok
-
 
 if __name__ == '__main__':
     ok = _report()
