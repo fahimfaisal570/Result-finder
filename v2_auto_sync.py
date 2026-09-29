@@ -211,10 +211,29 @@ def main():
             db.save_exam_analytics_only(profile_name, exam_id, exam_name, results)
             print("Save complete.")
 
-            # Auto-promote provisional profiles (V2 branch)
+            # Auto-promote provisional profiles (V2 branch) with name resolution + archiving
+            was_provisional = task.get("was_provisional", False)
             try:
                 p_meta = db.get_profiles()
-                if p_meta.get(profile_name, {}).get('is_provisional'):
+                if p_meta.get(profile_name, {}).get('is_provisional') or was_provisional:
+                    # Update names from the found_names map produced by auto_pdf_mailer
+                    found_names = task.get("found_names", {})  # {reg_no(int): name}
+                    if found_names:
+                        for reg_no, name in found_names.items():
+                            if name and name != "Unknown":
+                                db.update_student_name(profile_name, int(reg_no), name,
+                                                       str(p_meta.get(profile_name, {}).get('sess_id', 'AUTO')))
+                        print(f"  [Promotion] Updated names for {len(found_names)} students in DB.")
+
+                    # Archive students who didn't appear in this exam
+                    found_reg_set = set(found_names.keys()) if found_names else {
+                        int(r.get('Registration No', r.get('Reg', 0))) for r in results
+                        if int(r.get('Registration No', r.get('Reg', 0))) > 0
+                    }
+                    archived = db.archive_absent_students(profile_name, found_reg_set)
+                    if archived:
+                        print(f"  [Promotion] Archived {len(archived)} absent students in DB.")
+
                     db.promote_provisional_profile(profile_name)
                     print(f"  [Promotion] '{profile_name}' promoted from provisional to full (V2 branch).")
             except Exception as e:

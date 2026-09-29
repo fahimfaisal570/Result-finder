@@ -78,7 +78,9 @@ check('contract :: v2_sync_tasks.json schema matches auto_pdf_mailer<->v2_auto_s
 def test_sync_file_path():
     main_src = read_file('exam_monitor/auto_pdf_mailer.py')
     assert 'v2_sync_tasks.json' in main_src, 'auto_pdf_mailer missing v2_sync_tasks.json'
-    assert 'repo_root' in main_src, 'auto_pdf_mailer should write to repo_root for GitHub Actions step'
+    # auto_pdf_mailer writes the sync file with a bare relative path; GitHub Actions
+    # runs from repo root so the file lands in the right place.
+    assert 'sync_file = "v2_sync_tasks.json"' in main_src, 'auto_pdf_mailer should write sync file as bare relative path'
 
 check('filepath :: auto_pdf_mailer writes v2_sync_tasks.json in repo root for Actions step', test_sync_file_path)
 
@@ -86,9 +88,11 @@ check('filepath :: auto_pdf_mailer writes v2_sync_tasks.json in repo root for Ac
 def test_hybrid_profiles():
     main_src = read_file('exam_monitor/auto_pdf_mailer.py')
     assert 'saved_profiles.json' in main_src, 'auto_pdf_mailer missing saved_profiles.json support for main branch'
-    assert 'db.get_profiles()' in main_src, 'auto_pdf_mailer missing db.get_profiles() fallback for v2 branch'
+    # On main branch, auto_pdf_mailer reads from saved_profiles.json directly (not DB);
+    # it now also updates it during promotion (is_provisional → False, archived_regs).
+    assert 'archived_regs' in main_src, 'auto_pdf_mailer missing archived_regs promotion logic'
 
-check('hybrid   :: auto_pdf_mailer supports both saved_profiles.json and db.get_profiles', test_hybrid_profiles)
+check('hybrid   :: auto_pdf_mailer supports both saved_profiles.json and archived_regs promotion', test_hybrid_profiles)
 
 # 6. API signature contract: fetch_student_result requires 4 positional args
 def test_fetch_student_result_signature():
@@ -98,6 +102,45 @@ def test_fetch_student_result_signature():
     assert 'cs.fetch_student_result(test_reg, pro_id, sess_id, exam_id)' in mailer_src, 'auto_pdf_mailer has malformed fetch_student_result call'
 
 check('signature:: fetch_student_result callers pass all 4 positional parameters', test_fetch_student_result_signature)
+
+def _report():
+    print('\n' + '=' * 65)
+    print('  EXAM MONITOR WORKFLOW - INTEGRATION SMOKE TEST')
+    print('=' * 65)
+    all_ok = True
+    for r in RESULTS:
+        status, name = r[0], r[1]
+        detail = r[2] if len(r) > 2 else ''
+        icon = '[OK]  ' if status == 'OK' else '[FAIL]'
+        print(f'{icon}  {name}')
+        if detail:
+            print(f'            => {detail}')
+        if status != 'OK':
+            all_ok = False
+
+    print('=' * 65)
+    total = len(RESULTS)
+    passed = sum(1 for r in RESULTS if r[0] == 'OK')
+    verdict = 'ALL CHECKS PASSED' if all_ok else 'FAILURES DETECTED'
+    print(f'  RESULT: {passed}/{total} passed  |  {verdict}')
+    print('=' * 65)
+    return all_ok
+
+# 7. Provisional promotion: name resolution + absent student archiving
+def test_provisional_promotion_logic():
+    main_src = read_file('exam_monitor/auto_pdf_mailer.py')
+    v2_src   = read_file('v2_auto_sync.py')
+    # main branch: saves found names, archives absents, flips is_provisional in JSON
+    assert 'archived_regs' in main_src, 'auto_pdf_mailer missing archived_regs archiving'
+    assert 'is_provisional' in main_src and '["is_provisional"] = False' in main_src, \
+        'auto_pdf_mailer does not flip is_provisional=False on promotion'
+    assert 'found_names' in main_src, 'auto_pdf_mailer missing found_names in sync task payload'
+    # v2 branch: reads found_names, updates student names in DB, archives absents
+    assert 'found_names' in v2_src, 'v2_auto_sync missing found_names from sync task'
+    assert 'archive_absent_students' in v2_src, 'v2_auto_sync missing archive_absent_students call'
+    assert 'update_student_name' in v2_src, 'v2_auto_sync missing update_student_name call'
+
+check('promotion:: provisional→main sets real names + archives absent students', test_provisional_promotion_logic)
 
 def _report():
     print('\n' + '=' * 65)

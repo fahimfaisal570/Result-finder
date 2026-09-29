@@ -371,13 +371,54 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     
     print(f"Filtered to {len(results)} participating students.")
 
-    # --- Readd Detection Phase (Subject-Overlap Fingerprinting) ---
     profiles_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "saved_profiles.json"
     )
-    with open(profiles_path, "r") as f:
-        all_profiles = json.load(f)
+
+    # --- Provisional → Main Batch Promotion (name resolution + absent archiving) ---
+    # Only runs when the matched profile is currently provisional.
+    if p_data.get("is_provisional"):
+        # Build reg→name map from portal results
+        name_map = {
+            int(r.get('Registration No', r.get('Reg', 0))): str(r.get('Name', r.get('Student Name', 'Unknown')))
+            for r in results
+            if int(r.get('Registration No', r.get('Reg', 0))) > 0
+        }
+        found_reg_set = set(name_map.keys())
+
+        # Separate the provisional roster into found vs absent
+        found_regs, archived_regs = [], []
+        for item in p_data.get("regs", []):
+            reg = int(item[0]) if isinstance(item, list) else int(item)
+            sess = str(item[1]) if isinstance(item, list) else str(sess_id)
+            if reg in found_reg_set:
+                found_regs.append([reg, sess, name_map[reg]])
+            else:
+                archived_regs.append([reg, sess, "Unknown"])
+
+        # Carry forward any already-archived regs from previous partial runs
+        archived_regs = p_data.get("archived_regs", []) + archived_regs
+
+        print(f"  [Promotion] Found {len(found_regs)} students, archiving {len(archived_regs)} absent regs.")
+
+        with _file_write_lock:
+            with open(profiles_path, "r") as f:
+                all_profiles_fresh = json.load(f)
+            all_profiles_fresh[profile_name]["regs"] = found_regs
+            all_profiles_fresh[profile_name]["archived_regs"] = archived_regs
+            all_profiles_fresh[profile_name]["is_provisional"] = False
+            with open(profiles_path, "w") as f:
+                json.dump(all_profiles_fresh, f, indent=2)
+            # Refresh local reference so readd detection uses updated roster
+            all_profiles = all_profiles_fresh
+        print(f"  [Promotion] '{profile_name}' promoted in saved_profiles.json with real student names.")
+
+    # --- Readd Detection Phase (Subject-Overlap Fingerprinting) ---
+    # (all_profiles already loaded above — reuse it; read fresh only if not provisional path)
+    if not p_data.get("is_provisional"):
+        with open(profiles_path, "r") as f:
+            all_profiles = json.load(f)
         
     readd_results, readd_info = detect_readds_main_branch(
         all_profiles, profile_name, pro_id, exam_id, results
@@ -416,11 +457,19 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     
     # --- ADDED FOR V2 SYNC CROSS-BRANCH WORKFLOW ---
     sync_file = "v2_sync_tasks.json"
+    # Pass found_names so v2_auto_sync can update student names in DB without rescanning
+    found_names = {
+        int(r.get('Registration No', r.get('Reg', 0))): str(r.get('Name', r.get('Student Name', 'Unknown')))
+        for r in results
+        if int(r.get('Registration No', r.get('Reg', 0))) > 0
+    } if p_data.get("is_provisional") else {}
     task_data = {
         "pro_id": pro_id,
         "exam_id": exam_id,
         "exam_name": exam_name,
-        "profile_name": profile_name
+        "profile_name": profile_name,
+        "was_provisional": bool(p_data.get("is_provisional")),
+        "found_names": found_names,  # reg_no(str) → name, for v2 DB name update
     }
     
     try:

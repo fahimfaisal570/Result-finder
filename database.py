@@ -687,7 +687,8 @@ def profile_exists(profile_name: str) -> bool:
         return cur.fetchone() is not None
 
 def get_profiles() -> dict:
-    """Returns dict keyed by profile name, compatible with legacy app.py usage."""
+    """Returns dict keyed by profile name, compatible with legacy app.py usage.
+    Active (non-archived) students go into 'regs'; archived ones go into 'archived_regs'."""
     profiles = {}
     try:
         with get_connection() as conn:
@@ -703,17 +704,22 @@ def get_profiles() -> dict:
                     "sess_id": sess_id,
                     "timestamp": ts,
                     "regs": [],
+                    "archived_regs": [],
                     "is_provisional": bool(is_prov),
                     "batch_source": b_source or 'portal',
                 }
             if profiles:
-                # Retrieve all students in a single query
+                # is_archived column added in v7; COALESCE handles older DBs gracefully
                 stu_cur = conn.execute(
-                    "SELECT profile_name, reg_no, sess_id, name FROM students"
+                    "SELECT profile_name, reg_no, sess_id, name, COALESCE(is_archived, 0) FROM students"
                 )
-                for p_name, reg_no, sess_id, name in stu_cur.fetchall():
+                for p_name, reg_no, sess_id, name, is_archived in stu_cur.fetchall():
                     if p_name in profiles:
-                        profiles[p_name]["regs"].append([reg_no, sess_id, name])
+                        entry = [reg_no, sess_id, name]
+                        if is_archived:
+                            profiles[p_name]["archived_regs"].append(entry)
+                        else:
+                            profiles[p_name]["regs"].append(entry)
     except Exception as e:
         logger.error("get_profiles error: %s", e)
     return profiles
@@ -2451,13 +2457,15 @@ def get_senior_batch_profiles(profile_name: str) -> dict:
     return senior
 
 
-def get_profile_student_regs(profile_name: str) -> set:
-    """Returns the set of registration numbers currently in a profile."""
+def get_profile_student_regs(profile_name: str, include_archived: bool = False) -> set:
+    """Returns the set of registration numbers currently in a profile.
+    By default excludes archived (absent-on-first-exam) students."""
     regs = set()
     with get_connection() as conn:
-        cur = conn.execute(
-            "SELECT reg_no FROM students WHERE profile_name=?", (profile_name,)
-        )
+        sql = "SELECT reg_no FROM students WHERE profile_name=?"
+        if not include_archived:
+            sql += " AND COALESCE(is_archived, 0) = 0"
+        cur = conn.execute(sql, (profile_name,))
         for row in cur.fetchall():
             regs.add(int(row[0]))
     return regs
@@ -2953,8 +2961,48 @@ def migrate_schema_v6():
         conn.commit()
     logger.info("Schema v6 migration complete.")
 
-_CURRENT_SCHEMA_VERSION = 6
+_CURRENT_SCHEMA_VERSION = 7
 _bootstrapped = False
+
+def migrate_schema_v7():
+    """Adds is_archived column to students for provisional → main promotion tracking.
+    Archived students (absent on first exam) stay in the DB so the workflow can
+    detect them in future exams as late joiners or readds."""
+    with get_connection() as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(students)").fetchall()]
+        if 'is_archived' not in cols:
+            conn.execute("ALTER TABLE students ADD COLUMN is_archived INTEGER DEFAULT 0")
+        conn.commit()
+    logger.info("Schema v7 migration complete.")
+
+
+def update_student_name(profile_name: str, reg_no: int, name: str, sess_id: str):
+    """Updates the name of an existing student (e.g. 'Unknown' → real name from portal)."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE students SET name=? WHERE profile_name=? AND reg_no=? AND sess_id=?",
+            (name, profile_name, int(reg_no), str(sess_id or 'AUTO'))
+        )
+        conn.commit()
+
+
+def archive_absent_students(profile_name: str, found_regs: set) -> set:
+    """Marks students in profile who are NOT in found_regs as is_archived=1.
+    Returns the set of archived reg_nos."""
+    with get_connection() as conn:
+        all_regs = {
+            int(r[0]) for r in
+            conn.execute("SELECT reg_no FROM students WHERE profile_name=? AND is_archived=0", (profile_name,)).fetchall()
+        }
+        absent = all_regs - {int(r) for r in found_regs}
+        if absent:
+            conn.execute(
+                f"UPDATE students SET is_archived=1 WHERE profile_name=? AND reg_no IN ({','.join('?'*len(absent))})",
+                (profile_name, *absent)
+            )
+            conn.commit()
+        return absent
+
 
 def _bootstrap():
     global _bootstrapped
@@ -2978,6 +3026,7 @@ def _bootstrap():
     if current_v < 4: migrate_schema_v4()
     if current_v < 5: migrate_schema_v5()
     if current_v < 6: migrate_schema_v6()
+    if current_v < 7: migrate_schema_v7()
 
     if current_v < _CURRENT_SCHEMA_VERSION:
         set_meta_cache("schema_version", _CURRENT_SCHEMA_VERSION)
