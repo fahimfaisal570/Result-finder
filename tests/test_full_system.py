@@ -18,6 +18,8 @@ db.migrate_schema_v2()
 db.migrate_schema_v3()
 db.migrate_schema_v4()
 db.migrate_schema_v5()
+db.migrate_schema_v6()
+db.migrate_schema_v7()
 
 import cli_scraper as cs
 

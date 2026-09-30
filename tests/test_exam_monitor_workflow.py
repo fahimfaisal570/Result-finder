@@ -142,6 +142,27 @@ def test_provisional_promotion_logic():
 
 check('promotion:: provisional→main sets real names + archives absent students', test_provisional_promotion_logic)
 
+def test_scholarship_rules():
+    import cli_scraper as cs
+    results = [
+        {'Registration No': 1, 'Name': 'Student 1', 'Overall Result': 'Passed', 'GPA': '3.80', 'CGPA': '3.80', 'Subjects': [{'code': 'C1', 'grade': 'A', 'gp': '3.75'}]},
+        {'Registration No': 2, 'Name': 'Student 2', 'Overall Result': 'Passed', 'GPA': '3.50', 'CGPA': '3.50', 'Subjects': [{'code': 'C1', 'grade': 'F', 'gp': '0.00'}]},
+        {'Registration No': 3, 'Name': 'Student 3', 'Overall Result': 'Passed', 'GPA': '3.20', 'CGPA': '3.20', 'Subjects': [{'code': 'C1', 'grade': 'B', 'gp': '3.00'}]},
+        {'Registration No': 4, 'Name': 'Student 4', 'Overall Result': 'Passed', 'GPA': '3.20', 'CGPA': '3.20', 'Subjects': [{'code': 'C1', 'grade': 'B', 'gp': '3.00'}]},
+        {'Registration No': 5, 'Name': 'Student 5', 'Overall Result': 'Passed', 'GPA': '2.80', 'CGPA': '2.80', 'Subjects': [{'code': 'C1', 'grade': 'C', 'gp': '2.25'}]},
+    ]
+    html = cs.generate_html_report(results, "Test Exam")
+    # Top-half cutoff is (5+1)//2 = 3. Boundary GPA is 3.20.
+    # Student 1 (3.80, no F) -> Eligible
+    # Student 2 (3.50, has F) -> Ineligible (disqualified)
+    # Student 3 (3.20, no F) -> Eligible
+    # Student 4 (3.20, no F, rank 4 tied with boundary) -> Eligible
+    # Student 5 (2.80, below boundary) -> Ineligible
+    cnt = html.count("<span class='award-text'>Eligible</span>")
+    assert cnt == 3, f"Expected 3 eligible students, found {cnt}"
+
+check('scholarship:: F disqualifies and boundary tie rule awards eligible', test_scholarship_rules)
+
 def _report():
     print('\n' + '=' * 65)
     print('  EXAM MONITOR WORKFLOW - INTEGRATION SMOKE TEST')

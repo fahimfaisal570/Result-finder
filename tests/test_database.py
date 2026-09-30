@@ -22,6 +22,8 @@ database.migrate_schema_v2()
 database.migrate_schema_v3()
 database.migrate_schema_v4()
 database.migrate_schema_v5()
+database.migrate_schema_v6()
+database.migrate_schema_v7()
 
 PROFILE = "test_profile"
 PRO_ID  = "99"
