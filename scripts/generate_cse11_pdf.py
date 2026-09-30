@@ -38,10 +38,10 @@ def generate_html(results):
         [(float(r['GPA']), r) for r in results if r.get('GPA', '-') not in ('-', '', None) and str(r['GPA']).replace('.', '').isdigit()],
         key=lambda x: x[0], reverse=True
     )
-    # F-grade disqualifies; tie-aware top-50% cutoff.
-    _sch_eligible_pool = [(gpa, r) for gpa, r in valid_gpa if not _has_f(r)]
-    top_half = (len(_sch_eligible_pool) + 1) // 2
-    _sch_boundary_gpa = _sch_eligible_pool[top_half - 1][0] if _sch_eligible_pool else None
+    # Scholarship: top-50% cutoff is on ALL participants (including F-grade students);
+    # F-grade disqualifies from receiving it; tie rule extends to all at the boundary GPA.
+    top_half = (len(valid_gpa) + 1) // 2
+    _sch_boundary_gpa = valid_gpa[top_half - 1][0] if valid_gpa else None
 
     valid_cgpa = sorted(
         [(float(r['CGPA']), r) for r in results if r.get('CGPA', '-') not in ('-', '', None) and str(r['CGPA']).replace('.', '').isdigit()],
