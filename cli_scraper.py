@@ -626,11 +626,10 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
             valid_gpa_results.append((gpa, res))
         except (ValueError, TypeError): pass
     valid_gpa_results.sort(key=lambda x: x[0], reverse=True)
-    # Scholarship: F-grade disqualifies; top-50% cutoff on eligible-only pool;
-    # all students sharing the boundary GPA get scholarship (tie rule).
-    _sch_eligible_pool = [(gpa, res) for gpa, res in valid_gpa_results if not _has_f(res)]
-    top_half_count = (len(_sch_eligible_pool) + 1) // 2
-    _sch_boundary_gpa = _sch_eligible_pool[top_half_count - 1][0] if _sch_eligible_pool else None
+    # Scholarship: top-50% cutoff is on ALL participants (including F-grade students);
+    # F-grade disqualifies from receiving it; tie rule extends to all at the boundary GPA.
+    top_half_count = (len(valid_gpa_results) + 1) // 2
+    _sch_boundary_gpa = valid_gpa_results[top_half_count - 1][0] if valid_gpa_results else None
 
     valid_cgpa_results = []
     for res in results:
