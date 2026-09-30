@@ -907,6 +907,83 @@ def parse_exam_info(name):
     if "professional" in name_lower and not sem: sem = 1
     return y, sem, ey
 
+def format_exam_name(name):
+    """
+    Format exam name for UI dropdowns:
+    Discards department name, shortens year & semester to 'Y-S' (e.g. '1-1'),
+    and writes the exam year along with it (e.g. '1-1 Exam 2024 (New Curriculum)').
+    """
+    if not name:
+        return ""
+    y, sem, ey = parse_exam_info(name)
+    if not (y and sem):
+        # Fallback: remove B.Sc. in ... prefix if present
+        clean = re.sub(r'^(?:B\.Sc\.\s+in\s+[^0-9]+|Bachelor\s+of\s+[^0-9]+)', '', name, flags=re.I).strip()
+        return clean or name
+
+    # Identify special/improvement/retake descriptor if present in the main title
+    exam_type_label = "Exam"
+    enl = name.lower()
+    main_title = re.sub(r'\(.*?\)', '', enl)
+    if "special improvement" in main_title or "special imp" in main_title:
+        exam_type_label = "Special Imp. Exam"
+    elif "retake" in main_title and "improvement" in main_title:
+        exam_type_label = "Retake/Imp. Exam"
+    elif "retake" in main_title:
+        exam_type_label = "Retake Exam"
+    elif "improvement" in main_title or "imp." in main_title:
+        exam_type_label = "Imp. Exam"
+    elif "special" in main_title:
+        exam_type_label = "Special Exam"
+    elif "clearance" in main_title:
+        exam_type_label = "Clearance Exam"
+    elif "special improvement" in enl or "special imp" in enl:
+        exam_type_label = "Special Imp. Exam"
+    elif "retake" in enl:
+        exam_type_label = "Retake Exam"
+    elif "improvement" in enl:
+        exam_type_label = "Imp. Exam"
+
+    # ponytail: Preserves parenthetical notes (e.g., '(New Curriculum)', '(Old Syllabus)', '(2020-2021)')
+    # to disambiguate multiple exams sharing the same semester and year.
+    extras = re.findall(r'(\(.*?\))', name)
+    extra_str = (' ' + ' '.join(extras)) if extras else ''
+
+    if ey:
+        return f"{y}-{sem} {exam_type_label} {ey}{extra_str}"
+    return f"{y}-{sem} {exam_type_label}{extra_str}"
+
+def get_all_main_exams(exams_dict):
+    """
+    Returns OrderedDict of (exam_id -> exam_name) containing all available main exams,
+    sorted chronologically newest-first (exam year desc, academic year desc, semester desc, exam id desc).
+    """
+    # ponytail: Full scan of exams_dict (<200 items per program) without artificial 8-semester clipping
+    if not exams_dict:
+        return collections.OrderedDict()
+    exclusions = ["retake", "improvement", "clearance", "junior", "special", "backlog", "short", "carry", "re-take", "make-up", "makeup", "supplementary"]
+    main_list = []
+    for eid, ename in exams_dict.items():
+        enl = ename.lower()
+        if any(x in enl for x in exclusions):
+            continue
+        y, sem, ey = parse_exam_info(ename)
+        if y and sem:
+            main_list.append((eid, ename, y, sem, ey))
+    main_list.sort(
+        key=lambda x: (
+            x[4] or 0,
+            x[2] or 0,
+            x[3] or 0,
+            int(x[0]) if str(x[0]).isdigit() else 0
+        ),
+        reverse=True
+    )
+    res = collections.OrderedDict()
+    for item in main_list:
+        res[item[0]] = item[1]
+    return res
+
 def classify_exams(exams_dict, batch_session=None, probe_regs=None, pro_id=None, profile_name=None):
     """
     Precision Exam Classification System.

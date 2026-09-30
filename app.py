@@ -59,15 +59,29 @@ if mode == "Interactive Scan":
         sess_id = [k for k, v in st.session_state.sessions.items() if v == session_name][0]
         
         exams_raw = cs.fetch_exams(pro_id) if pro_id else {}
-        mains, others = cs.classify_exams(exams_raw, session_name)
+        mains = cs.get_all_main_exams(exams_raw)
         exam_type = st.radio("Exam Category", ["Main Exams", "Retake / All Exams"], horizontal=True)
         
         if exam_type == "Main Exams" and mains:
-            exam_name = st.selectbox("Examination", options=list(mains.values()))
-            exam_id = [k for k, v in mains.items() if v == exam_name][0]
+            exam_id = st.selectbox(
+                "Examination",
+                options=list(mains.keys()),
+                format_func=lambda eid: cs.format_exam_name(mains[eid]),
+                key=f"interactive_exam_{pro_id}_{exam_type}"
+            )
+            exam_name = mains[exam_id]
+        elif exams_raw:
+            exam_id = st.selectbox(
+                "Examination (All)",
+                options=list(exams_raw.keys()),
+                format_func=lambda eid: cs.format_exam_name(exams_raw[eid]),
+                key=f"interactive_exam_{pro_id}_{exam_type}"
+            )
+            exam_name = exams_raw[exam_id]
         else:
-            exam_name = st.selectbox("Examination (All)", options=list(exams_raw.values()) if exams_raw else ["No Exams"])
-            exam_id = [k for k, v in exams_raw.items() if v == exam_name][0] if exams_raw and exam_name != "No Exams" else None
+            st.selectbox("Examination", options=["No Exams"])
+            exam_name = None
+            exam_id = None
 
     st.header("Start New Scan")
     
