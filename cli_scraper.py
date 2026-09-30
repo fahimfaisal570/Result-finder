@@ -615,6 +615,10 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
     results.sort(key=get_reg_sort_key)
     
     # Ranking logic
+    def _has_f(res):
+        return any(str(s.get('grade', '')).strip().upper() == 'F'
+                   for s in res.get('Subjects', []))
+
     valid_gpa_results = []
     for res in results:
         try:
@@ -622,7 +626,11 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
             valid_gpa_results.append((gpa, res))
         except (ValueError, TypeError): pass
     valid_gpa_results.sort(key=lambda x: x[0], reverse=True)
-    top_half_count = (len(valid_gpa_results) + 1) // 2
+    # Scholarship: F-grade disqualifies; top-50% cutoff on eligible-only pool;
+    # all students sharing the boundary GPA get scholarship (tie rule).
+    _sch_eligible_pool = [(gpa, res) for gpa, res in valid_gpa_results if not _has_f(res)]
+    top_half_count = (len(_sch_eligible_pool) + 1) // 2
+    _sch_boundary_gpa = _sch_eligible_pool[top_half_count - 1][0] if _sch_eligible_pool else None
 
     valid_cgpa_results = []
     for res in results:
@@ -759,7 +767,8 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         html.append(f"<div class='table-container'><table><thead><tr><th class='col-sl'>Rank</th><th class='col-reg'>Reg No</th><th>Name</th>{inst_th}<th class='col-gpa'>SGPA</th><th class='col-award'>Status</th></tr></thead><tbody>")
         for sl, item in enumerate(valid_gpa_results, 1):
             res = item[1]
-            scholarship = "<span class='award-text'>Eligible</span>" if sl <= top_half_count else ""
+            _is_elig = (not _has_f(res)) and (_sch_boundary_gpa is not None) and (item[0] >= _sch_boundary_gpa)
+            scholarship = "<span class='award-text'>Eligible</span>" if _is_elig else ""
             inst_td = f"<td class='col-inst center'>{college_to_initials(_get_college(res)) or 'FEC'}</td>" if show_inst else ""
             is_fec = _get_college(res).lower() in (_FEC_LOWER, '') if show_inst else False
             row_class = " class='fec-row'" if is_fec else ""
