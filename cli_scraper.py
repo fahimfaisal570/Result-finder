@@ -591,6 +591,10 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
     results.sort(key=get_reg_sort_key)
     
     # Ranking logic
+    def _has_f(res):
+        return any(str(s.get('grade', '')).strip().upper() == 'F'
+                   for s in res.get('Subjects', []))
+
     valid_gpa_results = []
     for res in results:
         try:
@@ -598,7 +602,11 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
             valid_gpa_results.append((gpa, res))
         except (ValueError, TypeError): pass
     valid_gpa_results.sort(key=lambda x: x[0], reverse=True)
-    top_half_count = (len(valid_gpa_results) + 1) // 2
+    # Scholarship: F-grade disqualifies; top-50% cutoff on eligible-only pool;
+    # all students sharing the boundary GPA get scholarship (tie rule).
+    _sch_eligible_pool = [(gpa, res) for gpa, res in valid_gpa_results if not _has_f(res)]
+    top_half_count = (len(_sch_eligible_pool) + 1) // 2
+    _sch_boundary_gpa = _sch_eligible_pool[top_half_count - 1][0] if _sch_eligible_pool else None
 
     valid_cgpa_results = []
     for res in results:
@@ -707,7 +715,8 @@ def generate_html_report(results, report_title, pro_id=None, sess_id=None):
         html.append("<div class='table-container'><table><thead><tr><th class='col-sl'>Sl</th><th class='col-reg'>Reg No</th><th>Name</th><th class='col-gpa'>GPA</th><th class='col-award'>Status</th></tr></thead><tbody>")
         for sl, item in enumerate(valid_gpa_results, 1):
             res = item[1]
-            scholarship = "<span class='award-text'>Awarded</span>" if sl <= top_half_count else "Qualified"
+            _is_elig = (not _has_f(res)) and (_sch_boundary_gpa is not None) and (item[0] >= _sch_boundary_gpa)
+            scholarship = "<span class='award-text'>Awarded</span>" if _is_elig else "Qualified"
             html.append("<tr><td class='col-sl'>{0}</td><td class='col-reg data-bold'>{1}</td><td>{2}</td><td class='col-gpa data-bold'>{3}</td><td class='col-award'>{4}</td></tr>".format(
                 sl, res['Registration No'], res['Name'], res['GPA'], scholarship
             ))

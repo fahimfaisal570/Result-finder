@@ -33,11 +33,18 @@ def generate_html(results):
     readd_list = [r for r in results if str(r.get('_sess_id', MAIN_SESS)) != MAIN_SESS]
 
     # Scholarship / GPA ranking
+    def _has_f(res):
+        return any(str(s.get('grade', '')).strip().upper() == 'F'
+                   for s in res.get('Subjects', []))
+
     valid_gpa = sorted(
         [(float(r['GPA']), r) for r in results if r.get('GPA', '-') not in ('-', '', None) and str(r['GPA']).replace('.', '').isdigit()],
         key=lambda x: x[0], reverse=True
     )
-    top_half = (len(valid_gpa) + 1) // 2
+    # F-grade disqualifies; tie-aware top-50% cutoff.
+    _sch_eligible_pool = [(gpa, r) for gpa, r in valid_gpa if not _has_f(r)]
+    top_half = (len(_sch_eligible_pool) + 1) // 2
+    _sch_boundary_gpa = _sch_eligible_pool[top_half - 1][0] if _sch_eligible_pool else None
 
     valid_cgpa = sorted(
         [(float(r['CGPA']), r) for r in results if r.get('CGPA', '-') not in ('-', '', None) and str(r['CGPA']).replace('.', '').isdigit()],
@@ -224,7 +231,7 @@ def generate_html(results):
             <th class='col-award'>Status</th>
         </tr></thead><tbody>""")
         for sl, (gpa_val, res) in enumerate(valid_gpa, 1):
-            eligible = "<span class='award-text'>Eligible</span>" if sl <= top_half else ""
+            eligible = "<span class='award-text'>Eligible</span>" if (not _has_f(res)) and (_sch_boundary_gpa is not None) and (gpa_val >= _sch_boundary_gpa) else ""
             parts.append(
                 f"<tr>"
                 f"<td class='col-sl center'>{sl}</td>"
