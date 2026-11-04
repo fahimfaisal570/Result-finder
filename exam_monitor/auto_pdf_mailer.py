@@ -4,6 +4,7 @@ import json
 import smtplib
 import re
 import threading
+from datetime import datetime
 # import pdfkit  # Moved inside function for fast-boot optimization
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -322,6 +323,128 @@ def detect_readds_main_branch(profiles, profile_name, pro_id, exam_id, existing_
 
 
 
+PENDING_GRADES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pending_grades.json')
+
+
+def _mark_exam_grade_pending(pro_id, exam_id, exam_name, profile_name):
+    # Write an entry to pending_grades.json so the cron re-checks this exam
+    # each cycle until DUCMC publishes individual subject grades.
+    entry = {
+        'pro_id':       str(pro_id),
+        'exam_id':      str(exam_id),
+        'exam_name':    exam_name,
+        'profile_name': profile_name,
+        'added_at':     datetime.utcnow().isoformat(),
+    }
+    with _file_write_lock:
+        data = {}
+        if os.path.exists(PENDING_GRADES_FILE):
+            try:
+                with open(PENDING_GRADES_FILE, 'r') as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+        data[str(exam_id)] = entry
+        with open(PENDING_GRADES_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+    print(f'  [GradePending] Exam {exam_id} marked for deferred grade backfill.')
+
+
+def backfill_grades(exam_id):
+    # Re-scan a pending exam and queue a grade_backfill sync task for v2.
+    # Called from monitor.py when the probe confirms grades are now available.
+    # Does NOT re-send PDF or notify dept heads.
+    # Returns True if grades were found and the sync task was queued.
+    if not os.path.exists(PENDING_GRADES_FILE):
+        return False
+    try:
+        with open(PENDING_GRADES_FILE, 'r') as f:
+            pending = json.load(f)
+    except Exception:
+        return False
+
+    entry = pending.get(str(exam_id))
+    if not entry:
+        return False
+
+    pro_id       = entry['pro_id']
+    exam_name    = entry['exam_name']
+    profile_name = entry['profile_name']
+
+    profiles_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'saved_profiles.json')
+    try:
+        with open(profiles_path, 'r') as f:
+            profiles = json.load(f)
+    except Exception as e:
+        print(f'  [GradeBackfill] Cannot load saved_profiles.json: {e}')
+        return False
+
+    p_data = profiles.get(profile_name)
+    if not p_data:
+        print(f'  [GradeBackfill] Profile not found: {profile_name}')
+        return False
+
+    regs_raw = p_data.get('regs', [])
+    sess_id  = p_data.get('sess_id')
+    tasks = []
+    for item in regs_raw:
+        if isinstance(item, list):
+            tasks.append((int(item[0]), str(item[1]), str(exam_id)))
+        else:
+            tasks.append((int(item), str(sess_id), str(exam_id)))
+
+    if not tasks:
+        return False
+
+    print(f'  [GradeBackfill] Scanning {len(tasks)} students for grades on exam {exam_id}...')
+    cs.fetch_programs_and_sessions()
+    results = cs.run_batch_scan_engine(
+        tasks=tasks, pro_id=pro_id, exam_id=exam_id,
+        target_college='all', num_threads=10
+    )
+
+    if not results:
+        print('  [GradeBackfill] No results returned.')
+        return False
+
+    students_with_grades = sum(1 for r in results if r.get('Subjects'))
+    if students_with_grades == 0:
+        print(f'  [GradeBackfill] Grades still not published for exam {exam_id}.')
+        return False
+
+    print(f'  [GradeBackfill] {students_with_grades} students have grades. Queuing backfill sync.')
+
+    sync_file = 'v2_sync_tasks.json'
+    task_data = {
+        'task_type':      'grade_backfill',
+        'pro_id':         pro_id,
+        'exam_id':        exam_id,
+        'exam_name':      exam_name,
+        'profile_name':   profile_name,
+        'was_provisional': False,
+        'found_names':    {},
+    }
+    with _file_write_lock:
+        existing_tasks = []
+        if os.path.exists(sync_file):
+            try:
+                with open(sync_file, 'r') as f:
+                    existing_tasks = json.load(f)
+            except Exception:
+                existing_tasks = []
+        existing_tasks.append(task_data)
+        with open(sync_file, 'w') as f:
+            json.dump(existing_tasks, f)
+
+    # Remove from pending
+    del pending[str(exam_id)]
+    with _file_write_lock:
+        with open(PENDING_GRADES_FILE, 'w') as f:
+            json.dump(pending, f, indent=4)
+    print(f'  [GradeBackfill] Exam {exam_id} removed from pending_grades.json.')
+    return True
+
+
 def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     print(f"\n--- Initiating Auto-Scan Flow for {exam_name} ---")
     
@@ -370,6 +493,11 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     ]
     
     print(f"Filtered to {len(results)} participating students.")
+
+    # Detect gradeless results: if no student has Subjects, DUCMC hasnt published grades yet.
+    # We still run the full pipeline (PDF + dept head email + v2 sync for GPA/CGPA),
+    # but mark the exam for a later grade-only backfill.
+    _grades_available = any(r.get("Subjects") for r in results)
 
     profiles_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -455,6 +583,10 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     print("Dispatching PDF via Secure Email...")
     send_pdf_email(dept_name, pro_id, exam_name, pdf_bytes, profile_name)
     
+    # Mark for deferred grade backfill if subject grades were absent at scan time.
+    if not _grades_available:
+        _mark_exam_grade_pending(pro_id, exam_id, exam_name, profile_name)
+
     # --- ADDED FOR V2 SYNC CROSS-BRANCH WORKFLOW ---
     sync_file = "v2_sync_tasks.json"
     # Pass found_names so v2_auto_sync can update student names in DB without rescanning
@@ -491,6 +623,17 @@ def process_and_mail(pro_id, dept_name, exam_id, exam_name):
     return True
 
 if __name__ == "__main__":
-    # Internal Test execution 
-    pass
+    # Backfill runner: called by exam_monitor.yml when grades_ready=true.
+    # Usage: python auto_pdf_mailer.py --backfill 1898,1762
+    import sys
+    if "--backfill" in sys.argv:
+        idx = sys.argv.index("--backfill")
+        ids_str = os.getenv("READY_IDS", "")
+        if idx + 1 < len(sys.argv):
+            ids_str = sys.argv[idx + 1]
+        for eid in ids_str.split(","):
+            eid = eid.strip()
+            if eid:
+                print(f"[Backfill] Processing exam {eid}...")
+                backfill_grades(eid)
 # Force trigger - Clean version v2

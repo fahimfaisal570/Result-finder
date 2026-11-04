@@ -120,6 +120,67 @@ def send_email(dept_name, exams, pro_id):
     except Exception as e:
         print(f"❌ Failed to send alert email for {dept_name}: {e}")
 
+def check_pending_grades():
+    # Probe each pending exam with 1 student to see if grades are now published.
+    # Lightweight: 1 HTTP call per pending exam. Returns list of ready exam_ids.
+    pending_file = os.path.join(MONITOR_DIR, 'pending_grades.json')
+    if not os.path.exists(pending_file):
+        return []
+    try:
+        with open(pending_file, 'r') as f:
+            pending = json.load(f)
+    except Exception:
+        return []
+
+    if not pending:
+        return []
+
+    print(f'\n[GradePending] Checking {len(pending)} exam(s) for deferred grades...')
+    # Import cli_scraper lazily (no pdfkit dep, but avoid import cost when no pending exams)
+    import sys
+    monitor_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(monitor_dir)
+    if root_dir not in sys.path:
+        sys.path.insert(0, root_dir)
+    import cli_scraper as cs
+
+    profiles_path = 'saved_profiles.json'
+    try:
+        with open(profiles_path, 'r') as f:
+            profiles = json.load(f)
+    except Exception:
+        profiles = {}
+
+    cs.fetch_programs_and_sessions()
+    ready = []
+    for exam_id, entry in pending.items():
+        pro_id       = entry['pro_id']
+        profile_name = entry['profile_name']
+        exam_name    = entry['exam_name']
+        p_data = profiles.get(profile_name, {})
+        regs_raw = p_data.get('regs', [])
+        if not regs_raw:
+            print(f'  [GradePending] No students for profile {profile_name!r} - skipping {exam_id}.')
+            continue
+        # Pick first student as probe
+        first = regs_raw[0]
+        if isinstance(first, list):
+            probe_reg, probe_sess = str(first[0]), str(first[1])
+        else:
+            probe_reg  = str(first)
+            probe_sess = str(p_data.get('sess_id', 'AUTO'))
+        try:
+            res_data, success = cs.fetch_student_result(probe_reg, pro_id, probe_sess, exam_id)
+            if success and isinstance(res_data, dict) and res_data.get('Subjects'):
+                print(f'  [GradePending] Grades NOW available for {exam_name!r} (exam {exam_id})!')
+                ready.append(exam_id)
+            else:
+                print(f'  [GradePending] Still pending: {exam_name!r} (exam {exam_id}).')
+        except Exception as e:
+            print(f'  [GradePending] Probe error for exam {exam_id}: {e}')
+    return ready
+
+
 def main(check_only=False):
     if not os.path.exists(KNOWN_EXAMS_FILE):
         print("State file not found. Creating a new one.")
@@ -191,6 +252,22 @@ def main(check_only=False):
         if os.getenv('GITHUB_OUTPUT'):
             with open(os.getenv('GITHUB_OUTPUT'), 'a') as f:
                 f.write("new_exams=false\n")
+
+    # --- Deferred Grade Backfill Probe ---
+    # ponytail: runs every cycle; 1 HTTP call per pending exam; no pdfkit needed.
+    try:
+        ready_exam_ids = check_pending_grades()
+    except Exception as e:
+        print(f'[GradePending] Probe error: {e}')
+        ready_exam_ids = []
+    if os.getenv('GITHUB_OUTPUT'):
+        with open(os.getenv('GITHUB_OUTPUT'), 'a') as f:
+            if ready_exam_ids:
+                f.write('grades_ready=true\n')
+                f.write('ready_exam_ids=' + ','.join(ready_exam_ids) + '\n')
+            else:
+                f.write('grades_ready=false\n')
+
 
 if __name__ == "__main__":
     import sys

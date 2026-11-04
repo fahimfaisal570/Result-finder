@@ -46,8 +46,21 @@ jobs:
         CSE_HEAD_EMAIL: ${{ secrets.CSE_HEAD_EMAIL }}
       run: xvfb-run python exam_monitor/monitor.py
 
+    - name: Run Grade Backfill
+      if: steps.check.outputs.grades_ready == 'true'
+      env:
+        EMAIL_USER: ${{ secrets.EMAIL_USER }}
+        EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+        READY_IDS: ${{ steps.check.outputs.ready_exam_ids }}
+      run: python exam_monitor/auto_pdf_mailer.py --backfill
+
     - name: Cross-Branch Sync to v2
-      if: steps.check.outputs.new_exams == 'true'
+      if: steps.check.outputs.new_exams == 'true' || steps.check.outputs.grades_ready == 'true'
+      env:
+        EMAIL_USER: ${{ secrets.EMAIL_USER }}
+        EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+        RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
       run: |
         [ ! -f "v2_sync_tasks.json" ] && echo "No sync tasks." && exit 0
 
@@ -76,8 +89,8 @@ jobs:
         git stash pop || echo "No stash to restore"
 
     - name: Commit and Push changes
-      if: steps.check.outputs.new_exams == 'true'
+      if: steps.check.outputs.new_exams == 'true' || steps.check.outputs.grades_ready == 'true'
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: "chore: update known exams [skip ci]"
-        file_pattern: 'exam_monitor/known_exams.json saved_profiles.json'
+        file_pattern: 'exam_monitor/known_exams.json saved_profiles.json exam_monitor/pending_grades.json'
