@@ -2,7 +2,10 @@ import os
 import json
 import tempfile
 import cli_scraper as cs
+import smtplib
 import database as db
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 SYNC_FILE = os.getenv("SYNC_FILE_PATH", os.path.join(tempfile.gettempdir(), "v2_sync_tasks.json"))
 
 def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_results):
@@ -146,6 +149,96 @@ def detect_and_add_readds(profile_name, pro_id, exam_id, exam_name, existing_res
     return readd_info
 
 
+
+def _send_grade_backfill_email(exam_name, profile_name, count):
+    # Email RECEIVER_EMAIL that deferred grades are now in the v2 DB.
+    # Dept heads are NOT notified here.
+    smtp_user = os.getenv('EMAIL_USER')
+    smtp_pass = os.getenv('EMAIL_PASS')
+    to_addr   = os.getenv('RECEIVER_EMAIL')
+    if not smtp_user or not smtp_pass or not to_addr:
+        print('  [GradeBackfill] Missing SMTP creds/RECEIVER_EMAIL - skipping notification.')
+        return
+    msg = MIMEMultipart()
+    msg['From']    = smtp_user
+    msg['To']      = to_addr
+    msg['Subject'] = '[Result Finder] Grades Now Added: ' + exam_name
+    body = (
+        'The individual subject grades for the following exam have been '
+        'published on the DUCMC portal and have now been added to the v2 '
+        'analytics database.\n\n'
+        'Exam:              ' + exam_name + '\n'
+        'Profile:           ' + profile_name + '\n'
+        'Students updated:  ' + str(count) + '\n\n'
+        'Dashboard: https://fec-result-analytics.streamlit.app/\n\n'
+        '(Silent automated notification - department heads were NOT contacted.)'
+    )
+    msg.attach(MIMEText(body, 'plain'))
+    try:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, [to_addr], msg.as_string())
+        print('  [GradeBackfill] Notification sent to ' + to_addr + '.')
+    except Exception as e:
+        print('  [GradeBackfill] Email failed: ' + str(e))
+
+
+def _handle_grade_backfill(task):
+    # Write subject_grades for an exam previously synced without grades.
+    # Does NOT touch exam_results, readd detection, or dept head emails.
+    pro_id       = task['pro_id']
+    exam_id      = task['exam_id']
+    exam_name    = task['exam_name']
+    profile_name = task['profile_name']
+
+    profiles = db.get_profiles()
+    if profile_name not in profiles:
+        print('  [GradeBackfill] Profile not in DB - skipping: ' + profile_name)
+        return
+
+    p_data   = profiles[profile_name]
+    regs_raw = p_data.get('regs', [])
+    sess_id  = p_data.get('sess_id')
+
+    scan_tasks = []
+    for item in regs_raw:
+        if isinstance(item, list):
+            scan_tasks.append((int(item[0]), str(item[1]), str(exam_id)))
+        else:
+            scan_tasks.append((int(item), str(sess_id), str(exam_id)))
+
+    if not scan_tasks:
+        print('  [GradeBackfill] No students in profile - skipping: ' + profile_name)
+        return
+
+    print('  [GradeBackfill] Fetching grades for ' + str(len(scan_tasks)) + ' students (exam ' + str(exam_id) + ')...')
+    cs.fetch_programs_and_sessions()
+    results = cs.run_batch_scan_engine(
+        tasks=scan_tasks, pro_id=pro_id, exam_id=exam_id,
+        target_college='all', num_threads=10
+    )
+
+    if not results:
+        print('  [GradeBackfill] No results returned - aborting.')
+        return
+
+    students_updated = 0
+    for res in results:
+        subjects = res.get('Subjects') or []
+        if not subjects:
+            continue
+        reg_no = int(res.get('Registration No', res.get('Reg', 0)))
+        _sess  = str(res.get('_sess_id', sess_id or 'AUTO'))
+        # Ensure student row exists (covers readds added after initial sync)
+        db.upsert_student(profile_name, reg_no, str(res.get('Name', 'Unknown')), _sess)
+        db.upsert_subject_grades(profile_name, reg_no, exam_id, subjects,
+                                 exam_name=exam_name, sess_id=_sess)
+        students_updated += 1
+
+    print('  [GradeBackfill] Updated subject_grades for ' + str(students_updated) + ' students.')
+    _send_grade_backfill_email(exam_name, profile_name, students_updated)
+
+
 def main():
     if not os.path.exists(SYNC_FILE):
         print(f"No sync file found at {SYNC_FILE}")
@@ -168,6 +261,10 @@ def main():
         profiles = db.get_profiles()
         
         for task in tasks_list:
+            if task.get('task_type') == 'grade_backfill':
+                _handle_grade_backfill(task)
+                continue
+
             pro_id = task.get("pro_id")
             exam_id = task.get("exam_id")
             exam_name = task.get("exam_name")
