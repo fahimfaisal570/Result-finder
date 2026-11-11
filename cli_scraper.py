@@ -20,7 +20,24 @@ import urllib.parse as urllib_parse
 import queue
 input_func = input
 import json
-import database as db
+try:
+    import database as db
+except ImportError:
+    class _DummyDB:
+        def get_meta_cache(self, *args, **kwargs): return None
+        def set_meta_cache(self, *args, **kwargs): pass
+        def has_exam_results_for_profile(self, *args, **kwargs): return False
+        def get_profiles(self, *args, **kwargs):
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_profiles.json")
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception:
+                    pass
+            return {}
+        def __getattr__(self, name): return lambda *args, **kwargs: None
+    db = _DummyDB()
 try:
     from streamlit.runtime.scriptrunner import get_script_run_ctx, add_report_ctx
 except ImportError:
@@ -2308,7 +2325,10 @@ def create_manual_batch(programs, sessions):
     regs = list(dict.fromkeys(regs))
     
     # 4. Profile name — enforce standard naming convention
-    import database as db
+    try:
+        import database as db
+    except ImportError:
+        pass
     while True:
         p_name = input_func("Batch Profile Name (e.g. 'cse 12'): ").strip()
         if not p_name: return
