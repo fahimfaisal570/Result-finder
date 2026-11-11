@@ -87,10 +87,12 @@ def test_lock_sites():
     src = read_file('exam_monitor/auto_pdf_mailer.py')
     assert '_file_write_lock = threading.Lock()' in src, 'lock declaration missing'
     sites = src.count('with _file_write_lock:')
-    # 3 write sites: readd persistence, provisional promotion, sync task queuing
-    assert sites == 3, f'expected 3 lock sites, found {sites}'
+    # 6 write sites: readd persist, _mark_exam_grade_pending,
+    # backfill sync task queue, backfill pending cleanup,
+    # provisional promotion, sync task queuing in process_and_mail
+    assert sites == 6, f'expected 6 lock sites, found {sites}'
 
-check('lock    :: 3 write sites guarded in auto_pdf_mailer', test_lock_sites)
+check('lock    :: 6 write sites guarded in auto_pdf_mailer', test_lock_sites)
 
 
 # ─── 3. threading import present in auto_pdf_mailer ──────────────────────────
