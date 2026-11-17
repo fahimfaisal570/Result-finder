@@ -91,6 +91,21 @@ adapter = HTTPAdapter(pool_connections=20, pool_maxsize=100, max_retries=0)
 session.mount("https://", adapter)
 session.mount("http://", adapter)
 
+# Thread-local session for high concurrency without socket contention or CookieJar locking
+_thread_local = threading.local()
+
+def get_session():
+    """Returns a thread-local requests.Session with connection pooling for maximum thread throughput."""
+    if not hasattr(_thread_local, 'session'):
+        s = requests.Session()
+        ad = HTTPAdapter(pool_connections=5, pool_maxsize=20, max_retries=0)
+        s.mount("https://", ad)
+        s.mount("http://", ad)
+        if session.cookies:
+            s.cookies.update(session.cookies.get_dict())
+        _thread_local.session = s
+    return _thread_local.session
+
 import concurrent.futures
 
 def warm_connection_pool(num_connections=6):
@@ -276,29 +291,32 @@ try:
 except ImportError:
     log_metric = lambda *a, **kw: None
 
-def make_request(url, data=None, headers=None, retries=4):
-    """Makes HTTP requests with full session awareness using requests.Session."""
+def make_request(url, data=None, headers=None, retries=2, timeout=6):
+    """Makes HTTP requests with full session awareness using thread-local requests.Session."""
     req_headers = HEADERS.copy()
     req_headers['User-Agent'] = SESSION_UA
     
     if headers: 
         req_headers.update(headers)
         
+    sess = get_session()
     for attempt in range(retries):
         try:
             if data:
-                response = session.post(url, data=data, headers=req_headers, timeout=15)
+                response = sess.post(url, data=data, headers=req_headers, timeout=timeout)
             else:
-                response = session.get(url, headers=req_headers, timeout=15)
+                response = sess.get(url, headers=req_headers, timeout=timeout)
                 
             if response.status_code in (200, 301, 302):
                 log_metric("scrape_success_rate", 1.0, {"attempt": attempt + 1, "url": url})
+                if not session.cookies and sess.cookies:
+                    session.cookies.update(sess.cookies.get_dict())
                 return response.content.decode('utf-8', 'ignore')
         except Exception as e:
             log_metric("scrape_retry_count", attempt + 1, {"url": url, "error": str(e)})
             
         if attempt < retries - 1:
-            sleep_time = (2 ** attempt) + random.uniform(0.1, 0.5)
+            sleep_time = 0.05 * (attempt + 1)
             time.sleep(sleep_time)
             
     log_metric("scrape_success_rate", 0.0, {"url": url, "retries": retries})
@@ -484,7 +502,7 @@ def run_batch_scan_engine(tasks, pro_id, exam_id="0", all_sessions=None, progres
     t_args = (task_queue, pro_id, exam_id, all_results, results_lock, print_lock, len(tasks), completed_tasks, target_college, all_sessions, wrapped_callback)
     threads = []
     for _ in range(worker_count):
-        time.sleep(random.uniform(0.01, 0.04))  # Stagger handshakes to prevent rate-limiting/timeouts
+        time.sleep(0.005)  # Stagger handshakes minimally for immediate startup
         t = threading.Thread(target=worker_thread, args=t_args)
         t.daemon = True; t.start(); threads.append(t)
         
@@ -1207,8 +1225,8 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
         try: item = task_queue.get_nowait()
         except queue.Empty: break
         
-        # Mandatory Human-like initial delay (Jitter) - Synced with CLI for performance
-        time.sleep(random.uniform(0.02, 0.07))  # Jitter L3: was (0.04, 0.15)
+        # Minimal initial delay (Jitter) for balanced concurrency
+        time.sleep(random.uniform(0.005, 0.015))
         
         # Flex-tasks: (reg, sess) or (reg, sess, exam)
         if len(item) == 3:
@@ -1224,9 +1242,6 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
         student_found_in_any_session = False
         
         for tsid in sessions_to_try:
-            # Secondary jitter for session discovery - Synced with CLI for performance
-            time.sleep(random.uniform(0.01, 0.02))  # Jitter L3: was (0.02, 0.05)
-            
             if progress_callback:
                 try: 
                     # Report granular status so user knows it's NOT stuck
@@ -1234,14 +1249,12 @@ def worker_thread(task_queue, pro_id, exam_id_default, all_results, results_lock
                 except: pass
             retries = 0
             while True:
-                time.sleep(random.uniform(0.01, 0.02))  # Jitter L3: was (0.02, 0.05)
                 res, is_any = fetch_student_result(reg_no, pro_id, tsid, exam_id, target_college)
                 if res == "NETWORK_ERROR":
                     retries += 1
-                    if retries >= 3:
+                    if retries >= 2:
                         res = None; break
-                    # Faster retry for dashboard responsiveness (2-5s instead of 10-15s)
-                    time.sleep(random.uniform(2.0, 5.0))
+                    time.sleep(random.uniform(0.2, 0.4))
                     continue
                 
                 # Robust Discovery Logic: Match CLI baseline (GPA or Subjects)
