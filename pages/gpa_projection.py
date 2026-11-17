@@ -72,13 +72,6 @@ def _pre_warm_resources(pro_id):
 def _run_deep_analysis(reg_no, stu_name, sess_id, profile_name, pro_id, latest_exam_label):
     if not pro_id:
         return None
-
-    # DB fast-path: skip portal scan entirely if we already have cached records
-    _db_recs = db.get_student_raw_records_from_db(profile_name, int(reg_no))
-    if _db_recs:
-        return db.compute_deep_analysis(_db_recs, profile_name, latest_exam_label)
-
-    # No cached data — fall back to live portal scan
     _programs, _sessions = cs.fetch_programs_and_sessions()
     _all_exams = cs.fetch_exams(pro_id) if pro_id else {}
     if not _all_exams:
