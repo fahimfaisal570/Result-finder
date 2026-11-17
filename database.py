@@ -3009,7 +3009,9 @@ def _bootstrap():
     if _bootstrapped:
         return
     init_db()
-    
+
+    # Read the stored schema version first — if we're already up-to-date, skip
+    # all migration functions entirely (saves 7 PRAGMA round-trips on every wakeup).
     current_v = 0
     try:
         with get_connection() as conn:
@@ -3021,6 +3023,11 @@ def _bootstrap():
     except Exception:
         pass
 
+    if current_v >= _CURRENT_SCHEMA_VERSION:
+        # DB is fully migrated — nothing to do.
+        _bootstrapped = True
+        return
+
     if current_v < 2: migrate_schema_v2()
     if current_v < 3: migrate_schema_v3()
     if current_v < 4: migrate_schema_v4()
@@ -3028,9 +3035,7 @@ def _bootstrap():
     if current_v < 6: migrate_schema_v6()
     if current_v < 7: migrate_schema_v7()
 
-    if current_v < _CURRENT_SCHEMA_VERSION:
-        set_meta_cache("schema_version", _CURRENT_SCHEMA_VERSION)
-
+    set_meta_cache("schema_version", _CURRENT_SCHEMA_VERSION)
     _bootstrapped = True
 
 _bootstrap()

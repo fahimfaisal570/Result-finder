@@ -35,8 +35,20 @@ with text_col:
     st.caption("A premium web dashboard for academic result analytics and cohort intelligence.")
 
 if 'programs' not in st.session_state:
-    with st.spinner("Connecting..."):
-        st.session_state.programs, st.session_state.sessions = cs.fetch_programs_and_sessions()
+    # Try the DB meta-cache first — avoids a live HTTP round-trip on every wakeup from sleep.
+    # fetch_programs_and_sessions() also checks this cache, but calling it unconditionally
+    # still opens a requests.Session and may fire a cookie handshake before the cache read.
+    _cached_meta = db.get_meta_cache("portal_meta", ttl_seconds=86400)
+    if _cached_meta and _cached_meta.get("programs") and _cached_meta.get("sessions"):
+        import collections
+        st.session_state.programs = collections.OrderedDict(_cached_meta["programs"])
+        st.session_state.sessions = collections.OrderedDict(_cached_meta["sessions"])
+        # Keep the shared module-level caches in sync so classify_exams / other callers work
+        cs.PROGRAMS_CACHE.update(st.session_state.programs)
+        cs.SESSIONS_CACHE.update(st.session_state.sessions)
+    else:
+        with st.spinner("Connecting..."):
+            st.session_state.programs, st.session_state.sessions = cs.fetch_programs_and_sessions()
 
 # --- Sidebar ---
 with st.sidebar:
@@ -193,6 +205,9 @@ else: # Saved Profiles Mode
         is_prov = profile_data.get('is_provisional', False)
 
         st.header(f"Profile: {p_selected}")
+        # Fetch exams once for this profile — reused by provisional check, classify, and add-student below
+        exams_raw = cs.fetch_exams(profile_data.get('pro_id')) if profile_data.get('pro_id') else {}
+
         if is_prov:
             st.warning("**Provisional Batch** — Waiting for portal results to publish.", icon=":material/schedule:")
             
@@ -200,7 +215,6 @@ else: # Saved Profiles Mode
             st.markdown("### Check Portal for Results")
             st.info("Check if DUCMC portal has published the first exam results for this batch.")
             
-            exams_raw = cs.fetch_exams(profile_data.get('pro_id')) if profile_data.get('pro_id') else {}
             if exams_raw:
                 chk_exam_name = st.selectbox("Select Exam to Check Against", options=list(exams_raw.values()), key="chk_portal_exam")
                 chk_exam_id = [k for k, v in exams_raw.items() if v == chk_exam_name][0]
@@ -241,7 +255,6 @@ else: # Saved Profiles Mode
                 links.append(f"• [{name} ({reg_no})]({url})")
             st.markdown("\n".join(links))
  
-        exams_raw = cs.fetch_exams(profile_data.get('pro_id')) if profile_data.get('pro_id') else {}
         if exams_raw:
             p_regs = profile_data.get('regs', [])
             active_sess_id = profile_data.get('sess_id') or (p_regs[0][1] if p_regs else "Any")

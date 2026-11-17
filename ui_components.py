@@ -9,9 +9,10 @@ def inject_essential_ui():
     - Keeping the dark/light mode toggle (MainMenu) visible.
     """
     minimal_css = """
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap">
     <style>
-        /* Google Fonts */
-        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap');
 
         /* Typography */
         html, body, [class*="css"] {
