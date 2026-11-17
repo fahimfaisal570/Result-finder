@@ -315,9 +315,14 @@ def get_relevant_exams(sess_id, sessions, all_exams):
     start_search_year = 0
     if sess_id and sess_id != "AUTO":
         sess_name = sessions.get(sess_id, "")
+        # Try 4-digit year first (e.g. "2021"), then 2-digit (e.g. "21-22" -> 2021)
         y_match = re.search(r"20(\d{2})", sess_name)
         if y_match:
             start_search_year = int("20" + y_match.group(1))
+        else:
+            y2_match = re.match(r"(\d{2})-\d{2}", sess_name)
+            if y2_match:
+                start_search_year = 2000 + int(y2_match.group(1))
 
     EXAM_YEAR_PATTERN = re.compile(r'\b(20\d{2})\b')
     filtered_exam_ids = []
