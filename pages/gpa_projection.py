@@ -85,7 +85,7 @@ def _run_deep_analysis(reg_no, stu_name, sess_id, profile_name, pro_id, latest_e
         pro_id=pro_id,
         exam_id="0",
         all_sessions=_sessions,
-        num_threads=15
+        num_threads=30  # ponytail: set to 30 threads for balanced throughput
     )
 
     if not _history:

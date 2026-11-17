@@ -290,7 +290,7 @@ if _incomplete_students:
               exam_id="0",
               all_sessions=_sessions,
               progress_callback=_fix_progress,
-              num_threads=15
+              num_threads=30
             )
           _prog_bar.empty()
 
@@ -428,7 +428,7 @@ def _run_deep_analysis(reg_no, stu_name, sess_id):
     pro_id=_pro_id,
     exam_id="0",
     all_sessions=_sessions,
-    num_threads=15
+    num_threads=30
   )
 
   if not _history:
@@ -933,7 +933,7 @@ with tabs[1]:
               exam_id="0",
               all_sessions=_sessions,
               progress_callback=_update_progress,
-              num_threads=15
+              num_threads=30
             )
 
             # Attach exam names

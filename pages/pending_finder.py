@@ -252,6 +252,17 @@ if btn_find or "pending_finder_results" in st.session_state:
             seen_reg = set()
             pro_exams_cache = {}
 
+            # Pre-fetch all unique program exam lists in parallel (avoids sequential network calls per student)
+            unique_pro_ids = list({profiles.get(p_name, {}).get("pro_id", "") for p_name, *_ in candidates} - {""})
+            if unique_pro_ids:
+                import concurrent.futures as _cf
+                def _fetch_pro_exams(pro_id):
+                    portal_exams = cs.fetch_exams(pro_id) or {}
+                    return pro_id, portal_exams
+                with _cf.ThreadPoolExecutor(max_workers=len(unique_pro_ids)) as _ex:
+                    for _pid, _exams in _ex.map(_fetch_pro_exams, unique_pro_ids):
+                        pro_exams_cache[_pid] = _exams
+
             for p_name, reg_no, name, sess_id in candidates:
                 reg_int = int(reg_no)
                 if reg_int in seen_reg:
@@ -264,14 +275,9 @@ if btn_find or "pending_finder_results" in st.session_state:
                 if not pro_id:
                     continue
 
-                if pro_id not in pro_exams_cache:
-                    # Fetch full portal exam list (cached hourly) merged with local DB exams
-                    portal_exams = cs.fetch_exams(pro_id) or {}
-                    db_exams = db.get_profile_known_exams(p_name)
-                    merged = dict(portal_exams)
-                    merged.update(db_exams)
-                    pro_exams_cache[pro_id] = merged
-                p_exams = pro_exams_cache[pro_id]
+                # Use pre-fetched portal cache; merge DB exams on top (DB fills any gaps)
+                p_exams = dict(pro_exams_cache.get(pro_id, {}))
+                p_exams.update(db.get_profile_known_exams(p_name))
 
                 if not p_exams:
                     continue

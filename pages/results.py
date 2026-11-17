@@ -132,7 +132,7 @@ if batch_exams_b64:
             exam_id=eid,
             all_sessions=sessions,
             progress_callback=update_progress,
-            num_threads=15
+            num_threads=30
         )
         if results:
             st.session_state.batch_results[eid] = {"name": ename, "data": results}
@@ -198,7 +198,7 @@ else:
         exam_id=exam_id,
         all_sessions=sessions,
         progress_callback=update_progress,
-        num_threads=10
+        num_threads=30
     )
 
     progress_bar.empty()
