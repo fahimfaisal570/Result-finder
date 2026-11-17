@@ -12,6 +12,7 @@ import re
 from collections import defaultdict
 import threading
 import statistics
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -1192,7 +1193,6 @@ def is_old_curriculum_profile(profile_name: str = "", effective_grades: dict | N
     if any(p_lower.endswith(b) or f" {b}" in p_lower for b in ("05", "06", "batch 5", "batch 6", "batch 05", "batch 06")):
         return True
     if effective_grades:
-        import re
         for code in effective_grades.keys():
             m = re.match(r'^[A-Z]{2,6}[-\s]?(\d{3})\**$', str(code).strip().upper())
             if m:
@@ -1204,6 +1204,7 @@ def is_old_curriculum_profile(profile_name: str = "", effective_grades: dict | N
 # Deep Analysis Engine (Precise Credit-Weighted Computation)
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=512)
 def get_semester_from_code(code: str, dept: str) -> int:
     """
     Derives the absolute semester number (1–8) from a subject code.
@@ -1211,7 +1212,6 @@ def get_semester_from_code(code: str, dept: str) -> int:
     Civil uses 3-digit codes: DEPT-XYZ → semester = X
     Returns 0 if unable to parse.
     """
-    import re
     match = re.match(r'^([A-Z]{2,6})[-\s]?(\d{3,4})\**$', code.strip().upper())
     if not match:
         return 0
@@ -1548,27 +1548,29 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
     # --- Step 2.5: Filter voided future semesters for readmitted students ---
     # A student's current progression is dictated by their MOST RECENT main exam.
     # Any main exams from older batches that are for a higher semester are voided.
+    _dept_for_sem = get_dept_from_profile(profile_name)  # compute once, not per call
     def _get_abs_sem(rec):
-        dept = get_dept_from_profile(profile_name)
         for subj in rec.get('Subjects', []):
             code = str(subj.get('code', '')).strip()
-            s = get_semester_from_code(code, dept)
+            s = get_semester_from_code(code, _dept_for_sem)
             if s > 0: return s
         return 0
+
+    # Precompute abs_sem for each group once (called up to 2x per group otherwise)
+    _sem_cache = {sem_label: _get_abs_sem(rec) for sem_label, (_, rec) in semester_groups.items()}
 
     global_max_eid = 0
     current_progression_sem = 0
     for sem_label, (eid_int, rec) in semester_groups.items():
         if eid_int > global_max_eid:
             global_max_eid = eid_int
-            current_progression_sem = _get_abs_sem(rec)
+            current_progression_sem = _sem_cache[sem_label]
 
     if current_progression_sem > 0:
-        valid_groups = {}
-        for sem_label, (eid_int, rec) in semester_groups.items():
-            if _get_abs_sem(rec) <= current_progression_sem:
-                valid_groups[sem_label] = (eid_int, rec)
-        semester_groups = valid_groups
+        semester_groups = {
+            sl: v for sl, v in semester_groups.items()
+            if _sem_cache[sl] <= current_progression_sem
+        }
 
     # --- Step 3: Build effective grades from winning main exams ---
     effective_grades = {}  # code -> {gp, credit, source}
@@ -1600,7 +1602,7 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
     # --- Step 3.5: Collect official GPA/CGPA per semester from portal records ---
     official_semester_records = {}  # sem_num -> {gpa, cgpa}
     for sem_label, (eid_int, rec) in semester_groups.items():
-        abs_sem = _get_abs_sem(rec)
+        abs_sem = _sem_cache.get(sem_label, _get_abs_sem(rec))
         if abs_sem > 0:
             raw_gpa = rec.get('GPA', rec.get('SGPA', 0))
             raw_cgpa = rec.get('CGPA', 0)
@@ -1660,7 +1662,7 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
 
     # Detect if early semesters are missing from scanned history
     dept = get_dept_from_profile(profile_name)
-    scanned_sems = [get_semester_from_code(code, dept) for code in effective_grades if get_semester_from_code(code, dept) > 0]
+    scanned_sems = [s for code in effective_grades if (s := get_semester_from_code(code, dept)) > 0]
     min_scanned_sem = min(scanned_sems) if scanned_sems else 1
 
     # --- Step 6: Get official CGPA from the latest main exam for comparison ---
@@ -1734,8 +1736,8 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
     else:
         # Fallback: derive max absolute semester from scanned main exams
         max_s = 0
-        for sem_label, (eid_int, rec) in semester_groups.items():
-            s = _get_abs_sem(rec)
+        for sem_label in semester_groups:
+            s = _sem_cache.get(sem_label, 0)
             if s > max_s:
                 max_s = s
         current_abs_sem = max_s
