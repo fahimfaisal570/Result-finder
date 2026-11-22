@@ -25,8 +25,8 @@ THRESHOLDS = {
     # Monitoring (exam_monitor cron)
     "monitor_poll_interval_min": 15,    # GitHub Actions schedule
 
-    # Academic thresholds (pages/analytics.py)
-    "promotion_thresholds": {1: 2.00, 2: 2.25, 3: 2.50},  # get_promotion_rules()
+    # Academic thresholds — promotion CGPA tier system abolished.
+    "promotion_thresholds": {},  # was {1: 2.00, 2: 2.25, 3: 2.50} — no longer applies
     "high_performer_cgpa": 3.75,
     "at_risk_delta": -0.25,
 }
