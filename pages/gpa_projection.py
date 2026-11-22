@@ -98,7 +98,10 @@ def _run_deep_analysis(reg_no, stu_name, sess_id, profile_name, pro_id, latest_e
         if eid and eid in _all_exams:
             rec['_exam_name'] = _all_exams[eid]
 
-    return db.compute_deep_analysis(_history, profile_name, latest_exam_label)
+    result = db.compute_deep_analysis(_history, profile_name, latest_exam_label)
+    if result is not None:
+        result['_history'] = _history  # reuse in transcript — no second scan
+    return result
 
 @st.fragment
 def render_provisional_simulator(profile_name):
@@ -735,6 +738,24 @@ def render_student_projection_card(row):
                             )
                         except Exception as pdf_err:
                             st.error(f"Could not generate PDF: {pdf_err}")
+
+                # --- Student Transcript ---
+                st.markdown("---")
+                with st.expander("📄 Student Transcript", expanded=False):
+                    _history = deep_res.get('_history', [])
+                    if not _history:
+                        st.info("Transcript data unavailable — re-run Deep Analysis.")
+                    else:
+                        tr_key = f"tr_{profile_name}_{reg}"
+                        if st.button("Generate Transcript", key=tr_key):
+                            _html = cs.generate_transcript_report(_history, "Academic History", name, return_html=True)
+                            st.html(_html)
+                            st.download_button("Download HTML", data=_html.encode(), file_name=f"Transcript_{name.replace(' ','_')}_{reg}.html", mime="text/html", key=f"tr_dl_html_{reg}")
+                            try:
+                                st.download_button("Download PDF", data=cs.generate_pdf_from_html(_html), file_name=f"Transcript_{name.replace(' ','_')}_{reg}.pdf", mime="application/pdf", key=f"tr_dl_pdf_{reg}")
+                            except Exception as _te:
+                                st.warning(f"PDF generation failed: {_te}")
+
         else:
             with hdr_col4:
                 if st.button("Deep Analysis", key=btn_key, help=f"Fetch full record for {name} and compute True CGPA + projections", width="stretch"):
