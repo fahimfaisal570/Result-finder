@@ -1747,8 +1747,10 @@ def compute_deep_analysis(raw_records: list, profile_name: str, current_exam_lab
     if current_abs_sem > 0:
         next_abs_sem = current_abs_sem + 1
 
-        # Promotion CGPA thresholds abolished — promo_target stays None for all years.
-        # (Previously: yr1=2.0, yr2=2.25, yr3=2.5, yr4=2.75 — no longer applies.)
+        # Tier system abolished: all years use the same 2.0 floor (was 2.0/2.25/2.5/2.75).
+        # Year 4 has no promotion threshold (graduation criteria differ).
+        if yr in (1, 2, 3): promo_target = 2.00
+        # yr == 4: promo_target stays None
 
         # Only compute target if we're on an odd semester (promotion check is at year-end)
         is_even_sem = (sem_in_yr == 2)

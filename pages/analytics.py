@@ -74,8 +74,12 @@ def get_promotion_rules(exam_label):
   if yr_match:
     yr = int(yr_match.group(1))
     
-  # Promotion CGPA thresholds abolished — no readd for CGPA ≥ 2.0 rule.
-  # promo_target stays None for all years; callers already handle None gracefully.
+  # Tier system abolished: all years now use the same 2.0 floor (was 2.0/2.25/2.5/None).
+  # Year 4 still has no promotion check (graduation criteria differ).
+  if yr is not None:
+    if yr in (1, 2, 3): promo_target = 2.00
+    # yr == 4: promo_target stays None
+
   return promo_target, is_even_sem, yr
 
 # ---------------------------------------------------------------------------
