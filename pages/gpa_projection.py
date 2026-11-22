@@ -77,8 +77,10 @@ def _run_deep_analysis(reg_no, stu_name, sess_id, profile_name, pro_id, latest_e
     if not _all_exams:
         return None
 
-    # Probe ALL available exams for that department so retakes and improvements are never missed
-    _tasks = [(int(reg_no), sess_id, _eid) for _eid in _all_exams.keys()]
+    # Filter to cohort-relevant exams (student's year onward) — avoids false positives
+    # from other batches while still picking up all retake/improvement exams for this student.
+    _filtered_eids = cs.get_relevant_exams(sess_id, _sessions, _all_exams)
+    _tasks = [(int(reg_no), sess_id, _eid) for _eid in _filtered_eids]
 
     _history = cs.run_batch_scan_engine(
         tasks=_tasks,

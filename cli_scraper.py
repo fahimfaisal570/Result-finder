@@ -291,7 +291,7 @@ try:
 except ImportError:
     log_metric = lambda *a, **kw: None
 
-def make_request(url, data=None, headers=None, retries=2, timeout=6):
+def make_request(url, data=None, headers=None, retries=4, timeout=15):
     """Makes HTTP requests with full session awareness using thread-local requests.Session."""
     req_headers = HEADERS.copy()
     req_headers['User-Agent'] = SESSION_UA
@@ -316,7 +316,7 @@ def make_request(url, data=None, headers=None, retries=2, timeout=6):
             log_metric("scrape_retry_count", attempt + 1, {"url": url, "error": str(e)})
             
         if attempt < retries - 1:
-            sleep_time = 0.05 * (attempt + 1)
+            sleep_time = (2 ** attempt) + random.uniform(0.1, 0.5)
             time.sleep(sleep_time)
             
     log_metric("scrape_success_rate", 0.0, {"url": url, "retries": retries})
