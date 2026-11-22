@@ -2021,6 +2021,15 @@ def compute_advanced_projection(
             })
             projected_points_retakes += (simulated_gp - curr_gp) * credit
             projected_points_all += (simulated_gp - curr_gp) * credit
+            # Show in already_attempted if student filled a retake form but GP stayed < 2.0
+            # (GP=0.00 means didn't attend — portal dash parses to 0.00)
+            if code in attempted_subjects:
+                already_attempted.append({
+                    'code': code, 'name': subj_name, 'current_gp': curr_gp, 'credit': credit,
+                    'attempt_gp': max((a['gp'] for a in attempted_subjects[code]), default=0),
+                    'reason': "Didn't attend",
+                    'semester': sem_num
+                })
 
         elif curr_gp >= 3.0 and source in ('retake_cleared', 'improvement_cleared', 'retake_improved'):
             # --- Well cleared (GP >= 3.0 via retake/improvement) ---
